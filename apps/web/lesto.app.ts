@@ -25,7 +25,8 @@
  *     refused (it reads the browser's `Sec-Fetch-Site`), with no token plumbing.
  */
 
-import { createDb, createTableSql, defineTable, dropTableSql, integer, text } from "@lesto/db";
+import type { Sessions } from "@lesto/auth";
+import { createTableSql, defineTable, dropTableSql, integer, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
 
 import type { MigrationEntry } from "@lesto/migrate";
@@ -37,6 +38,14 @@ import type { LestoAppConfig } from "@lesto/kernel";
 import { z } from "zod";
 
 import { env } from "./env";
+import {
+  authenticatedAdult,
+  createIdentity,
+  developmentIdentityServices,
+  DEV_SESSION_TTL_MS,
+  developmentSessionCookie,
+  ensureDevelopmentAdult,
+} from "./app/lib/server/identity";
 
 // The `posts` table — schema as a value backs both the migration's DDL
 // and the inferred row type every query returns.
@@ -99,42 +108,66 @@ const NewPost = z.object({
 // Cloudflare `worker.ts` builds its own minimal edge twin of this (the island
 // home page, no SQLite `/posts`) — see its header for why and how to light the
 // data routes on the edge over D1.
-function buildApp(db: Db) {
-  return (
-    lesto()
-      // Security is declared on the config below (`secure`), not wired here — so
-      // this surface stays pure routes + pages.
-      // The hydration runtime: `lesto build`/`dev` bundle `app/islands/` into
-      // this `/client.js` (the Preact dialect — see `ui` below), and every page
-      // gets the head module tag that boots it.
-      .client("/client.js")
-      // The stylesheet (ADR 0037): `lesto build`/`dev` compile `ui.css`
-      // (`app/styles/app.css`, see `ui` below) → `out/styles.css`, and every page
-      // gets this `<link rel="stylesheet">`. A stable name, like `/client.js`.
-      .styles("/styles.css")
-      // The home page is NOT registered here — it lives at `app/routes/page.tsx`
-      // and Lesto's file-based routing composes it onto this app automatically.
-      .get("/posts", async (c) => {
-        const rows = await db.select().from(posts).orderBy(posts.id, "asc").all();
+export function buildApp(db: Db, sessions: Sessions, developmentSignIn: boolean) {
+  const app = lesto()
+    // Security is declared on the config below (`secure`), not wired here — so
+    // this surface stays pure routes + pages.
+    // The hydration runtime: `lesto build`/`dev` bundle `app/islands/` into
+    // this `/client.js` (the Preact dialect — see `ui` below), and every page
+    // gets the head module tag that boots it.
+    .client("/client.js")
+    // The stylesheet (ADR 0037): `lesto build`/`dev` compile `ui.css`
+    // (`app/styles/app.css`, see `ui` below) → `out/styles.css`, and every page
+    // gets this `<link rel="stylesheet">`. A stable name, like `/client.js`.
+    .styles("/styles.css")
+    // The home page is NOT registered here — it lives at `app/routes/page.tsx`
+    // and Lesto's file-based routing composes it onto this app automatically.
+    .get("/posts", async (c) => {
+      const rows = await db.select().from(posts).orderBy(posts.id, "asc").all();
 
-        return c.json({ posts: rows });
-      })
-      // POST /posts. `c.valid` proves the shape (or throws a 422); past it,
-      // `input` is a typed `{ title: string; body: string }` we can trust.
-      .post("/posts", async (c) => {
-        const input = c.valid(NewPost);
+      return c.json({ posts: rows });
+    })
+    // POST /posts. `c.valid` proves the shape (or throws a 422); past it,
+    // `input` is a typed `{ title: string; body: string }` we can trust.
+    .post("/posts", async (c) => {
+      const input = c.valid(NewPost);
 
-        const now = new Date().toISOString();
+      const now = new Date().toISOString();
 
-        const post = await db
-          .insert(posts)
-          .values({ title: input.title, body: input.body, createdAt: now, updatedAt: now })
-          .returning()
-          .get();
+      const post = await db
+        .insert(posts)
+        .values({ title: input.title, body: input.body, createdAt: now, updatedAt: now })
+        .returning()
+        .get();
 
-        return c.json({ post }, 201);
-      })
-  );
+      return c.json({ post }, 201);
+    });
+
+  if (!developmentSignIn) return app;
+
+  return app
+    .post("/api/dev/sign-in", async (c) => {
+      if (c.req.body !== undefined) return c.json({ error: "request body is not allowed" }, 400);
+
+      const identity = await ensureDevelopmentAdult(db);
+      const session = await sessions.create(identity.account.id, DEV_SESSION_TTL_MS);
+
+      return {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Set-Cookie": developmentSessionCookie(session.token),
+        },
+        body: JSON.stringify(identity),
+      };
+    })
+    .get("/api/dev/session", async (c) => {
+      const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
+
+      return identity === undefined
+        ? c.json({ error: "authentication required" }, 401)
+        : c.json(identity);
+    });
 }
 
 // The driver seam: `@lesto/runtime`'s `openSqlite` boots better-sqlite3 under
@@ -143,12 +176,12 @@ function buildApp(db: Db) {
 // runs migrations) and the typed `@lesto/db` the handlers query through. The DB
 // file comes from the typed env (`env.LESTO_DB`, default `lesto.db`) — see `env.ts`.
 const { db: handle } = await openSqlite(env.LESTO_DB);
-const db = createDb(handle);
+const { db, sessions } = await developmentIdentityServices(handle);
 
 const config: LestoAppConfig = {
   db: handle,
-  app: buildApp(db),
-  migrations: [createPosts, seedPosts],
+  app: buildApp(db, sessions, env.SNACKDAY_DEV_SIGN_IN),
+  migrations: [createPosts, seedPosts, createIdentity],
   // Security, declared in one place (ADR 0016). Per-client rate-limiting is ALREADY
   // on by the kernel default; `originCheck` layers zero-token CSRF over it — a
   // cross-site POST/PUT/PATCH/DELETE is refused at the door (it reads the browser's

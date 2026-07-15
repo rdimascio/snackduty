@@ -18,6 +18,26 @@ Open:
 
 Import `docs/postman/Snackday Local.postman_collection.json` into Postman for ready-made requests.
 
+### Development identity
+
+The adult development sign-in is disabled by default. Enable it only for the local server:
+
+```sh
+SNACKDAY_DEV_SIGN_IN=true bun run --filter web dev
+```
+
+In another shell, use a temporary cookie jar for the focused API check:
+
+```sh
+COOKIE_JAR="$(mktemp)"
+curl -i -c "$COOKIE_JAR" -X POST -H 'Sec-Fetch-Site: same-origin' \
+  http://127.0.0.1:3000/api/dev/sign-in
+curl -i -b "$COOKIE_JAR" http://127.0.0.1:3000/api/dev/session
+rm -f "$COOKIE_JAR"
+```
+
+This creates or reuses one deterministic adult `Person` and its separate one-to-one `Account`, then authenticates the Account with an `HttpOnly` cookie. It does not use an email or password and does not create a child `Participant` account. The routes return `404` unless the server-only flag is explicitly enabled. Never enable this flag in production. The cookie omits `Secure` solely because this guarded path is intended for local HTTP.
+
 ## Local database
 
 Lesto currently uses SQLite locally. Starting the web server creates and migrates:

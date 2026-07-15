@@ -21,6 +21,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@lesto/assets": "^0.2.0",
+        "@lesto/auth": "^0.2.0",
         "@lesto/cli": "^0.2.0",
         "@lesto/cloudflare": "^0.2.0",
         "@lesto/db": "^0.2.0",

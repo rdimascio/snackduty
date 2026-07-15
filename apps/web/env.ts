@@ -32,6 +32,8 @@ export const env = defineEnv({
     // The SQLite database file the app opens (see `lesto.app.ts`). Defaults to
     // `lesto.db` in the project root; point it elsewhere with `LESTO_DB=/path.db`.
     LESTO_DB: envField.string().default("lesto.db"),
+    // Explicitly opt in to the local-only fixed adult sign-in routes.
+    SNACKDAY_DEV_SIGN_IN: envField.boolean().default(false),
     // Add server-only secrets here — e.g. SESSION_SECRET: envField.string().
     // They are validated at boot and NEVER shipped to the browser.
   },
