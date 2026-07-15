@@ -1,10 +1,40 @@
 import { toFetchHandler, withAssets } from "@lesto/cloudflare";
 import type { AssetExecutionContext, AssetFetcher } from "@lesto/cloudflare";
+import { createElement } from "react";
+import type { ReactNode } from "react";
 
 import { lesto } from "@lesto/web";
 
-import home from "./app/routes/page";
+import features from "./app/routes/(marketing)/features/page";
+import MarketingLayout from "./app/routes/(marketing)/layout";
+import home from "./app/routes/(marketing)/page";
+import AppLayout from "./app/routes/app/layout";
+import overview from "./app/routes/app/page";
 import RootLayout from "./app/routes/layout";
+
+function PublicHome(): ReactNode {
+  return createElement(
+    RootLayout,
+    null,
+    createElement(MarketingLayout, null, createElement(home.component)),
+  );
+}
+
+function PublicFeatures(): ReactNode {
+  return createElement(
+    RootLayout,
+    null,
+    createElement(MarketingLayout, null, createElement(features.component)),
+  );
+}
+
+function ProductOverview(): ReactNode {
+  return createElement(
+    RootLayout,
+    null,
+    createElement(AppLayout, null, createElement(overview.component)),
+  );
+}
 
 /** The bindings this Worker is configured with (see wrangler.jsonc). */
 interface Env {
@@ -24,8 +54,9 @@ const app = lesto()
   // The stylesheet `lesto build` compiled to `out/styles.css` (ADR 0037), served
   // here from `ASSETS` and linked into every page — the edge twin of the dev link.
   .styles("/styles.css")
-  .layout(RootLayout)
-  .page("/", home);
+  .page("/", { ...home, component: PublicHome })
+  .page("/features", { ...features, component: PublicFeatures })
+  .page("/app", { ...overview, component: ProductOverview });
 
 const handler = toFetchHandler((method, path, options) => app.handle(method, path, options));
 

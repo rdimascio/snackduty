@@ -5,8 +5,8 @@
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
-    "dev": "lesto dev",
-    "build": "lesto build",
+    "dev": "bun --bun lesto dev",
+    "build": "bun --bun lesto build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
