@@ -32,12 +32,13 @@ The Snackday domain schemas are not persistence tables yet. A Docker Postgres se
 
 ## iOS
 
-Install the iOS 18 Simulator runtime in Xcode, then select full Xcode for command-line tools:
+Install the iOS 18 Simulator runtime in Xcode, then run:
 
 ```sh
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 bun run ios:build
 bun run ios:test
 ```
+
+The scripts automatically use Xcode from `/Applications/Xcode.app` when the command-line tools are selected globally. For a nonstandard installation, set `DEVELOPER_DIR` to that Xcode application's `Contents/Developer` directory.
 
 Alternatively, open `apps/ios/Snackday.xcodeproj`, select the shared Snackday scheme and an available iPhone simulator, then press Run.

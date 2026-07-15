@@ -14,4 +14,7 @@ done
 grep -q 'SWIFT_VERSION = 6.0;' "$PBXPROJ"
 grep -q 'SWIFT_STRICT_CONCURRENCY = complete;' "$PBXPROJ"
 grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 18.0;' "$PBXPROJ"
+grep -q 'INFOPLIST_KEY_UILaunchScreen_Generation = YES;' "$PBXPROJ"
+grep -q 'LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";' "$PBXPROJ"
+grep -q 'DYLIB_INSTALL_NAME_BASE = "@rpath";' "$PBXPROJ"
 echo "iOS project structure verified"

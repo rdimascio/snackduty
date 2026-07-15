@@ -9,8 +9,12 @@ public enum SnackdaySpacing: Sendable {
 public extension Color {
     static let snackdayAccent = Color.accentColor
     static let snackdaySurface = Color(uiColor: .secondarySystemBackground)
-    static let snackdayCanvas = Color(red: 0.965, green: 0.957, blue: 0.925)
-    static let snackdayInk = Color(red: 0.075, green: 0.102, blue: 0.092)
+    static let snackdayCanvas = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? .systemBackground
+            : UIColor(red: 0.965, green: 0.957, blue: 0.925, alpha: 1)
+    })
+    static let snackdayInk = Color(uiColor: .label)
     static let snackdayForest = Color(red: 0.075, green: 0.365, blue: 0.255)
     static let snackdayForestDeep = Color(red: 0.035, green: 0.235, blue: 0.180)
     static let snackdayCoral = Color(red: 0.925, green: 0.335, blue: 0.245)

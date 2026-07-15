@@ -24,6 +24,7 @@ struct AppRootView: View {
 }
 
 private struct HomeView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let snapshot: HomeSnapshot
 
     var body: some View {
@@ -46,14 +47,6 @@ private struct HomeView: View {
                         .foregroundStyle(Color.snackdayForest)
                         .accessibilityAddTraits(.isHeader)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: {}) {
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(Color.snackdayInk)
-                    }
-                    .accessibilityLabel("Profile")
-                }
             }
             .toolbarBackground(Color.snackdayCanvas, for: .navigationBar)
         }
@@ -65,17 +58,9 @@ private struct HomeView: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
 
-            Button(action: {}) {
-                HStack(spacing: 8) {
-                    Text(snapshot.team.name)
-                        .font(.largeTitle.weight(.heavy))
-                        .foregroundStyle(Color.snackdayInk)
-                    Image(systemName: "chevron.down.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(Color.snackdayCoral)
-                }
-            }
-            .buttonStyle(.plain)
+            Text(snapshot.team.name)
+                .font(.largeTitle.weight(.heavy))
+                .foregroundStyle(Color.snackdayInk)
 
             Text(snapshot.team.season)
                 .font(.subheadline.weight(.semibold))
@@ -87,43 +72,13 @@ private struct HomeView: View {
 
     private var nextEventCard: some View {
         VStack(alignment: .leading, spacing: SnackdaySpacing.standard) {
-            HStack {
-                Label("UP NEXT", systemImage: "calendar.badge.clock")
-                    .font(.caption.weight(.bold))
-                    .tracking(1.2)
-                Spacer()
-                Text("IN 3 DAYS")
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.white.opacity(0.14), in: Capsule())
-            }
+            Label("UP NEXT", systemImage: "calendar.badge.clock")
+                .font(.caption.weight(.bold))
+                .tracking(1.2)
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Practice")
-                    .font(.title.weight(.bold))
-                Text("Saturday · 9:00–10:00 AM")
-                    .font(.headline)
-                    .foregroundStyle(.white.opacity(0.82))
-                Label("Lakeside Field 2", systemImage: "mappin.and.ellipse")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .padding(.top, 3)
-            }
-
-            Divider().overlay(.white.opacity(0.2))
-
-            Button(action: {}) {
-                HStack {
-                    Text("View event")
-                    Spacer()
-                    Image(systemName: "arrow.right")
-                }
-                .font(.headline)
-                .foregroundStyle(.white)
-            }
-            .accessibilityHint(snapshot.nextEvent)
-            .accessibilityIdentifier("home.schedule")
+            Text(snapshot.nextEvent)
+                .font(.title2.weight(.bold))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(20)
         .foregroundStyle(.white)
@@ -144,7 +99,10 @@ private struct HomeView: View {
                 .font(.title3.weight(.bold))
                 .foregroundStyle(Color.snackdayInk)
 
-            LazyVGrid(columns: [.init(.flexible()), .init(.flexible())], spacing: 12) {
+            LazyVGrid(
+                columns: Array(repeating: .init(.flexible()), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2),
+                spacing: 12
+            ) {
                 ActionTile(title: "Assignments", detail: "2 open", icon: "person.badge.clock", tint: .snackdayBlue)
                 ActionTile(title: "Snack duty", detail: "You’re up May 9", icon: "takeoutbag.and.cup.and.straw.fill", tint: .snackdayCoral)
                 ActionTile(title: "Photos", detail: "18 new", icon: "photo.on.rectangle.angled", tint: .snackdayViolet)
@@ -155,14 +113,8 @@ private struct HomeView: View {
 
     private var teamUpdate: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Latest from the team")
-                    .font(.title3.weight(.bold))
-                Spacer()
-                Button("See all") {}
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.snackdayForest)
-            }
+            Text("Latest from the team")
+                .font(.title3.weight(.bold))
 
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "megaphone.fill")
@@ -179,7 +131,7 @@ private struct HomeView: View {
                 Spacer(minLength: 0)
             }
             .padding(SnackdaySpacing.standard)
-            .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Color.snackdaySurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
     }
 }
@@ -191,28 +143,24 @@ private struct ActionTile: View {
     let tint: Color
 
     var body: some View {
-        Button(action: {}) {
-            VStack(alignment: .leading, spacing: 14) {
-                Image(systemName: icon)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 40, height: 40)
-                    .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.headline)
-                        .foregroundStyle(Color.snackdayInk)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+        VStack(alignment: .leading, spacing: 14) {
+            Image(systemName: icon)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 40, height: 40)
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(Color.snackdayInk)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(SnackdaySpacing.standard)
-            .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(SnackdaySpacing.standard)
+        .background(Color.snackdaySurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 

@@ -7,4 +7,5 @@ import Testing
 
     #expect(snapshot.team == team)
     #expect(snapshot.team.name == "Owls")
+    #expect(snapshot.nextEvent == "Practice")
 }
