@@ -1,0 +1,77 @@
+{
+  "info": {
+    "_postman_id": "9a44994e-6485-4d55-bbf4-06f28e19f7c5",
+    "name": "Snackday Local",
+    "description": "Local Snackday web and scaffold API requests. Start with `bun run --filter web dev`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:3000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Pages",
+      "item": [
+        {
+          "name": "Marketing home",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/"
+          }
+        },
+        {
+          "name": "Features",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/features"
+          }
+        },
+        {
+          "name": "App shell",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/app"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scaffold API",
+      "description": "Temporary scaffold endpoints; these will be replaced by Snackday domain APIs.",
+      "item": [
+        {
+          "name": "List posts",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/posts"
+          }
+        },
+        {
+          "name": "Create post",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Sec-Fetch-Site",
+                "value": "same-origin",
+                "description": "Required by the local origin-check CSRF guard."
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman test\",\n  \"body\": \"Created against the local Snackday API.\"\n}"
+            },
+            "url": "{{baseUrl}}/posts"
+          }
+        }
+      ]
+    }
+  ]
+}
