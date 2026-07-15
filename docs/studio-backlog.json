@@ -1,0 +1,149 @@
+{
+  "tasks": [
+    {
+      "tempId": "foundation",
+      "title": "Foundation: bootstrap Bun + Lesto monorepo",
+      "description": "Establish root workspaces, Oxlint/Oxfmt/TypeScript gates, one Lesto web origin, domain package, and an iOS workspace placeholder. Done when a clean checkout installs and `bun run gate` passes.",
+      "priority": "urgent",
+      "status": "started",
+      "labels": ["milestone-1", "foundation"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "domain",
+      "title": "Domain: model people, households, participants, teams, and roles",
+      "description": "Create framework-independent schemas and policies separating Person, Account, Household, Participant, GuardianRelationship, Team, Season, Membership, and Role. Children must not require accounts; multiple guardians and multi-team households must work. Include policy and audit-event tests.",
+      "priority": "urgent",
+      "status": "unstarted",
+      "labels": ["milestone-1", "domain"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "ios",
+      "title": "Foundation: create native SwiftUI iOS application",
+      "description": "Create the Snackday Xcode project under apps/ios with app, domain, design-system, and test targets. Add root xcodebuild scripts. Support current iOS, Swift concurrency, Swift Testing, previews, and accessibility defaults.",
+      "priority": "high",
+      "status": "unstarted",
+      "labels": ["milestone-1", "ios"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "shell",
+      "title": "Web: build marketing and signed-in application shells",
+      "description": "Use one Lesto origin: public marketing routes and an authenticated /app shell. Establish responsive navigation, accessible components, tokens, error boundaries, empty/loading states, and metadata. Done when both shells build and render locally.",
+      "priority": "high",
+      "status": "unstarted",
+      "labels": ["milestone-1", "web"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "auth",
+      "title": "Identity: adult authentication, invitations, and authorization",
+      "description": "Integrate Lesto identity/authz for Sign in with Apple and email invitations. Invitations resolve to intended team/participant relationships, can be resent/revoked, do not duplicate identities, and every operation is authorized server-side.",
+      "priority": "urgent",
+      "status": "unstarted",
+      "labels": ["milestone-1", "identity"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "teams",
+      "title": "Teams: create a team, season, roles, and setup checklist",
+      "description": "Managers enter team name, sport, age group, dates, timezone, and optional organization; receive manager access and a setup checklist. Support multiple managers/coaches, custom volunteer roles, edits, archiving, and audited role changes.",
+      "priority": "high",
+      "status": "unstarted",
+      "labels": ["milestone-1", "teams"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "roster",
+      "title": "Roster: add or import participants with guardians in one flow",
+      "description": "Support minimal participant creation, CSV preview/validation, duplicate detection, and adding multiple guardians during roster entry. No child email is required. Show invitation status and privacy-aware directory/export.",
+      "priority": "urgent",
+      "status": "unstarted",
+      "labels": ["milestone-1", "roster"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "events",
+      "title": "Events: practices, games, attendance, and private iCalendar feeds",
+      "description": "Create recurring events with timezone, location, notes, cancellation, and attendance per child. Provide revocable private iCalendar feeds compatible with Apple and Google Calendar plus individual ICS export.",
+      "priority": "urgent",
+      "status": "unstarted",
+      "labels": ["milestone-2", "calendar"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "duties",
+      "title": "Duties: unlimited volunteer slots, snack rotation, and swaps",
+      "description": "Add custom duties to events with instructions and capacity. Guardians can claim, release, or request swaps; managers can assign. Handle concurrent claims safely and generate an editable snack rotation across events.",
+      "priority": "urgent",
+      "status": "unstarted",
+      "labels": ["milestone-2", "snack-day"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "notify",
+      "title": "Notifications: announcements, reminders, and delivery preferences",
+      "description": "Implement canonical in-app messages and idempotent email delivery with Lesto queue/mail. Support team/role/event/duty audiences, recipient preview, reminder timezones, preferences, and observable delivery failures. Keep SMS feature-flagged.",
+      "priority": "high",
+      "status": "unstarted",
+      "labels": ["milestone-2", "messaging"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "signatures",
+      "title": "Compliance: document requests, signatures, and audit exports",
+      "description": "Store private versioned documents; capture acknowledgement/signature, adult identity, time, version, and audit metadata. Show completion status and export records. Obtain legal review for the intended compliance claims.",
+      "priority": "medium",
+      "status": "backlog",
+      "labels": ["milestone-3", "compliance"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "photos",
+      "title": "Photos: private team albums with consent and moderation",
+      "description": "Support resilient multi-photo upload, metadata stripping, derivatives, browsing, deletion, reporting, private authorization, and documented retention. Surface photo-consent status before publishing/tagging workflows.",
+      "priority": "medium",
+      "status": "backlog",
+      "labels": ["milestone-3", "photos"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "privacy",
+      "title": "Launch: privacy, child safety, accessibility, and retention review",
+      "description": "Document and validate COPPA posture, parental consent, minimization, export/deletion, photo retention, invite security, abuse handling, staff access, WCAG 2.2 AA, Dynamic Type, VoiceOver, and localization readiness. Blocks production launch.",
+      "priority": "high",
+      "status": "backlog",
+      "labels": ["milestone-4", "launch-blocker"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    },
+    {
+      "tempId": "e2e",
+      "title": "Launch: automate the critical team coordination journey",
+      "description": "Automate create team → import participant → connect guardian → publish event → subscribe calendar → claim snack duty → receive reminder → sign document → upload/view photo across web/API, with focused iOS UI coverage.",
+      "priority": "high",
+      "status": "backlog",
+      "labels": ["milestone-4", "quality"],
+      "projectId": "40c7a86b-93e3-45f9-8417-6a6189c53285"
+    }
+  ],
+  "edges": [
+    { "from": "tempId:foundation", "to": "tempId:domain", "edgeType": "blocks" },
+    { "from": "tempId:foundation", "to": "tempId:ios", "edgeType": "blocks" },
+    { "from": "tempId:foundation", "to": "tempId:shell", "edgeType": "blocks" },
+    { "from": "tempId:domain", "to": "tempId:auth", "edgeType": "blocks" },
+    { "from": "tempId:auth", "to": "tempId:teams", "edgeType": "blocks" },
+    { "from": "tempId:teams", "to": "tempId:roster", "edgeType": "blocks" },
+    { "from": "tempId:roster", "to": "tempId:events", "edgeType": "blocks" },
+    { "from": "tempId:events", "to": "tempId:duties", "edgeType": "blocks" },
+    { "from": "tempId:auth", "to": "tempId:notify", "edgeType": "blocks" },
+    { "from": "tempId:events", "to": "tempId:notify", "edgeType": "blocks" },
+    { "from": "tempId:duties", "to": "tempId:notify", "edgeType": "blocks" },
+    { "from": "tempId:roster", "to": "tempId:signatures", "edgeType": "blocks" },
+    { "from": "tempId:roster", "to": "tempId:photos", "edgeType": "blocks" },
+    { "from": "tempId:signatures", "to": "tempId:e2e", "edgeType": "blocks" },
+    { "from": "tempId:photos", "to": "tempId:e2e", "edgeType": "blocks" },
+    { "from": "tempId:notify", "to": "tempId:e2e", "edgeType": "blocks" },
+    { "from": "tempId:privacy", "to": "tempId:e2e", "edgeType": "related" }
+  ]
+}
