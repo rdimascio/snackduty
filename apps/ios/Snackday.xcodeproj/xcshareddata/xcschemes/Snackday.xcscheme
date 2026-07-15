@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme LastUpgradeVersion="1600" version="1.7">
+  <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
+    <BuildActionEntries>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000001" BuildableName="Snackday.app" BlueprintName="Snackday" ReferencedContainer="container:Snackday.xcodeproj"/></BuildActionEntry>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000002" BuildableName="SnackdayDomain.framework" BlueprintName="SnackdayDomain" ReferencedContainer="container:Snackday.xcodeproj"/></BuildActionEntry>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000003" BuildableName="SnackdayDesignSystem.framework" BlueprintName="SnackdayDesignSystem" ReferencedContainer="container:Snackday.xcodeproj"/></BuildActionEntry>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000004" BuildableName="SnackdayTests.xctest" BlueprintName="SnackdayTests" ReferencedContainer="container:Snackday.xcodeproj"/></BuildActionEntry>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000005" BuildableName="SnackdayDomainTests.xctest" BlueprintName="SnackdayDomainTests" ReferencedContainer="container:Snackday.xcodeproj"/></BuildActionEntry>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="YES"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000006" BuildableName="SnackdayDesignSystemTests.xctest" BlueprintName="SnackdayDesignSystemTests" ReferencedContainer="container:Snackday.xcodeproj"/></BuildActionEntry>
+    </BuildActionEntries>
+  </BuildAction>
+  <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES">
+    <Testables>
+      <TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000004" BuildableName="SnackdayTests.xctest" BlueprintName="SnackdayTests" ReferencedContainer="container:Snackday.xcodeproj"/></TestableReference>
+      <TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000005" BuildableName="SnackdayDomainTests.xctest" BlueprintName="SnackdayDomainTests" ReferencedContainer="container:Snackday.xcodeproj"/></TestableReference>
+      <TestableReference skipped="NO"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000006" BuildableName="SnackdayDesignSystemTests.xctest" BlueprintName="SnackdayDesignSystemTests" ReferencedContainer="container:Snackday.xcodeproj"/></TestableReference>
+    </Testables>
+  </TestAction>
+  <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES"><BuildableProductRunnable runnableDebuggingMode="0"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000001" BuildableName="Snackday.app" BlueprintName="Snackday" ReferencedContainer="container:Snackday.xcodeproj"/></BuildableProductRunnable></LaunchAction>
+  <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES"><BuildableProductRunnable runnableDebuggingMode="0"><BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="700000000000000000000001" BuildableName="Snackday.app" BlueprintName="Snackday" ReferencedContainer="container:Snackday.xcodeproj"/></BuildableProductRunnable></ProfileAction>
+  <AnalyzeAction buildConfiguration="Debug"/>
+  <ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
+</Scheme>

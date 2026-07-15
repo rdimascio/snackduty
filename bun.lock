@@ -12,6 +12,10 @@
         "vitest": "^4.1.8",
       },
     },
+    "apps/ios": {
+      "name": "@snackday/ios",
+      "version": "0.0.0",
+    },
     "apps/web": {
       "name": "web",
       "version": "0.0.0",
@@ -406,6 +410,8 @@
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.62.2", "", { "os": "win32", "cpu": "x64" }, "sha512-BfzEnDJOt9T8M989/lA37EcJgat01wLRnoi5dQf3QzOH7jzpqTAzdDbVfRljVr5r+jzKqpbHeyOfAaXxAd0PAA=="],
 
     "@snackday/domain": ["@snackday/domain@workspace:packages/domain"],
+
+    "@snackday/ios": ["@snackday/ios@workspace:apps/ios"],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 

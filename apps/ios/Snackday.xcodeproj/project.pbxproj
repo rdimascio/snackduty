@@ -1,0 +1,143 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		100000000000000000000001 /* SnackdayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000001 /* SnackdayApp.swift */; };
+		100000000000000000000002 /* AppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000002 /* AppRootView.swift */; };
+		100000000000000000000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000003 /* Assets.xcassets */; };
+		100000000000000000000004 /* TeamSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000004 /* TeamSummary.swift */; };
+		100000000000000000000005 /* SnackdayTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000005 /* SnackdayTheme.swift */; };
+		100000000000000000000006 /* AppCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000006 /* AppCompositionTests.swift */; };
+		100000000000000000000007 /* TeamSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* TeamSummaryTests.swift */; };
+		100000000000000000000008 /* SnackdayThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000008 /* SnackdayThemeTests.swift */; };
+		100000000000000000000009 /* SnackdayDomain.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000A /* SnackdayDomain.framework */; };
+		10000000000000000000000A /* SnackdayDesignSystem.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* SnackdayDesignSystem.framework */; };
+		10000000000000000000000B /* SnackdayDomain.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000A /* SnackdayDomain.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		10000000000000000000000C /* SnackdayDesignSystem.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* SnackdayDesignSystem.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		10000000000000000000000D /* Snackday.app in Frameworks */ = {isa = PBXBuildFile; fileRef = 200000000000000000000009 /* Snackday.app */; };
+		10000000000000000000000E /* SnackdayDomain.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000A /* SnackdayDomain.framework */; };
+		10000000000000000000000F /* SnackdayDesignSystem.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* SnackdayDesignSystem.framework */; };
+		100000000000000000000010 /* SnackdayDomain.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000A /* SnackdayDomain.framework */; };
+		100000000000000000000011 /* SnackdayDesignSystem.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* SnackdayDesignSystem.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		300000000000000000000001 = {isa = PBXContainerItemProxy; containerPortal = 900000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 700000000000000000000002; remoteInfo = SnackdayDomain; };
+		300000000000000000000002 = {isa = PBXContainerItemProxy; containerPortal = 900000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 700000000000000000000003; remoteInfo = SnackdayDesignSystem; };
+		300000000000000000000003 = {isa = PBXContainerItemProxy; containerPortal = 900000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 700000000000000000000001; remoteInfo = Snackday; };
+		300000000000000000000004 = {isa = PBXContainerItemProxy; containerPortal = 900000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 700000000000000000000002; remoteInfo = SnackdayDomain; };
+		300000000000000000000005 = {isa = PBXContainerItemProxy; containerPortal = 900000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 700000000000000000000003; remoteInfo = SnackdayDesignSystem; };
+		300000000000000000000006 = {isa = PBXContainerItemProxy; containerPortal = 900000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 700000000000000000000002; remoteInfo = SnackdayDomain; };
+		300000000000000000000007 = {isa = PBXContainerItemProxy; containerPortal = 900000000000000000000001 /* Project object */; proxyType = 1; remoteGlobalIDString = 700000000000000000000003; remoteInfo = SnackdayDesignSystem; };
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		400000000000000000000001 /* Embed Frameworks */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 10; files = (10000000000000000000000B, 10000000000000000000000C, ); name = "Embed Frameworks"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		200000000000000000000001 /* SnackdayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnackdayApp.swift; sourceTree = "<group>"; };
+		200000000000000000000002 /* AppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRootView.swift; sourceTree = "<group>"; };
+		200000000000000000000003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		200000000000000000000004 /* TeamSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamSummary.swift; sourceTree = "<group>"; };
+		200000000000000000000005 /* SnackdayTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnackdayTheme.swift; sourceTree = "<group>"; };
+		200000000000000000000006 /* AppCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCompositionTests.swift; sourceTree = "<group>"; };
+		200000000000000000000007 /* TeamSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamSummaryTests.swift; sourceTree = "<group>"; };
+		200000000000000000000008 /* SnackdayThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnackdayThemeTests.swift; sourceTree = "<group>"; };
+		200000000000000000000009 /* Snackday.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Snackday.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		20000000000000000000000A /* SnackdayDomain.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = SnackdayDomain.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		20000000000000000000000B /* SnackdayDesignSystem.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = SnackdayDesignSystem.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		20000000000000000000000C /* SnackdayTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnackdayTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		20000000000000000000000D /* SnackdayDomainTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnackdayDomainTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		20000000000000000000000E /* SnackdayDesignSystemTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnackdayDesignSystemTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		410000000000000000000001 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000009, 10000000000000000000000A, ); runOnlyForDeploymentPostprocessing = 0; };
+		410000000000000000000002 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		410000000000000000000003 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		410000000000000000000004 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (10000000000000000000000D, 10000000000000000000000E, 10000000000000000000000F, ); runOnlyForDeploymentPostprocessing = 0; };
+		410000000000000000000005 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000010, ); runOnlyForDeploymentPostprocessing = 0; };
+		410000000000000000000006 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000011, ); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		500000000000000000000001 = {isa = PBXGroup; children = (500000000000000000000002, 500000000000000000000003, 500000000000000000000004, 500000000000000000000005, 500000000000000000000006, 500000000000000000000007, 500000000000000000000008, ); sourceTree = "<group>"; };
+		500000000000000000000002 /* Snackday */ = {isa = PBXGroup; children = (200000000000000000000001, 200000000000000000000002, 200000000000000000000003, ); path = Snackday; sourceTree = "<group>"; };
+		500000000000000000000003 /* SnackdayDomain */ = {isa = PBXGroup; children = (200000000000000000000004, ); path = SnackdayDomain; sourceTree = "<group>"; };
+		500000000000000000000004 /* SnackdayDesignSystem */ = {isa = PBXGroup; children = (200000000000000000000005, ); path = SnackdayDesignSystem; sourceTree = "<group>"; };
+		500000000000000000000005 /* SnackdayTests */ = {isa = PBXGroup; children = (200000000000000000000006, ); path = SnackdayTests; sourceTree = "<group>"; };
+		500000000000000000000006 /* SnackdayDomainTests */ = {isa = PBXGroup; children = (200000000000000000000007, ); path = SnackdayDomainTests; sourceTree = "<group>"; };
+		500000000000000000000007 /* SnackdayDesignSystemTests */ = {isa = PBXGroup; children = (200000000000000000000008, ); path = SnackdayDesignSystemTests; sourceTree = "<group>"; };
+		500000000000000000000008 /* Products */ = {isa = PBXGroup; children = (200000000000000000000009, 20000000000000000000000A, 20000000000000000000000B, 20000000000000000000000C, 20000000000000000000000D, 20000000000000000000000E, ); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		700000000000000000000001 /* Snackday */ = {isa = PBXNativeTarget; buildConfigurationList = 800000000000000000000002; buildPhases = (600000000000000000000001, 410000000000000000000001, 600000000000000000000002, 400000000000000000000001, ); buildRules = (); dependencies = (710000000000000000000001, 710000000000000000000002, ); name = Snackday; productName = Snackday; productReference = 200000000000000000000009; productType = "com.apple.product-type.application"; };
+		700000000000000000000002 /* SnackdayDomain */ = {isa = PBXNativeTarget; buildConfigurationList = 800000000000000000000003; buildPhases = (600000000000000000000003, 410000000000000000000002, ); buildRules = (); dependencies = (); name = SnackdayDomain; productName = SnackdayDomain; productReference = 20000000000000000000000A; productType = "com.apple.product-type.framework"; };
+		700000000000000000000003 /* SnackdayDesignSystem */ = {isa = PBXNativeTarget; buildConfigurationList = 800000000000000000000004; buildPhases = (600000000000000000000004, 410000000000000000000003, ); buildRules = (); dependencies = (); name = SnackdayDesignSystem; productName = SnackdayDesignSystem; productReference = 20000000000000000000000B; productType = "com.apple.product-type.framework"; };
+		700000000000000000000004 /* SnackdayTests */ = {isa = PBXNativeTarget; buildConfigurationList = 800000000000000000000005; buildPhases = (600000000000000000000005, 410000000000000000000004, ); buildRules = (); dependencies = (710000000000000000000003, 710000000000000000000004, 710000000000000000000005, ); name = SnackdayTests; productName = SnackdayTests; productReference = 20000000000000000000000C; productType = "com.apple.product-type.bundle.unit-test"; };
+		700000000000000000000005 /* SnackdayDomainTests */ = {isa = PBXNativeTarget; buildConfigurationList = 800000000000000000000006; buildPhases = (600000000000000000000006, 410000000000000000000005, ); buildRules = (); dependencies = (710000000000000000000006, ); name = SnackdayDomainTests; productName = SnackdayDomainTests; productReference = 20000000000000000000000D; productType = "com.apple.product-type.bundle.unit-test"; };
+		700000000000000000000006 /* SnackdayDesignSystemTests */ = {isa = PBXNativeTarget; buildConfigurationList = 800000000000000000000007; buildPhases = (600000000000000000000007, 410000000000000000000006, ); buildRules = (); dependencies = (710000000000000000000007, ); name = SnackdayDesignSystemTests; productName = SnackdayDesignSystemTests; productReference = 20000000000000000000000E; productType = "com.apple.product-type.bundle.unit-test"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		900000000000000000000001 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1600; LastUpgradeCheck = 1600; TargetAttributes = {700000000000000000000001 = {CreatedOnToolsVersion = 16.0; }; 700000000000000000000002 = {CreatedOnToolsVersion = 16.0; }; 700000000000000000000003 = {CreatedOnToolsVersion = 16.0; }; 700000000000000000000004 = {CreatedOnToolsVersion = 16.0; TestTargetID = 700000000000000000000001; }; 700000000000000000000005 = {CreatedOnToolsVersion = 16.0; }; 700000000000000000000006 = {CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = 800000000000000000000001; compatibilityVersion = "Xcode 15.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base, ); mainGroup = 500000000000000000000001; productRefGroup = 500000000000000000000008; projectDirPath = ""; projectRoot = ""; targets = (700000000000000000000001, 700000000000000000000002, 700000000000000000000003, 700000000000000000000004, 700000000000000000000005, 700000000000000000000006, ); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		600000000000000000000002 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000003, ); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		600000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000001, 100000000000000000000002, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000004, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000005 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000006, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000007, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000008, ); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		710000000000000000000001 = {isa = PBXTargetDependency; target = 700000000000000000000002; targetProxy = 300000000000000000000001; };
+		710000000000000000000002 = {isa = PBXTargetDependency; target = 700000000000000000000003; targetProxy = 300000000000000000000002; };
+		710000000000000000000003 = {isa = PBXTargetDependency; target = 700000000000000000000001; targetProxy = 300000000000000000000003; };
+		710000000000000000000004 = {isa = PBXTargetDependency; target = 700000000000000000000002; targetProxy = 300000000000000000000004; };
+		710000000000000000000005 = {isa = PBXTargetDependency; target = 700000000000000000000003; targetProxy = 300000000000000000000005; };
+		710000000000000000000006 = {isa = PBXTargetDependency; target = 700000000000000000000002; targetProxy = 300000000000000000000006; };
+		710000000000000000000007 = {isa = PBXTargetDependency; target = 700000000000000000000003; targetProxy = 300000000000000000000007; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A00000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 18.0; SDKROOT = iphoneos; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; }; name = Debug; };
+		A00000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 18.0; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_VERSION = 6.0; }; name = Release; };
+		A00000000000000000000003 /* App Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; ENABLE_PREVIEWS = YES; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = Snackday; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports"; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.app; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_EMIT_LOC_STRINGS = YES; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		A00000000000000000000004 /* App Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; ENABLE_PREVIEWS = YES; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = Snackday; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports"; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.app; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_EMIT_LOC_STRINGS = YES; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+		A00000000000000000000005 /* Domain Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEFINES_MODULE = YES; DYLIB_COMPATIBILITY_VERSION = 1; DYLIB_CURRENT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.domain; PRODUCT_NAME = "$(TARGET_NAME)"; SKIP_INSTALL = YES; }; name = Debug; };
+		A00000000000000000000006 /* Domain Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEFINES_MODULE = YES; DYLIB_COMPATIBILITY_VERSION = 1; DYLIB_CURRENT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.domain; PRODUCT_NAME = "$(TARGET_NAME)"; SKIP_INSTALL = YES; }; name = Release; };
+		A00000000000000000000007 /* Design Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEFINES_MODULE = YES; DYLIB_COMPATIBILITY_VERSION = 1; DYLIB_CURRENT_VERSION = 1; ENABLE_PREVIEWS = YES; GENERATE_INFOPLIST_FILE = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.designsystem; PRODUCT_NAME = "$(TARGET_NAME)"; SKIP_INSTALL = YES; }; name = Debug; };
+		A00000000000000000000008 /* Design Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEFINES_MODULE = YES; DYLIB_COMPATIBILITY_VERSION = 1; DYLIB_CURRENT_VERSION = 1; ENABLE_PREVIEWS = YES; GENERATE_INFOPLIST_FILE = YES; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.designsystem; PRODUCT_NAME = "$(TARGET_NAME)"; SKIP_INSTALL = YES; }; name = Release; };
+		A00000000000000000000009 /* App Tests Debug */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.app.tests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Snackday.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Snackday"; }; name = Debug; };
+		A0000000000000000000000A /* App Tests Release */ = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.app.tests; PRODUCT_NAME = "$(TARGET_NAME)"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Snackday.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Snackday"; }; name = Release; };
+		A0000000000000000000000B /* Domain Tests Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.domain.tests; PRODUCT_NAME = "$(TARGET_NAME)"; }; name = Debug; };
+		A0000000000000000000000C /* Domain Tests Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.domain.tests; PRODUCT_NAME = "$(TARGET_NAME)"; }; name = Release; };
+		A0000000000000000000000D /* Design Tests Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.designsystem.tests; PRODUCT_NAME = "$(TARGET_NAME)"; }; name = Debug; };
+		A0000000000000000000000E /* Design Tests Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"; PRODUCT_BUNDLE_IDENTIFIER = com.snackday.designsystem.tests; PRODUCT_NAME = "$(TARGET_NAME)"; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		800000000000000000000001 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000001, A00000000000000000000002, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		800000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000003, A00000000000000000000004, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		800000000000000000000003 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000005, A00000000000000000000006, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		800000000000000000000004 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000007, A00000000000000000000008, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		800000000000000000000005 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000009, A0000000000000000000000A, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		800000000000000000000006 = {isa = XCConfigurationList; buildConfigurations = (A0000000000000000000000B, A0000000000000000000000C, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		800000000000000000000007 = {isa = XCConfigurationList; buildConfigurations = (A0000000000000000000000D, A0000000000000000000000E, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = 900000000000000000000001 /* Project object */;
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@snackday/ios",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "bash ../../scripts/ios-build.sh",
+    "typecheck": "bash ../../scripts/ios-verify.sh",
+    "test": "bash ../../scripts/ios-test.sh"
+  }
+}
