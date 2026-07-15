@@ -1,1 +1,6 @@
-export const domainPackage = "@snackday/domain" as const;
+export * from "./aggregate";
+export * from "./audit-events";
+export * from "./people";
+export * from "./policies";
+export * from "./primitives";
+export * from "./teams";
