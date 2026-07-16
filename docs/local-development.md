@@ -46,9 +46,9 @@ Lesto currently uses SQLite locally. Starting the web server creates and migrate
 apps/web/lesto.db
 ```
 
-Open that file directly in TablePlus using a SQLite connection. The current application table is `posts`; `schema_migrations`, `lesto_sessions`, and `lesto_rate_limits` are framework tables.
+Open that file directly in TablePlus using a SQLite connection. Application tables are `posts`, `people`, and `accounts`; `schema_migrations`, `lesto_sessions`, and `lesto_rate_limits` are framework tables. The fixed development adult is inserted only after an enabled sign-in.
 
-The Snackday domain schemas are not persistence tables yet. A Docker Postgres service should be introduced with the persistence task so it contains the real household, participant, team, role, membership, and guardian schema rather than an empty placeholder database.
+The remaining Snackday domain schemas are not persistence tables yet. A Docker Postgres service should be introduced with the broader persistence task so it contains the real household, participant, team, role, membership, and guardian schema rather than an empty placeholder database.
 
 ## iOS
 

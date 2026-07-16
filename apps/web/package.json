@@ -8,7 +8,7 @@
     "dev": "bun --bun lesto dev",
     "build": "bun --bun lesto build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "bun test"
   },
   "dependencies": {
     "@lesto/assets": "^0.2.0",

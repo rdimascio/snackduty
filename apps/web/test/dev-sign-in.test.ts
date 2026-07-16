@@ -5,14 +5,9 @@ process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
 const [
-  { buildApp },
+  { buildApp, default: config },
   { DEV_ACCOUNT_ID, DEV_PERSON_ID, developmentIdentityServices },
-  { default: config },
-] = await Promise.all([
-  import("../lesto.app"),
-  import("../app/lib/server/identity"),
-  import("../lesto.app"),
-]);
+] = await Promise.all([import("../lesto.app"), import("../app/lib/server/identity")]);
 
 const app = await createApp(config);
 
@@ -71,7 +66,15 @@ describe("enabled development adult sign-in", () => {
     expect(storedSession).not.toMatchObject({ token: plaintextToken });
 
     const serialized = JSON.stringify(json(signIn)).toLowerCase();
-    for (const forbidden of ["token", "email", "participant", "child", "household", "birth"]) {
+    for (const forbidden of [
+      "token",
+      "email",
+      "participant",
+      "child",
+      "household",
+      "guardian",
+      "birth",
+    ]) {
       expect(serialized).not.toContain(forbidden);
     }
   });
@@ -90,6 +93,15 @@ describe("development adult identity constraints", () => {
     expect(await config.db.prepare("SELECT id, person_id FROM accounts").all()).toEqual([
       { id: DEV_ACCOUNT_ID, person_id: DEV_PERSON_ID },
     ]);
+  });
+
+  it("keeps the existing same-origin protection", async () => {
+    const response = await app.handle("POST", "/api/dev/sign-in", {
+      headers: { "sec-fetch-site": "cross-site" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(await config.db.prepare("SELECT id FROM accounts").all()).toEqual([]);
   });
 
   it("rejects arbitrary identity input", async () => {

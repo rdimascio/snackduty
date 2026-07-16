@@ -108,40 +108,36 @@ const NewPost = z.object({
 // Cloudflare `worker.ts` builds its own minimal edge twin of this (the island
 // home page, no SQLite `/posts`) — see its header for why and how to light the
 // data routes on the edge over D1.
+function buildBaseApp(db: Db) {
+  return (
+    lesto()
+      .client("/client.js")
+      .styles("/styles.css")
+      .get("/posts", async (c) => {
+        const rows = await db.select().from(posts).orderBy(posts.id, "asc").all();
+
+        return c.json({ posts: rows });
+      })
+      // POST /posts. `c.valid` proves the shape (or throws a 422); past it,
+      // `input` is a typed `{ title: string; body: string }` we can trust.
+      .post("/posts", async (c) => {
+        const input = c.valid(NewPost);
+
+        const now = new Date().toISOString();
+
+        const post = await db
+          .insert(posts)
+          .values({ title: input.title, body: input.body, createdAt: now, updatedAt: now })
+          .returning()
+          .get();
+
+        return c.json({ post }, 201);
+      })
+  );
+}
+
 export function buildApp(db: Db, sessions: Sessions, developmentSignIn: boolean) {
-  const app = lesto()
-    // Security is declared on the config below (`secure`), not wired here — so
-    // this surface stays pure routes + pages.
-    // The hydration runtime: `lesto build`/`dev` bundle `app/islands/` into
-    // this `/client.js` (the Preact dialect — see `ui` below), and every page
-    // gets the head module tag that boots it.
-    .client("/client.js")
-    // The stylesheet (ADR 0037): `lesto build`/`dev` compile `ui.css`
-    // (`app/styles/app.css`, see `ui` below) → `out/styles.css`, and every page
-    // gets this `<link rel="stylesheet">`. A stable name, like `/client.js`.
-    .styles("/styles.css")
-    // The home page is NOT registered here — it lives at `app/routes/page.tsx`
-    // and Lesto's file-based routing composes it onto this app automatically.
-    .get("/posts", async (c) => {
-      const rows = await db.select().from(posts).orderBy(posts.id, "asc").all();
-
-      return c.json({ posts: rows });
-    })
-    // POST /posts. `c.valid` proves the shape (or throws a 422); past it,
-    // `input` is a typed `{ title: string; body: string }` we can trust.
-    .post("/posts", async (c) => {
-      const input = c.valid(NewPost);
-
-      const now = new Date().toISOString();
-
-      const post = await db
-        .insert(posts)
-        .values({ title: input.title, body: input.body, createdAt: now, updatedAt: now })
-        .returning()
-        .get();
-
-      return c.json({ post }, 201);
-    });
+  const app = buildBaseApp(db);
 
   if (!developmentSignIn) return app;
 
