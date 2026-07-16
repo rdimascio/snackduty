@@ -9,6 +9,10 @@
     {
       "key": "baseUrl",
       "value": "http://127.0.0.1:3000"
+    },
+    {
+      "key": "teamId",
+      "value": ""
     }
   ],
   "item": [
@@ -48,28 +52,6 @@
             "method": "GET",
             "url": "{{baseUrl}}/posts"
           }
-        },
-        {
-          "name": "Create post",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Sec-Fetch-Site",
-                "value": "same-origin",
-                "description": "Required by the local origin-check CSRF guard."
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"Postman test\",\n  \"body\": \"Created against the local Snackday API.\"\n}"
-            },
-            "url": "{{baseUrl}}/posts"
-          }
         }
       ]
     },
@@ -96,6 +78,72 @@
           "request": {
             "method": "GET",
             "url": "{{baseUrl}}/api/dev/session"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Teams",
+      "description": "Authenticated team and season requests. Run the development sign-in first; Postman's cookie jar carries the HttpOnly session.",
+      "item": [
+        {
+          "name": "Create team",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('teamId', body.team.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Sec-Fetch-Site",
+                "value": "same-origin"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"T-Ball Tigers\"\n}"
+            },
+            "url": "{{baseUrl}}/api/teams"
+          }
+        },
+        {
+          "name": "Create season",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Sec-Fetch-Site",
+                "value": "same-origin"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"Spring 2026\",\n  \"startDate\": \"2026-03-01\",\n  \"endDate\": \"2026-06-01\",\n  \"timeZone\": \"America/Los_Angeles\"\n}"
+            },
+            "url": "{{baseUrl}}/api/teams/{{teamId}}/seasons"
+          }
+        },
+        {
+          "name": "Read team",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/teams/{{teamId}}"
           }
         }
       ]

@@ -25,6 +25,7 @@
     "@lesto/styles": "^0.2.0",
     "@lesto/ui": "^0.2.0",
     "@lesto/web": "^0.2.0",
+    "@snackday/domain": "workspace:*",
     "better-sqlite3": "^11.10.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.515.0",

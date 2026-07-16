@@ -33,6 +33,15 @@ COOKIE_JAR="$(mktemp)"
 curl -i -c "$COOKIE_JAR" -X POST -H 'Sec-Fetch-Site: same-origin' \
   http://127.0.0.1:3000/api/dev/sign-in
 curl -i -b "$COOKIE_JAR" http://127.0.0.1:3000/api/dev/session
+TEAM_JSON="$(curl -sS -b "$COOKIE_JAR" -X POST \
+  -H 'Content-Type: application/json' -H 'Sec-Fetch-Site: same-origin' \
+  -d '{"name":"T-Ball Tigers"}' http://127.0.0.1:3000/api/teams)"
+TEAM_ID="$(printf '%s' "$TEAM_JSON" | sed -E 's/.*"id":"([^"]+)".*/\1/')"
+curl -i -b "$COOKIE_JAR" -X POST \
+  -H 'Content-Type: application/json' -H 'Sec-Fetch-Site: same-origin' \
+  -d '{"label":"Spring 2026","startDate":"2026-03-01","endDate":"2026-06-01","timeZone":"America/Los_Angeles"}' \
+  "http://127.0.0.1:3000/api/teams/$TEAM_ID/seasons"
+curl -i -b "$COOKIE_JAR" "http://127.0.0.1:3000/api/teams/$TEAM_ID"
 rm -f "$COOKIE_JAR"
 ```
 
@@ -46,9 +55,9 @@ Lesto currently uses SQLite locally. Starting the web server creates and migrate
 apps/web/lesto.db
 ```
 
-Open that file directly in TablePlus using a SQLite connection. Application tables are `posts`, `people`, and `accounts`; `schema_migrations`, `lesto_sessions`, and `lesto_rate_limits` are framework tables. The fixed development adult is inserted only after an enabled sign-in.
+Open that file directly in TablePlus using a SQLite connection. Application tables are `posts`, `people`, `accounts`, `teams`, and `seasons`; `schema_migrations`, `lesto_sessions`, and `lesto_rate_limits` are framework tables. The fixed development adult is inserted only after an enabled sign-in.
 
-The remaining Snackday domain schemas are not persistence tables yet. A Docker Postgres service should be introduced with the broader persistence task so it contains the real household, participant, team, role, membership, and guardian schema rather than an empty placeholder database.
+SQLite is the Milestone 1 source of truth. Household, participant, role, membership, and guardian persistence will be added incrementally as those product slices are implemented.
 
 ## iOS
 

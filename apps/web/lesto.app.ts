@@ -15,10 +15,9 @@
  * the same router. Add a page by adding a file; add an API route by chaining `.get`.
  *
  * Two conventions worth seeing on day one:
- *   - Validation at the boundary (ADR 0005): the create handler runs the
- *     untrusted body through a Zod schema with `c.valid` before it touches the
- *     database. A bad body is a 422, never a crash. The schema is the only place
- *     input is checked; everything past it is typed and trusted.
+ *   - Validation at the boundary (ADR 0005): the team handlers in
+ *     `app/lib/server/teams.ts` run untrusted bodies through Zod schemas with
+ *     `c.valid` before touching the database.
  *   - Security on by default, declared in one place: the config's `secure` field.
  *     Per-client rate-limiting is on from the kernel default, and `originCheck`
  *     adds zero-token CSRF — a state-changing request from another origin is
@@ -46,6 +45,7 @@ import {
   developmentSessionCookie,
   ensureDevelopmentAdult,
 } from "./app/lib/server/identity";
+import { createTeamsAndSeasons, registerTeamRoutes } from "./app/lib/server/teams";
 
 // The `posts` table — schema as a value backs both the migration's DDL
 // and the inferred row type every query returns.
@@ -93,9 +93,6 @@ const seedPosts: MigrationEntry = {
   },
 };
 
-// The input schema for a new post — semantic validation (non-blank, trimmed)
-// lives here, not on the table (the table just says `notNull()`). This is the
-// untrusted-input contract; see ADR 0005.
 const NewPost = z.object({
   title: z.string().trim().min(1, "Title is required."),
   body: z.string().trim().min(1, "Body is required."),
@@ -109,35 +106,29 @@ const NewPost = z.object({
 // home page, no SQLite `/posts`) — see its header for why and how to light the
 // data routes on the edge over D1.
 function buildBaseApp(db: Db) {
-  return (
-    lesto()
-      .client("/client.js")
-      .styles("/styles.css")
-      .get("/posts", async (c) => {
-        const rows = await db.select().from(posts).orderBy(posts.id, "asc").all();
+  return lesto()
+    .client("/client.js")
+    .styles("/styles.css")
+    .get("/posts", async (c) => {
+      const rows = await db.select().from(posts).orderBy(posts.id, "asc").all();
 
-        return c.json({ posts: rows });
-      })
-      // POST /posts. `c.valid` proves the shape (or throws a 422); past it,
-      // `input` is a typed `{ title: string; body: string }` we can trust.
-      .post("/posts", async (c) => {
-        const input = c.valid(NewPost);
+      return c.json({ posts: rows });
+    })
+    .post("/posts", async (c) => {
+      const input = c.valid(NewPost);
+      const now = new Date().toISOString();
+      const post = await db
+        .insert(posts)
+        .values({ title: input.title, body: input.body, createdAt: now, updatedAt: now })
+        .returning()
+        .get();
 
-        const now = new Date().toISOString();
-
-        const post = await db
-          .insert(posts)
-          .values({ title: input.title, body: input.body, createdAt: now, updatedAt: now })
-          .returning()
-          .get();
-
-        return c.json({ post }, 201);
-      })
-  );
+      return c.json({ post }, 201);
+    });
 }
 
 export function buildApp(db: Db, sessions: Sessions, developmentSignIn: boolean) {
-  const app = buildBaseApp(db);
+  const app = registerTeamRoutes(buildBaseApp(db), db, sessions);
 
   if (!developmentSignIn) return app;
 
@@ -177,7 +168,7 @@ const { db, sessions } = await developmentIdentityServices(handle);
 const config: LestoAppConfig = {
   db: handle,
   app: buildApp(db, sessions, env.SNACKDAY_DEV_SIGN_IN),
-  migrations: [createPosts, seedPosts, createIdentity],
+  migrations: [createPosts, seedPosts, createIdentity, createTeamsAndSeasons],
   // Security, declared in one place (ADR 0016). Per-client rate-limiting is ALREADY
   // on by the kernel default; `originCheck` layers zero-token CSRF over it — a
   // cross-site POST/PUT/PATCH/DELETE is refused at the door (it reads the browser's

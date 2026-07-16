@@ -12,7 +12,9 @@ const [
 const app = await createApp(config);
 
 async function clearIdentityState() {
-  await config.db.exec("DELETE FROM lesto_sessions; DELETE FROM accounts; DELETE FROM people;");
+  await config.db.exec(
+    "DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM accounts; DELETE FROM people;",
+  );
 }
 
 beforeEach(clearIdentityState);
