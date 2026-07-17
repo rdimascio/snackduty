@@ -233,8 +233,10 @@ For each ADR, record:
 - Studio's five verified shutdown/evidence/redaction defects.
 - Missing SHA-bound merge authorization (`L-957b8149`) and GitHub branch protection.
 - Repository identity drift affecting review ingestion.
-- No neutral coordination repository; manifest v0 is specified but not implemented or exercised.
-- No formal compatibility policy across Roof, Studio, Lesto, and application templates.
+- No neutral coordination repository. (Manifest v0 is now implemented, exercised, and
+  re-verified — see ADR 0007, Accepted 2026-07-17.)
+- Compatibility policy across Roof, Studio, Lesto, and application templates is now decided in
+  ADR 0007; its staged-core implementation tasks remain open.
 - Cloudflare credentials and live deployment remain attended human prerequisites.
 - Roof's vendored Studio OpenAPI contract is stale against Studio HEAD.
 - Studio's current shared worktree fails typechecking and one CLI unit test, preventing the
