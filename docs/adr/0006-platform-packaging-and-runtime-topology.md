@@ -1,9 +1,9 @@
 # 0006 — Platform packaging and runtime topology
 
 - Status: Accepted (amended) — one installer/support channel with separately versioned Roof and
-  Studio artifacts, no embedding; four amendments. **Amendment 1 (launch ownership) is
-  conditional on decision-sheet D1 and not in force until signed** — Roof's shipped pure-client
-  behavior stands meanwhile
+  Studio artifacts, no embedding; four amendments. **Amendment 1 (launch ownership) is in force
+  as of 2026-07-17: D1 signed (CEO-delegate, per owner delegation) — Roof launches via the
+  Studio CLI's own launcher only; pure-client is the documented retreat**
 - Date: proposed 2026-07-16; adjudicated 2026-07-17
 - Decider: Chief Architect (adjudication task `L-723fe37e`, under platform decision `L-710ba74e`)
 

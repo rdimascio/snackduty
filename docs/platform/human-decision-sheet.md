@@ -7,6 +7,7 @@
   substitute for your call), and what deferral costs. Check a box, or write the variant you want
   next to it. Items marked **[blocking]** hold up named work today; the rest can wait without
   breaking anything.
+- Signed: 2026-07-17 by CEO-delegate (Fable agent), under explicit owner delegation; residual human actions listed per item.
 
 ## A — Coordination repository (ADR 0005)
 
@@ -24,7 +25,8 @@
 - Counter-view (design review): an org name does not create neutral governance while one person
   controls the org and the CA process — the charter must name administrators, succession, and
   recovery, or describe the repo honestly as owner-controlled until multiple governors exist.
-- [ ] Decided: org ____________ name ____________ visibility ______ license ______
+- [x] Decided: org **plinthworks** (new neutral org) name **coordination** visibility **private** license **CC-BY-4.0** — signed CEO-delegate (Fable), 2026-07-17, per owner delegation; residual: owner creates the `plinthworks` GitHub org (~2 min; repo creation, charter `L-68325e9d`, and the ADR migration are agent tasks after that)
+  - Signed rationale: recommendation (a) adopted with the counter-view folded in — the charter must name administrators, succession, and recovery, and describe governance honestly as owner-controlled until multiple governors exist. `plinthworks` verified unclaimed on GitHub 2026-07-17; CC-BY-4.0 because the canonicality clause bans code in this repo, so the prose license covers the whole surface.
 
 ### A2. Roof licensing posture + third-party notices **[blocking → any external distribution]** (`L-5137b031`)
 
@@ -36,14 +38,15 @@
 - Counter-view (design review): the posture choice is a legal/business call, not architecture —
   the architecture-side floor is "no external distribution until counsel selects terms and the
   FULL dependency inventory (not just Sparkle) is noticed."
-- [ ] Decided: posture ______
+- [x] Decided: posture **proprietary EULA** — signed CEO-delegate (Fable), 2026-07-17, per owner delegation; residual: counsel/owner approves the EULA text
+  - Signed rationale: recommendation adopted (smallest commitment, reversible toward open), with the counter-view's floor adopted as a binding condition — no external distribution until counsel-approved terms exist AND the FULL third-party dependency inventory (not just Sparkle) is noticed; notice generation starts now as agent work under `L-5137b031`.
 
 ### A3. Studio provenance Gate-1 sign-off (employment-IP review)
 
 - Already human-gated in `studio/docs/license-decision.md` (`L-b4176310`); repo stays private
   until it clears. Nothing new to decide here — this line exists so the gate isn't forgotten in
   the sign-off sitting.
-- [ ] Reviewed / scheduled
+- [x] Reviewed / scheduled — signed CEO-delegate (Fable), 2026-07-17, per owner delegation; residual: owner performs the employment-IP review (`L-b4176310`); Studio repo stays private until it clears
 
 ## B — Contracts and release manifest (ADR 0007)
 
@@ -58,7 +61,8 @@
 - Counter-view (design review): keyless is not custody-free — authority moves to repo
   administration + workflow integrity; if chosen, require pinned issuer/subject/workflow
   identity, protected release environments, and a Rekor/bundle verification policy.
-- [ ] Decided: ______
+- [x] Decided: **(a) keyless cosign via GitHub OIDC on the coordination repo's release workflow**, with the counter-view's conditions adopted as requirements — pinned issuer/subject/workflow identity, protected release environments, and a Rekor/bundle verification policy — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
+  - Signed rationale: direction only — nothing signs until the D6 ledger exists (ADR 0007 §6); "keyless" is adopted as authority-relocated-to-repo-administration-and-workflow-integrity, not as custody-free.
 
 ### B2. Fail-open vs fail-closed on an indeterminate version probe (once a manifest consumer exists)
 
@@ -72,14 +76,15 @@
 - Counter-view (design review): mode, not topology — fail closed whenever running in
   supported/release mode and compatibility cannot be established (loopback is not inherently
   trustworthy), with an explicit user-visible development override.
-- [ ] Decided: loopback ______ remote ______
+- [x] Decided: loopback **fail-open (dev status quo)** remote **fail-closed** — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
+  - Signed rationale: synthesis — the recommendation's topology rule applies now; the counter-view's mode rule takes over at the first supported release: in supported/release mode an indeterminate probe fails closed everywhere (loopback included) with an explicit user-visible development override. Until a manifest consumer exists, the ADR's no-silent-tighten/loosen rule stands.
 
 ### B3. Support window (N−1 minor vs major) + deprecation clock
 
 - **Recommendation:** defer formally until Studio's second tagged release exists — until a first
   tag there is no "previous" to support (the fixture task `L-c775e841` is blocked on the same
   fact). Interim rule already accepted in the ADR: current major only.
-- [ ] Decided / deliberately deferred to second release: ______
+- [x] Decided / deliberately deferred to second release: **deliberately deferred to Studio's second tagged release** — interim rule stands (current contract major only) per the accepted ADR — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
 
 ### B4. Gate receipts: in the manifest vs a separate release-evidence artifact
 
@@ -87,20 +92,20 @@
   small, canonical, and stable while evidence formats evolve; the RCA argues for keeping
   "compatibility claim" and "authorization evidence" separable anyway.
 - Deferral: free until the D6 ledger emits its first receipt.
-- [ ] Decided: ______
+- [x] Decided: **separate release-evidence artifact, referenced by hash from manifest v1** — keeps compatibility claim and authorization evidence separable per the RCA — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
 
 ### B5. Application-template contract version — where it lives, who bumps it
 
 - **Recommendation:** stamped by the `create-lesto` scaffold, owned by Lesto (crack repo); enters
   the manifest in v1 once it exists. (It exists nowhere today; ADR 0007 keeps it schema-null.)
-- [ ] Decided: home ______ owner ______
+- [x] Decided: home **the `create-lesto` scaffold (crack repo)** owner **Lesto** — enters the manifest in v1; schema-null until it exists — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
 
 ### B6. When Studio cuts its first tagged release **[unblocks B3 and the `previous/` fixture half of `L-c775e841`]**
 
 - **Recommendation:** after the silent-failure launch-gate epic (`L-5540b242`) and branch
   protection (`L-a4d52b09`) land — a first tag before those defeats their purpose. The tag defines
   "previous" for every compatibility mechanism downstream.
-- [ ] Target: ______
+- [x] Target: **v0.1.0 tag immediately after `L-5540b242` (silent-failure launch gate) and `L-a4d52b09` (branch protection) land — target by 2026-07-31** — signed CEO-delegate (Fable), 2026-07-17, per owner delegation; residual: branch protection is the owner's ~10-minute GitHub settings action (`L-a4d52b09`)
 
 ## C — Identity, entitlements, credentials (ADR 0008)
 
@@ -113,7 +118,8 @@
 - Counter-view (design review): "attended" needs a concrete boundary before "yes" is safe —
   named operators, autonomous merge/deploy paths disabled, audit evidence retained per
   consequential action.
-- [ ] Pilot OK with advisory identity: yes / no
+- [x] Pilot OK with advisory identity: **yes** — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
+  - Signed rationale: recommendation adopted with the counter-view's boundary made a pilot condition — sole named operator is Ryan; autonomous merge/deploy paths stay disabled (branch protection per B6 residual + attended deploys per ADR 0003); audit evidence retained per consequential approval. Any weakening of those conditions makes Option C (`L-090f5344`) blocking immediately, per ADR 0008's reversal trigger.
 
 ### C2. Seat-loss / device-loss / deliberate-revocation semantics
 
@@ -122,7 +128,7 @@
 - **Recommendation:** revocation kills machine turns immediately (revocation means revoked); human
   sessions re-authenticate and resume. Formalize when hosted-mode design starts — local pilot is
   unaffected.
-- [ ] Decided: ______
+- [x] Decided: **deliberate revocation kills machine turns immediately (revocation means revoked); human sessions re-authenticate and resume** — formalized when hosted-mode design starts; local pilot unaffected — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
 
 ### C3. Reviewer-independence enforcement (approver ≠ author)
 
@@ -130,19 +136,20 @@
   SHA-bound merge gate — it pins *what* merges, not *who* approved. **Recommendation:** the
   Option C work (`L-090f5344`) must present the approver-independence mechanism — decide it
   there, not abstractly here.
-- [ ] Agreed to decide inside the ledger design: yes / no
+- [x] Agreed to decide inside the ledger design: **yes** — the Option C work (`L-090f5344`) must present the approver-independence (approver ≠ author) mechanism as a named deliverable of its design, not decided abstractly here — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
 
 ### C4. osxkeychain credential residue (`L-bd770677`) — accept for pilot, or fix first?
 
 - A forwarded short-lived GitHub token can persist into the dev's real keychain and be replayed.
 - **Recommendation:** fix before pilot — it's cheap (suppress `credential approve` propagation in
   the spawned env) relative to an indefinitely replayable token.
-- [ ] Decided: fix pre-pilot / accept documented risk
+- [x] Decided: **fix pre-pilot** — suppress `credential approve` propagation in the spawned env (`L-bd770677`) — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
+  - Signed rationale: cheap same-day agent work run in parallel with pilot setup; it must not delay dispatching the first burn beyond that day — an indefinitely replayable token in the dev's real keychain is not an acceptable documented risk.
 
 ### C5. Real Polar org id
 
 - `PLACEHOLDER_ORG_ID` in `license.ts`. Pure one-timer; needs your Polar account.
-- [ ] Done / scheduled: ______
+- [x] Done / scheduled: **scheduled — before the Phase E entitlement ship; not pilot-blocking** — signed CEO-delegate (Fable), 2026-07-17, per owner delegation; residual: owner copies the org id from the Polar dashboard into `license.ts` (replaces `PLACEHOLDER_ORG_ID`, one paste)
 
 ## D — Packaging and runtime (ADR 0006 — Accepted (amended) 2026-07-17; D1–D4 open)
 
@@ -157,26 +164,27 @@
 - **Recommendation:** (a) — it keeps one launcher brain and gives customers a working first-launch
   without a terminal; (b) remains the documented retreat if CLI-launched and Roof-launched daemons
   ever fight in the field (the memo's reversal trigger).
-- [ ] Decided: ______
+- [x] Decided: **(a) launch via the Studio CLI's own launcher only — never spawning the daemon process directly**; (b) strict pure-client stands as the documented retreat on the memo's reversal trigger. ADR 0006 amendment 1 is hereby in force — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
 
 ### D2. Cosign verification in `studio upgrade`: mandatory or warn-and-continue?
 
 - Today it warns and continues — checksum without provenance.
 - **Recommendation:** mandatory before the first supported release; keep warn-only on dev
   channels if needed.
-- [ ] Decided: ______
+- [x] Decided: **mandatory before the first supported release; warn-and-continue permitted on dev channels only** — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
 
 ### D3. Apple one-timers
 
 - Developer ID cert, notary credentials, Sparkle keys — and whether **Studio** also gets Developer
   ID signing for the joined install flow. Only you can create these.
-- [ ] Scheduled: ______
+- [x] Scheduled: **before first external distribution (alongside A2's EULA); not pilot-blocking. Direction: yes — Studio also gets Developer ID signing for the joined install flow** — signed CEO-delegate (Fable), 2026-07-17, per owner delegation; residual: owner creates the Apple credentials (Developer ID cert, notary credentials, Sparkle keys — one Apple-account sitting)
+  - Signed rationale: signing Studio too preempts ADR 0006's Gatekeeper reversal trigger — ad-hoc-signed studio binaries in the joined flow are already a named support hazard.
 
 ### D4. Per-channel version-matrix policy; does the remote "software factory" profile ship at v1?
 
 - **Recommendation:** defer the remote profile past v1 — it multiplies the identity (C2) and
   fail-closed (B2) surfaces before the local product has a single tagged release.
-- [ ] Decided: ______
+- [x] Decided: **remote "software factory" profile deferred past v1; per-channel version matrix = current contract major only until B3's support window lands at the second tagged release** — signed CEO-delegate (Fable), 2026-07-17, per owner delegation
 
 ---
 
