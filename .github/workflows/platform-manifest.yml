@@ -4,21 +4,25 @@ on:
   pull_request:
     paths:
       - ".github/workflows/platform-manifest.yml"
+      - "bunfig.toml"
       - "bun.lock"
       - "docs/platform/probes/evidence/platform-manifest-v0.json"
       - "docs/platform/probes/evidence/platform-manifest-v0.json.sha256"
       - "package.json"
       - "packages/platform-manifest/**"
+      - "tsconfig.base.json"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/platform-manifest.yml"
+      - "bunfig.toml"
       - "bun.lock"
       - "docs/platform/probes/evidence/platform-manifest-v0.json"
       - "docs/platform/probes/evidence/platform-manifest-v0.json.sha256"
       - "package.json"
       - "packages/platform-manifest/**"
+      - "tsconfig.base.json"
   workflow_dispatch:
 
 permissions:
@@ -36,6 +40,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -43,12 +49,12 @@ jobs:
           bun-version: 1.3.5
 
       - name: Install locked dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Run platform-manifest gate
         run: bun run --filter @snackday/platform-manifest gate
 
-      - name: Verify preserved evidence integrity
+      - name: Check preserved evidence digest consistency
         run: |
           expected="$(cut -d ' ' -f 1 docs/platform/probes/evidence/platform-manifest-v0.json.sha256)"
           actual="$(sha256sum docs/platform/probes/evidence/platform-manifest-v0.json | cut -d ' ' -f 1)"
