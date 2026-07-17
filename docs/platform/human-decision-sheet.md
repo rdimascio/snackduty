@@ -1,7 +1,8 @@
 # Platform human-decision sheet — one-sitting sign-off
 
-- Compiled: 2026-07-17, from the adjudicated ADRs 0005/0007/0008 (all Accepted-amended) and the
-  pending ADR 0006 calls named by the Chief Architect memo. Task: `L-58698e19`.
+- Compiled: 2026-07-17, from the adjudicated ADRs 0005/0007/0008 and the ADR 0006 calls
+  pre-staged from the Chief Architect memo — 0006 was itself adjudicated **Accepted (amended)**
+  later the same day (`998d44b`); its D1–D4 remain open. Task: `L-58698e19`.
 - Owner: Ryan. Each item: the decision, options, a recommendation (adjudicator input, not a
   substitute for your call), and what deferral costs. Check a box, or write the variant you want
   next to it. Items marked **[blocking]** hold up named work today; the rest can wait without
@@ -20,6 +21,9 @@
   platform's constitution.
 - Deferral: the charter, repo creation, and the ADR-migration clause all wait; constitutional docs
   stay in the proof-app repo.
+- Counter-view (design review): an org name does not create neutral governance while one person
+  controls the org and the CA process — the charter must name administrators, succession, and
+  recovery, or describe the repo honestly as owner-controlled until multiple governors exist.
 - [ ] Decided: org ____________ name ____________ visibility ______ license ______
 
 ### A2. Roof licensing posture + third-party notices **[blocking → any external distribution]** (`L-5137b031`)
@@ -29,6 +33,9 @@
   notarized distribution pipeline already exists with zero license text. Third-party notices
   (Sparkle at minimum) are required under every option — generate regardless of choice.
 - Deferral: first external install of the .app is a compliance incident.
+- Counter-view (design review): the posture choice is a legal/business call, not architecture —
+  the architecture-side floor is "no external distribution until counsel selects terms and the
+  FULL dependency inventory (not just Sparkle) is noticed."
 - [ ] Decided: posture ______
 
 ### A3. Studio provenance Gate-1 sign-off (employment-IP review)
@@ -48,6 +55,9 @@
   identity is the workflow, which matches "release authority = the manifest process." Nothing is
   signed until the D6 ledger lives, so this decides direction, not timing.
 - Deferral: free today — manifest v0 is unsigned by design and the schema rejects a signature.
+- Counter-view (design review): keyless is not custody-free — authority moves to repo
+  administration + workflow integrity; if chosen, require pinned issuer/subject/workflow
+  identity, protected release environments, and a Rekor/bundle verification policy.
 - [ ] Decided: ______
 
 ### B2. Fail-open vs fail-closed on an indeterminate version probe (once a manifest consumer exists)
@@ -59,6 +69,9 @@
   remote peer is a real risk signal). Until signed off, the ADR's rule stands: nobody silently
   tightens or loosens it.
 - Deferral: acceptable; becomes urgent only when a hosted profile ships.
+- Counter-view (design review): mode, not topology — fail closed whenever running in
+  supported/release mode and compatibility cannot be established (loopback is not inherently
+  trustworthy), with an explicit user-visible development override.
 - [ ] Decided: loopback ______ remote ______
 
 ### B3. Support window (N−1 minor vs major) + deprecation clock
@@ -97,6 +110,9 @@
   rule (every consequential approval is human-gated; actor fields are advisory). The D6 ledger is
   blocked on real identity regardless (`L-090f5344`). If you answer no, Option C becomes a launch
   blocker, not just a ledger prerequisite.
+- Counter-view (design review): "attended" needs a concrete boundary before "yes" is safe —
+  named operators, autonomous merge/deploy paths disabled, audit evidence retained per
+  consequential action.
 - [ ] Pilot OK with advisory identity: yes / no
 
 ### C2. Seat-loss / device-loss / deliberate-revocation semantics
@@ -110,8 +126,9 @@
 
 ### C3. Reviewer-independence enforcement (approver ≠ author)
 
-- Enforced nowhere today. **Recommendation:** the `L-957b8149` ledger design must present its
-  enforcement mechanism as part of Option C (`L-090f5344`, related-edged) — decide the mechanism
+- Enforced nowhere today. Note: `L-957b8149` has since **shipped** (PR #9) as the narrower
+  SHA-bound merge gate — it pins *what* merges, not *who* approved. **Recommendation:** the
+  Option C work (`L-090f5344`) must present the approver-independence mechanism — decide it
   there, not abstractly here.
 - [ ] Agreed to decide inside the ledger design: yes / no
 
@@ -127,9 +144,9 @@
 - `PLACEHOLDER_ORG_ID` in `license.ts`. Pure one-timer; needs your Polar account.
 - [ ] Done / scheduled: ______
 
-## D — Packaging and runtime (ADR 0006 — pending adjudication; decisions pre-staged)
+## D — Packaging and runtime (ADR 0006 — Accepted (amended) 2026-07-17; D1–D4 open)
 
-### D1. Pure-client Roof vs launch-via-Studio-CLI **[blocking → 0006 adjudication text]**
+### D1. Pure-client Roof vs launch-via-Studio-CLI **[blocking → 0006 amendment 1 taking force]**
 
 - The ADR draft says Roof "discovers or launches" the daemon; Roof's shipped FOUNDATION invariant
   says it never launches or manages it. One of them must change.

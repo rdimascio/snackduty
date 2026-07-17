@@ -2,7 +2,7 @@
 
 - Status: Accepted (amended) — principal separation ratified as implemented, with a
   known-divergences appendix; the approval-identity clause is hardened by the red-team RCA and
-  gates the D6 merge-authorization ledger
+  gates D6 authorization receipts (the shipped SHA-bound merge gate does not satisfy it)
 - Date: proposed 2026-07-16; adjudicated 2026-07-17
 - Decider: Chief Architect (adjudication task `L-9f36cd26`, under platform decision `L-710ba74e`)
 
@@ -45,10 +45,12 @@ bearer token means any holder can assert any name. The accepted clause is:
   while every consequential approval is human-gated (ADR 0003's standing rule) — that assumption
   is now stated explicitly rather than implied.
 - **Hardened requirement:** authenticated, server-stamped approval identity with
-  implementer-independence lineage is a **prerequisite of the D6 merge-authorization ledger**
-  (`L-957b8149`, in flight), not merely of leaving pilot. A ledger fed by spoofable actor strings
-  cannot satisfy its own verification requirement that the implementer's run cannot approve
-  itself. No receipt derived from client-asserted identity may enter a release manifest (ADR 0007
+  implementer-independence lineage is a **prerequisite of D6 authorization receipts**, not merely
+  of leaving pilot. Scope note (post-adjudication, same day): `L-957b8149` **shipped** (PR #9) as
+  the narrower **SHA-bound merge gate** — it pins *what* may merge, not *who* approved. It does
+  NOT satisfy this requirement; the receipts/identity half is the Option C work (`L-090f5344`)
+  and remains open. A record fed by spoofable actor strings cannot satisfy the requirement that
+  the implementer's run cannot approve itself. No receipt derived from client-asserted identity may enter a release manifest (ADR 0007
   §6).
 - Human and machine approvers get distinct, server-stamped identities when that system lands.
 
@@ -148,9 +150,10 @@ below.
 
 ## Implementation owners and blocking edges
 
-- **studio** — Option C: authenticated, server-stamped approval identity + implementer-independence
-  lineage, designed with (and prerequisite to) the `L-957b8149` ledger; the probe's six read-only
-  acceptance tests landed as documenting tests (actor-honesty, env-scrub, deploy-boundary,
+- **studio** — Option C (`L-090f5344`): authenticated, server-stamped approval identity +
+  implementer-independence lineage — the receipts prerequisite. (`L-957b8149`, the SHA-bound
+  merge gate, shipped in PR #9 and does not satisfy it.) The probe's six read-only acceptance
+  tests land as documenting tests (`L-e0171e07`: actor-honesty, env-scrub, deploy-boundary,
   redaction, preview-leak, keychain-surface).
 - **roof** — redact tool-result previews before render (route them through a redaction pass
   mirroring `redactSecrets`).

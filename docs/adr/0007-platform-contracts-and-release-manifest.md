@@ -26,7 +26,7 @@ Each seam keeps its own version authority, single-sourced in the owning reposito
 | --------------------------- | ------------------------------------------------------------------------------------- | ------- |
 | Studio `/v1` + WS contract  | `API_CONTRACT_VERSION` (`shared/src/contract-version.ts:6`) → OpenAPI `info.version` + WS `hello.serverVersion` | `1.0.0` |
 | Studio product              | `STUDIO_VERSION` (`api/src/version.ts`) — deliberately a separate axis                 | `0.1.0` |
-| Studio DB                   | `SCHEMA_VERSION` + forward-only `MIGRATIONS` chain                                     | v71     |
+| Studio DB                   | `SCHEMA_VERSION` + forward-only `MIGRATIONS` chain                                     | v73     |
 | Lesto packages              | lockstep changesets workspace version, exact internal pins; scaffold `LESTO_DEP_RANGE` | `0.2.0` |
 | Lesto deploy verdict        | `DEPLOY_JSON_SCHEMA_VERSION` (producer, `packages/cli/src/run.ts`) vs Studio consumer `z.literal` pin | `1`/`1` |
 | Roof client                 | Roof `VERSION` + `StudioClient.minServerVersion` (major-only connect gate)             | `1.0.0` |
@@ -70,8 +70,10 @@ Each repository owns its gate. Manifest v0 carries **no** authorization claims, 
 makes the severed claims unforgeable by construction: `signed` is `const false`,
 `authorization.mergeReceipts` and `templateContractVersion` validate only as `null`. Signatures and
 exact-SHA merge-authorization receipts enter only a later manifest v1, gated on (a) a signing
-authority with custody and hosting, and (b) the fail-closed D6 authorization ledger required by the
-RCA. A platform release is the manifest plus compatibility evidence; deployment remains separately
+authority with custody and hosting, and (b) authenticated approval identity in the D6
+authorization chain — the SHA-bound merge gate (`L-957b8149`) shipped 2026-07-17 and pins the
+merged SHA, but receipts additionally require server-stamped approver identity + independence
+(`L-090f5344`, open). A platform release is the manifest plus compatibility evidence; deployment remains separately
 attended.
 
 ### 7. Rollback coordinates
@@ -166,6 +168,16 @@ These block the first supported platform release (D7), not this decision:
 - Spec-derived capabilities churn every release → revert to route-existence probing.
 - A runtime decode failure against a manifest-declared-compatible set → the hashes-as-diagnostics
   stance is falsified; revisit gating.
+
+## Recorded dissent (independent design review, 2026-07-17)
+
+A post-acceptance review argued manifest v0 is over-built for a platform with zero releases
+(canonicalization + seven failure classes + rollback taxonomy ahead of need) and that capability
+negotiation should wait for its first concrete consumer (ship the `/v1/health` contract version
+first, add `capabilities` with the first optional feature that needs one). The staged-core
+acceptance stands — the tooling is built, verified, and contained in one package — but the
+implementation tasks carry the staging note, and the reversal trigger ("two-plus releases, no
+skew incidents → shrink to fixtures + health-contract") is the agreed off-ramp.
 
 ## Open named human decisions
 

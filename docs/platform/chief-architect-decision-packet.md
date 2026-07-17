@@ -1,7 +1,11 @@
 # Chief Architect decision packet — platform assembly
 
 - Decision window: 2026-07-16 through 2026-07-18
-- Status: Ready for architecture review
+- Status: **SUPERSEDED as decision input (2026-07-17)** — adjudication complete: ADRs 0005–0008
+  are all Accepted (amended). This packet is the frozen pre-decision input; authoritative
+  outcomes live in `docs/adr/0005–0008`, the
+  [adjudication memo](chief-architect-adjudication.md), and the
+  [human-decision sheet](human-decision-sheet.md) awaiting owner sign-off.
 - Product source: Lesto `docs/NORTH-STAR.md`
 - Execution source: Studio live board
 - Current proof application: Snackday
@@ -19,11 +23,11 @@ The decision is not whether these products should integrate; the ratified north 
 they should. The decision is how repository ownership, runtime assembly, distribution, identity,
 version compatibility, and release authority compose into one supportable platform.
 
-## Fable evidence and adjudication
+## Evidence and adjudication
 
 - [Final Chief Architect adjudication](chief-architect-adjudication.md)
 - [Consolidated human-decision sheet](human-decision-sheet.md) — one-sitting owner sign-off
-  (ADRs 0005/0007/0008 adjudicated 2026-07-17; 0006 pre-staged)
+  (all four ADRs adjudicated 2026-07-17; sheet items D1–D4 remain open)
 - [Repository-topology probe](probes/repository-topology.md)
 - [Packaging/runtime probe](probes/packaging-runtime.md)
 - [Compatibility probe](probes/compatibility.md)

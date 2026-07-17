@@ -1,8 +1,9 @@
 # 0006 — Platform packaging and runtime topology
 
 - Status: Accepted (amended) — one installer/support channel with separately versioned Roof and
-  Studio artifacts, no embedding; four amendments; launch semantics pending one named human
-  decision
+  Studio artifacts, no embedding; four amendments. **Amendment 1 (launch ownership) is
+  conditional on decision-sheet D1 and not in force until signed** — Roof's shipped pure-client
+  behavior stands meanwhile
 - Date: proposed 2026-07-16; adjudicated 2026-07-17
 - Decider: Chief Architect (adjudication task `L-723fe37e`, under platform decision `L-710ba74e`)
 
@@ -34,8 +35,9 @@ launch) is decision-sheet item **D1** — until signed, Roof's shipped pure-clie
 ### 2. Update ordering + version endpoint
 
 The daemon never self-restarts; the 24h update check is advisory only. `studio upgrade` stops the
-daemon explicitly, and Roof must survive that — **proven live**: restart reuses the port, the
-token persists byte-identical, and the client re-reads state (Lane A step 10). Roof updates
+daemon explicitly, and Roof must survive that. The load-bearing half — **daemon-restart
+survival** — is proven live (Lane A step 10: port reused, token byte-identical, state re-read);
+the full `studio upgrade` path (binary swap + cosign check) remains a Lane B release gate. Roof updates
 independently behind the contract-major gate. The missing primitive — pre-connect skew is
 diagnosable only after a WS connect — is owned by the ADR 0007 `/v1/health` contract block
 (`L-4c64c89d`), which subsumes the unauthenticated REST version endpoint this amendment requires.

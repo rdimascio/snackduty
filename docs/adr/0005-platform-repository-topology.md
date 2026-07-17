@@ -23,7 +23,10 @@ board; Studio remains the execution source of truth. Three clauses bind the prop
 
 The coordination repository is created under a clean, non-employer, non-personal org (which org is
 a named human decision below), private initially, plain-docs license. Its merge authority is the
-Chief Architect decision process, not any product team. It must **not** live under `every-io` and
+Chief Architect decision process, not any product team. (Honesty note from design review: until
+multiple governors exist this is owner-controlled in practice — the charter must name
+administrators, succession, and recovery rather than implying org-name neutrality equals
+governance neutrality.) It must **not** live under `every-io` and
 must **not** be blocked on Studio's provenance/title gate — the manifest must be able to name (or
 exclude) the Studio artifact without inheriting Studio's provenance risk.
 
