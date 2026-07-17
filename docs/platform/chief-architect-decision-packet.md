@@ -22,6 +22,8 @@ version compatibility, and release authority compose into one supportable platfo
 ## Fable evidence and adjudication
 
 - [Final Chief Architect adjudication](chief-architect-adjudication.md)
+- [Consolidated human-decision sheet](human-decision-sheet.md) — one-sitting owner sign-off
+  (ADRs 0005/0007/0008 adjudicated 2026-07-17; 0006 pre-staged)
 - [Repository-topology probe](probes/repository-topology.md)
 - [Packaging/runtime probe](probes/packaging-runtime.md)
 - [Compatibility probe](probes/compatibility.md)
