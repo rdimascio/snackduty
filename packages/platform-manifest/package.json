@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "generate:local": "bun src/cli.ts generate",
+    "gate": "bun run typecheck && bun run test && bun run build",
     "tamper:local": "bun src/cli.ts tamper",
     "typecheck": "tsc --noEmit",
     "verify:local": "bun src/cli.ts verify",

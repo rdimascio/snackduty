@@ -1,0 +1,55 @@
+name: Platform manifest
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/platform-manifest.yml"
+      - "bun.lock"
+      - "docs/platform/probes/evidence/platform-manifest-v0.json"
+      - "docs/platform/probes/evidence/platform-manifest-v0.json.sha256"
+      - "package.json"
+      - "packages/platform-manifest/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/platform-manifest.yml"
+      - "bun.lock"
+      - "docs/platform/probes/evidence/platform-manifest-v0.json"
+      - "docs/platform/probes/evidence/platform-manifest-v0.json.sha256"
+      - "package.json"
+      - "packages/platform-manifest/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-manifest-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Schema, verifier, and tamper controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run platform-manifest gate
+        run: bun run --filter @snackday/platform-manifest gate
+
+      - name: Verify preserved evidence integrity
+        run: |
+          expected="$(cut -d ' ' -f 1 docs/platform/probes/evidence/platform-manifest-v0.json.sha256)"
+          actual="$(sha256sum docs/platform/probes/evidence/platform-manifest-v0.json | cut -d ' ' -f 1)"
+          test "$actual" = "$expected"
