@@ -76,6 +76,12 @@ matrix (blocked on B6 anyway).
   in-flight runs (`SIGTERM` world-cancel; `SIGKILL` ironically resumes).
 - All burns run under the review gate + SHA-bound merge authorization; actor fields remain
   advisory until Tier 3 identity lands.
+- **Token safety is per-run-strong, fleet-lagging** (assessed 2026-07-17): the per-run runaway
+  trip works (it caught the 274k burst, `L-349c1d38`), but fleet-day \$ caps enforce at run
+  completion (`L-06acddff`) and the meter is fail-open (`L-a45dd717`) — both filed as
+  launch-gate blockers on `L-5540b242`. Pilot posture: keep the \$25/\$50 daily clamps, prefer
+  few concurrent lanes over many, and treat "failed to record spend" log lines as a
+  stop-the-burn signal.
 
 ## Pilot definition of done
 
