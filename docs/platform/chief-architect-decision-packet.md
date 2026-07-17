@@ -38,9 +38,12 @@ preserved unsigned artifact verifies cleanly, and all twelve negative controls r
 expected failure classes. Three of four pinned repositories are non-durable, so the manifest is
 architecture evidence rather than a release candidate. Signing and authorization receipts remain
 intentionally deferred until their authorities exist.
-The lifecycle task `L-786014f7` also remains open: Roof builds with the full Xcode toolchain, but its
-vendored Studio contract has drifted, and Studio's current worktree fails typechecking and one CLI
-unit test. Those are explicit stop conditions, not waived evidence.
+The lifecycle probe's credential-free lane was **executed 2026-07-17** (`L-786014f7`,
+[Lane A execution evidence](probes/lifecycle-preflight-execution.md)): all 12 steps green on live
+substrate, after the three named stop conditions (Studio typecheck, the failing CLI unit test,
+Roof's vendored-contract drift) were verified cleared at the merged origin/main. Lane B
+(real-account discovery, updater, uninstall inventory, Gatekeeper) remains human-gated — release
+gates recorded in ADR 0006 (Accepted 2026-07-17).
 
 ## Current facts
 
@@ -233,13 +236,15 @@ For each ADR, record:
 ## Known blockers
 
 - Studio's five verified shutdown/evidence/redaction defects.
-- Missing SHA-bound merge authorization (`L-957b8149`) and GitHub branch protection.
+- ~~Missing SHA-bound merge authorization (`L-957b8149`)~~ — **shipped 2026-07-17** (PR #9).
+  GitHub branch protection (`L-a4d52b09`) remains open — the RCA's independent second layer.
 - Repository identity drift affecting review ingestion.
 - No neutral coordination repository. (Manifest v0 is now implemented, exercised, and
   re-verified — see ADR 0007, Accepted 2026-07-17.)
 - Compatibility policy across Roof, Studio, Lesto, and application templates is now decided in
   ADR 0007; its staged-core implementation tasks remain open.
 - Cloudflare credentials and live deployment remain attended human prerequisites.
-- Roof's vendored Studio OpenAPI contract is stale against Studio HEAD.
-- Studio's current shared worktree fails typechecking and one CLI unit test, preventing the
-  lifecycle restart/rotation/rollback drill.
+- ~~Roof's vendored Studio OpenAPI contract is stale against Studio HEAD~~ — re-vendored at roof
+  `c8c7126` (2026-07-17); the freshness gate caught the drift live.
+- ~~Studio worktree typecheck + CLI-test failures blocking the lifecycle drill~~ — cleared at
+  origin/main `a443abef`; the drill's Lane A ran green (see above).
