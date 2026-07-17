@@ -1,0 +1,28 @@
+{
+  "name": "@snackday/platform-manifest",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./canonical": "./src/canonical.ts",
+    "./schema/v0": "./schema/platform-manifest-v0.schema.json",
+    "./verify": "./src/verify.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "generate:local": "bun src/cli.ts generate",
+    "tamper:local": "bun src/cli.ts tamper",
+    "typecheck": "tsc --noEmit",
+    "verify:local": "bun src/cli.ts verify",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.5",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.8"
+  }
+}

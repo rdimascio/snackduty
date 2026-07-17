@@ -13,3 +13,6 @@ bun run --filter web dev
 ```
 
 Lesto architecture and implementation live in the sibling `../crack` repository. The app consumes its published packages so transitive workspace dependencies resolve reproducibly.
+
+The cross-repository platform boundaries and the July 16–18 proof plan are recorded in
+[`docs/adr/`](docs/adr/) and [`docs/platform-mvp-sprint.md`](docs/platform-mvp-sprint.md).

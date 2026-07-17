@@ -69,6 +69,18 @@
         "vitest": "^4.1.8",
       },
     },
+    "packages/platform-manifest": {
+      "name": "@snackday/platform-manifest",
+      "version": "0.0.0",
+      "dependencies": {
+        "ajv": "^8.17.1",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.5",
+        "typescript": "^5.7.0",
+        "vitest": "^4.1.8",
+      },
+    },
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
@@ -414,6 +426,8 @@
     "@snackday/domain": ["@snackday/domain@workspace:packages/domain"],
 
     "@snackday/ios": ["@snackday/ios@workspace:apps/ios"],
+
+    "@snackday/platform-manifest": ["@snackday/platform-manifest@workspace:packages/platform-manifest"],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 

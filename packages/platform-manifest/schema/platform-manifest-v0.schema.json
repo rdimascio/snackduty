@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://snackday.local/schemas/platform-manifest-v0.schema.json",
+  "title": "Platform manifest v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "signed",
+    "generatedAt",
+    "generator",
+    "authorization",
+    "repos",
+    "contracts",
+    "releases",
+    "rollback",
+    "apps",
+    "unknowns"
+  ],
+  "properties": {
+    "schema": { "const": "platform-manifest/v0" },
+    "signed": { "const": false },
+    "generatedAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "generator": { "$ref": "#/$defs/generator" },
+    "authorization": { "$ref": "#/$defs/authorization" },
+    "repos": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/repo" },
+            { "type": "object", "properties": { "name": { "const": "lesto" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/repo" },
+            { "type": "object", "properties": { "name": { "const": "roof" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/repo" },
+            { "type": "object", "properties": { "name": { "const": "snackday" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/repo" },
+            { "type": "object", "properties": { "name": { "const": "studio" } } }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "contracts": { "$ref": "#/$defs/contracts" },
+    "releases": { "$ref": "#/$defs/releases" },
+    "rollback": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "prefixItems": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/rollback" },
+            { "type": "object", "properties": { "component": { "const": "lesto" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/rollback" },
+            { "type": "object", "properties": { "component": { "const": "roof" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/rollback" },
+            { "type": "object", "properties": { "component": { "const": "snackday" } } }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/rollback" },
+            { "type": "object", "properties": { "component": { "const": "studio" } } }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "apps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/app" }
+    },
+    "unknowns": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/unknown" } }
+  },
+  "$defs": {
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "version"],
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mergeReceipts", "reason"],
+      "properties": {
+        "mergeReceipts": { "type": "null" },
+        "reason": { "const": "NO_AUTHORIZATION_LEDGER" }
+      }
+    },
+    "upstream": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["configured", "ahead", "behind"],
+      "properties": {
+        "configured": { "type": "boolean" },
+        "ahead": { "type": "integer", "minimum": 0 },
+        "behind": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "dirty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clean", "fileCount"],
+      "properties": {
+        "clean": { "type": "boolean" },
+        "fileCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "path",
+        "head",
+        "branch",
+        "remote",
+        "upstream",
+        "dirty",
+        "durable",
+        "latestTag",
+        "tagsAuthoritative",
+        "releasePipeline",
+        "gateCommand",
+        "gateEnforcedInCI",
+        "operationalFactsRole"
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "head": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "branch": { "type": "string", "minLength": 1 },
+        "remote": { "type": ["string", "null"] },
+        "upstream": { "$ref": "#/$defs/upstream" },
+        "dirty": { "$ref": "#/$defs/dirty" },
+        "durable": { "type": "boolean" },
+        "latestTag": { "type": ["string", "null"] },
+        "tagsAuthoritative": { "type": "boolean" },
+        "releasePipeline": { "enum": ["tag-push", "dispatch-only", "none"] },
+        "gateCommand": { "type": "string", "minLength": 1 },
+        "gateEnforcedInCI": { "type": "boolean" },
+        "operationalFactsRole": { "const": "non-authoritative" }
+      }
+    },
+    "studioContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiContractVersion",
+        "openapiSha256",
+        "wsEventSchemaSha256",
+        "dbSchemaVersion",
+        "hashRole"
+      ],
+      "properties": {
+        "apiContractVersion": { "type": "string", "minLength": 1 },
+        "openapiSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "wsEventSchemaSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "dbSchemaVersion": { "type": "integer", "minimum": 0 },
+        "hashRole": { "const": "diagnostic" }
+      }
+    },
+    "lestoContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deployJsonSchemaVersion",
+        "studioConsumerPinnedVersion",
+        "compatStatus",
+        "npmSurfaceVersion",
+        "scaffoldDepRange",
+        "packageCount",
+        "remoteTruthRole"
+      ],
+      "properties": {
+        "deployJsonSchemaVersion": { "type": "integer", "minimum": 0 },
+        "studioConsumerPinnedVersion": { "type": "integer", "minimum": 0 },
+        "compatStatus": { "enum": ["consistent", "inconsistent"] },
+        "npmSurfaceVersion": { "type": ["string", "null"] },
+        "scaffoldDepRange": { "type": "string", "minLength": 1 },
+        "packageCount": { "type": ["integer", "null"], "minimum": 0 },
+        "remoteTruthRole": { "const": "non-authoritative" }
+      }
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["studio", "lesto", "templateContractVersion"],
+      "properties": {
+        "studio": { "$ref": "#/$defs/studioContract" },
+        "lesto": { "$ref": "#/$defs/lestoContract" },
+        "templateContractVersion": { "type": "null" }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "version", "locallyVerified"],
+      "properties": {
+        "channel": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "locallyVerified": { "type": "boolean" }
+      }
+    },
+    "releases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["studio", "roof", "lesto", "reasonForNulls", "remoteTruthRole"],
+      "properties": {
+        "studio": { "anyOf": [{ "$ref": "#/$defs/release" }, { "type": "null" }] },
+        "roof": { "anyOf": [{ "$ref": "#/$defs/release" }, { "type": "null" }] },
+        "lesto": { "anyOf": [{ "$ref": "#/$defs/release" }, { "type": "null" }] },
+        "reasonForNulls": { "type": ["string", "null"] },
+        "remoteTruthRole": { "const": "non-authoritative" }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "mechanism", "scripted", "everExercised", "evidenceRole"],
+      "properties": {
+        "component": { "type": "string", "minLength": 1 },
+        "mechanism": {
+          "enum": [
+            "pointer-flip",
+            "none-roll-forward",
+            "undocumented-manual",
+            "appcast-repoint-unscripted",
+            "unknown"
+          ]
+        },
+        "scripted": { "type": "boolean" },
+        "everExercised": { "type": "boolean" },
+        "evidenceRole": { "const": "non-authoritative" }
+      }
+    },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "lestoDepRange",
+        "wranglerConfig",
+        "deployedVersion",
+        "migrationVersions"
+      ],
+      "properties": {
+        "name": { "const": "snackday-web" },
+        "lestoDepRange": { "type": "string", "minLength": 1 },
+        "wranglerConfig": { "const": "apps/web/wrangler.jsonc" },
+        "deployedVersion": { "type": ["string", "null"] },
+        "migrationVersions": {
+          "type": ["array", "null"],
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "reason"],
+      "properties": {
+        "field": { "type": "string", "pattern": "^/" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
