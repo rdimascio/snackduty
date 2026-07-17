@@ -76,12 +76,17 @@ matrix (blocked on B6 anyway).
   in-flight runs (`SIGTERM` world-cancel; `SIGKILL` ironically resumes).
 - All burns run under the review gate + SHA-bound merge authorization; actor fields remain
   advisory until Tier 3 identity lands.
-- **Token safety is per-run-strong, fleet-lagging** (assessed 2026-07-17): the per-run runaway
-  trip works (it caught the 274k burst, `L-349c1d38`), but fleet-day \$ caps enforce at run
-  completion (`L-06acddff`) and the meter is fail-open (`L-a45dd717`) — both filed as
-  launch-gate blockers on `L-5540b242`. Pilot posture: keep the \$25/\$50 daily clamps, prefer
-  few concurrent lanes over many, and treat "failed to record spend" log lines as a
-  stop-the-burn signal.
+- **Token safety: five launch-gate blockers, one strong primitive** (corrected 2026-07-17 after
+  owner incidents — 103.4M/100M-token day, 2 Kimi planners ≈ 20% of plan quota, ~\$5k/2wk):
+  the per-run runaway trip works (`L-349c1d38` — now a recurring planning-inflation CLASS, two
+  providers) and a fleet-day token budget exists and binds — but exhaustion blocks dispatch
+  SILENTLY (`L-2414dc3c`, fix in progress), fleet caps enforce lagging at run completion
+  (`L-06acddff`), the meter is fail-open (`L-a45dd717`), subscription lanes are effectively
+  uncapped — \$-caps see ~\$0 marginal (`L-71f61d70`), and the meter only covers
+  executor-dispatched work — harness/CLI sessions bill outside it (`L-f5ecf579`). All block
+  `L-5540b242`. Pilot posture: keep the \$25/\$50 + token clamps, few lanes, watch `studio
+  status` AND the daemon log for budget lines (status is blind to exhaustion until L-2414dc3c
+  lands), and remember the harness's own sessions are unmetered by Studio.
 
 ## Pilot definition of done
 
