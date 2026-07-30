@@ -56,10 +56,15 @@ curl -i -b "$COOKIE_JAR" -X POST \
   -H 'Content-Type: application/json' -H 'Sec-Fetch-Site: same-origin' \
   -d '{"displayName":"Bailey Guardian","relationship":"caregiver","permissions":["participant.read"]}' \
   "http://127.0.0.1:3000/api/participants/$PARTICIPANT_ID/guardians"
+curl -i -b "$COOKIE_JAR" http://127.0.0.1:3000/api/teams
+curl -i -b "$COOKIE_JAR" \
+  "http://127.0.0.1:3000/api/teams/$TEAM_ID/seasons/$SEASON_ID/roster"
 rm -f "$COOKIE_JAR"
 ```
 
 This creates or reuses one deterministic adult `Person` and its separate one-to-one `Account`, then authenticates the Account with an `HttpOnly` cookie. It does not use an email or password and does not create a child `Participant` account. The routes return `404` unless the server-only flag is explicitly enabled. Never enable this flag in production. The cookie omits `Secure` solely because this guarded path is intended for local HTTP.
+
+The two final `GET` reads are the authorized read APIs; like every `GET` they need only the session cookie, not `Sec-Fetch-Site` (the origin check covers mutating verbs only). `GET /api/teams` lists the signed-in adult's active teams with their seasons; `GET /api/teams/$TEAM_ID/seasons/$SEASON_ID/roster` returns the season's roster — each active participant with `displayName`, optional `birthDate`, and its active guardians (`guardianId`, `displayName`, `relationship`, `permissions`, `status`). A team owned by another Person, or a season paired with the wrong team, answers `404 {"error":"team not found"}` on the roster read and never appears in the list.
 
 The roster steps add a child to the team's season and attach two guardians. The child becomes a `Person` (no email column exists on `people`), a `Participant` referencing that Person, and an active participant membership on the team and season — never an `Account`. Each guardian call creates its own guardian `Person` plus an active guardian relationship (`relationship` is one of `parent`, `guardian`, `caregiver`, `other`; `permissions` defaults to `["participant.read","participant.manage"]`). Repeating an identical display name and relationship pair for the same participant returns `409 {"error":"guardian already attached"}`.
 

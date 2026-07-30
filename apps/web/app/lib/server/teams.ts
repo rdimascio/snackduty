@@ -68,7 +68,7 @@ export const createSeasonInputSchema = z
 const unauthorized = { error: "authentication required" } as const;
 const notFound = { error: "team not found" } as const;
 
-function projectTeam(row: {
+export function projectTeam(row: {
   id: string;
   name: string;
   status: string;

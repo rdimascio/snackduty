@@ -46,6 +46,7 @@ import {
   ensureDevelopmentAdult,
 } from "./app/lib/server/identity";
 import { createRoster, registerRosterRoutes } from "./app/lib/server/roster";
+import { registerTeamReadRoutes } from "./app/lib/server/team-reads";
 import { createTeamsAndSeasons, registerTeamRoutes } from "./app/lib/server/teams";
 
 // The `posts` table — schema as a value backs both the migration's DDL
@@ -129,8 +130,8 @@ function buildBaseApp(db: Db) {
 }
 
 export function buildApp(db: Db, sessions: Sessions, developmentSignIn: boolean) {
-  const app = registerRosterRoutes(
-    registerTeamRoutes(buildBaseApp(db), db, sessions),
+  const app = registerTeamReadRoutes(
+    registerRosterRoutes(registerTeamRoutes(buildBaseApp(db), db, sessions), db, sessions),
     db,
     sessions,
   );

@@ -100,7 +100,7 @@ interface PersonRow {
   updatedAt: string;
 }
 
-function projectParticipant(
+export function projectParticipant(
   row: {
     id: string;
     personId: string;
@@ -128,7 +128,7 @@ function projectParticipant(
   };
 }
 
-function projectGuardian(
+export function projectGuardian(
   row: {
     id: string;
     guardianPersonId: string;
@@ -161,7 +161,7 @@ function projectGuardian(
   };
 }
 
-function ownedActiveTeam(tx: Db, teamId: string, ownerPersonId: string) {
+export function ownedActiveTeam(tx: Db, teamId: string, ownerPersonId: string) {
   return tx
     .select()
     .from(teams)
