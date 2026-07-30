@@ -10,20 +10,20 @@ studio-side drift caught and cleared by the freshness gate during this execution
 
 ## Result — Lane A GREEN, all 12 steps
 
-| Step | Concern                                     | Result                                                                                                             |
-| ---- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 1    | Roof clean build + full offline suite       | pass (546-test CLI suite green upstream; roof `swift test` green, live smokes self-skipped)                         |
-| 2    | Contract freshness vs merged spec           | pass — after re-vendoring: the merged wave HAD drifted the spec; the gate caught it (see below)                     |
-| 3    | Credential-free `roof.app` bundle           | pass (ad-hoc signed)                                                                                                |
-| 4    | Studio typecheck + unit + lifecycle tests   | pass (typecheck exit 0; unit suite green incl. pidfile/version/migrate/upgrade/update-check)                        |
-| 5    | Server e2e, warm bundle                     | pass — after prebuilding the flow bundle (see cold-bundle finding)                                                  |
-| 6    | Shipped-artifact build + boot smoke         | pass — smoke logs `workflow: using embedded bundle … no resolve/build/guard`                                        |
-| 7    | Occupied port fails loud                    | pass — launcher bailed: `daemon failed to start — port :8973 is still in use (EADDRINUSE, pid 6303)` (AT2)          |
-| 8    | Pidfile contract                            | pass — `{pid, port, token, bootId}` all present                                                                     |
-| 9    | Roof wire proof (remote seam)               | pass — `roof-probe` phase-0 REST + WS hello/snapshot, read-only                                                     |
-| 10   | Close/reopen projection                     | pass — restart reused the port, **token byte-identical** (L-89afc749), probe re-read seeded state                   |
-| 11   | Token rotation                              | pass — post-rotate, the stale token was refused (AT6, rotation half)                                                |
-| 12   | Downgrade refusal + rollback drill          | pass — `user_version=9999` DB refused (daemon never healthy); snapshot restore booted clean (AT5)                   |
+| Step | Concern                                   | Result                                                                                                     |
+| ---- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 1    | Roof clean build + full offline suite     | pass (546-test CLI suite green upstream; roof `swift test` green, live smokes self-skipped)                |
+| 2    | Contract freshness vs merged spec         | pass — after re-vendoring: the merged wave HAD drifted the spec; the gate caught it (see below)            |
+| 3    | Credential-free `roof.app` bundle         | pass (ad-hoc signed)                                                                                       |
+| 4    | Studio typecheck + unit + lifecycle tests | pass (typecheck exit 0; unit suite green incl. pidfile/version/migrate/upgrade/update-check)               |
+| 5    | Server e2e, warm bundle                   | pass — after prebuilding the flow bundle (see cold-bundle finding)                                         |
+| 6    | Shipped-artifact build + boot smoke       | pass — smoke logs `workflow: using embedded bundle … no resolve/build/guard`                               |
+| 7    | Occupied port fails loud                  | pass — launcher bailed: `daemon failed to start — port :8973 is still in use (EADDRINUSE, pid 6303)` (AT2) |
+| 8    | Pidfile contract                          | pass — `{pid, port, token, bootId}` all present                                                            |
+| 9    | Roof wire proof (remote seam)             | pass — `roof-probe` phase-0 REST + WS hello/snapshot, read-only                                            |
+| 10   | Close/reopen projection                   | pass — restart reused the port, **token byte-identical** (L-89afc749), probe re-read seeded state          |
+| 11   | Token rotation                            | pass — post-rotate, the stale token was refused (AT6, rotation half)                                       |
+| 12   | Downgrade refusal + rollback drill        | pass — `user_version=9999` DB refused (daemon never healthy); snapshot restore booted clean (AT5)          |
 
 ## Findings beyond pass/fail
 

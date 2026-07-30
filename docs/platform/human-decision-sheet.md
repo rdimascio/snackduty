@@ -123,7 +123,7 @@
 
 ### C2. Seat-loss / device-loss / deliberate-revocation semantics
 
-- Restart-resume is solved (`L-89afc749`); what's undecided is policy for a *deliberately* revoked
+- Restart-resume is solved (`L-89afc749`); what's undecided is policy for a _deliberately_ revoked
   principal: kill in-flight machine turns, or let them drain?
 - **Recommendation:** revocation kills machine turns immediately (revocation means revoked); human
   sessions re-authenticate and resume. Formalize when hosted-mode design starts — local pilot is
@@ -133,7 +133,7 @@
 ### C3. Reviewer-independence enforcement (approver ≠ author)
 
 - Enforced nowhere today. Note: `L-957b8149` has since **shipped** (PR #9) as the narrower
-  SHA-bound merge gate — it pins *what* merges, not *who* approved. **Recommendation:** the
+  SHA-bound merge gate — it pins _what_ merges, not _who_ approved. **Recommendation:** the
   Option C work (`L-090f5344`) must present the approver-independence mechanism — decide it
   there, not abstractly here.
 - [x] Agreed to decide inside the ledger design: **yes** — the Option C work (`L-090f5344`) must present the approver-independence (approver ≠ author) mechanism as a named deliverable of its design, not decided abstractly here — signed CEO-delegate (Fable), 2026-07-17, per owner delegation

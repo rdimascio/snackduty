@@ -21,14 +21,14 @@ condition for release authority (D6).
 
 No token is reused across authorities; each is stored, rotated, and revoked by its own system:
 
-| Principal                    | Authorizes                                            | Storage / boundary (verified in source)                                                                 |
-| ---------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Roof seat entitlement        | unlocks the client (Phase E — not yet shipped)        | Polar; Roof Keychain holds **only** `{studioURL, studioToken}` (`SecretKey`, CaseIterable-guarded)        |
-| Studio principal             | orchestration, approvals, budgets, hosted access      | single bearer token, `~/.studio/token` (0600) + pidfile discovery; full-API scope                        |
-| Studio entitlement           | license/pro features                                  | separate Polar license → `~/.studio/license.json` (0600) + db cache, 7-day offline grace                  |
-| Git provider identity        | repository operations                                 | opt-in per-spawn `GH_TOKEN` (host-derived, HTTPS-only), the one named exception to the `*_TOKEN` scrub    |
-| Cloudflare credentials       | deployment                                            | server-side only (`buildDeployEnv` allowlist; global `CLOUDFLARE_API_KEY` **refused**, ADR 0003)          |
-| Application identity         | the deployed product (Snackday)                       | `@lesto/auth`, fully separate from deployment authority                                                   |
+| Principal              | Authorizes                                       | Storage / boundary (verified in source)                                                                |
+| ---------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Roof seat entitlement  | unlocks the client (Phase E — not yet shipped)   | Polar; Roof Keychain holds **only** `{studioURL, studioToken}` (`SecretKey`, CaseIterable-guarded)     |
+| Studio principal       | orchestration, approvals, budgets, hosted access | single bearer token, `~/.studio/token` (0600) + pidfile discovery; full-API scope                      |
+| Studio entitlement     | license/pro features                             | separate Polar license → `~/.studio/license.json` (0600) + db cache, 7-day offline grace               |
+| Git provider identity  | repository operations                            | opt-in per-spawn `GH_TOKEN` (host-derived, HTTPS-only), the one named exception to the `*_TOKEN` scrub |
+| Cloudflare credentials | deployment                                       | server-side only (`buildDeployEnv` allowlist; global `CLOUDFLARE_API_KEY` **refused**, ADR 0003)       |
+| Application identity   | the deployed product (Snackday)                  | `@lesto/auth`, fully separate from deployment authority                                                |
 
 Machine principals are separated at the spawn boundary: `buildAgentEnv` is an explicit allowlist
 that scrubs every `*_TOKEN`/`*_KEY`/`*_SECRET` and all `STUDIO_*`, forwarding only an injected
@@ -47,7 +47,7 @@ bearer token means any holder can assert any name. The accepted clause is:
 - **Hardened requirement:** authenticated, server-stamped approval identity with
   implementer-independence lineage is a **prerequisite of D6 authorization receipts**, not merely
   of leaving pilot. Scope note (post-adjudication, same day): `L-957b8149` **shipped** (PR #9) as
-  the narrower **SHA-bound merge gate** — it pins *what* may merge, not *who* approved. It does
+  the narrower **SHA-bound merge gate** — it pins _what_ may merge, not _who_ approved. It does
   NOT satisfy this requirement; the receipts/identity half is the Option C work (`L-090f5344`)
   and remains open. A record fed by spoofable actor strings cannot satisfy the requirement that
   the implementer's run cannot approve itself. No receipt derived from client-asserted identity may enter a release manifest (ADR 0007
@@ -111,7 +111,7 @@ below.
 - **Ratify as-is (probe Option A)** — leaves the attribution gap unnamed while the RCA is open;
   "Studio stamps authoritative actors" would be false on its face.
 - **Block everything on authenticated identity now (Option C everywhere)** — over-rotation:
-  credential *containment* is sound and verified; the human-gate assumption holds while
+  credential _containment_ is sound and verified; the human-gate assumption holds while
   automation is paused. C gates D6 and any weakening of the human gate — not the pilot itself,
   unless the human decision below says otherwise.
 - **One platform-wide SSO/token** — the failure mode this ADR exists to prevent: audit and

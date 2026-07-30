@@ -22,15 +22,15 @@ manifest; fail loud on every unsupported pair. Concretely:
 
 Each seam keeps its own version authority, single-sourced in the owning repository:
 
-| Seam                        | Authority                                                                             | Today   |
-| --------------------------- | ------------------------------------------------------------------------------------- | ------- |
-| Studio `/v1` + WS contract  | `API_CONTRACT_VERSION` (`shared/src/contract-version.ts:6`) → OpenAPI `info.version` + WS `hello.serverVersion` | `1.0.0` |
-| Studio product              | `STUDIO_VERSION` (`api/src/version.ts`) — deliberately a separate axis                 | `0.1.0` |
-| Studio DB                   | `SCHEMA_VERSION` + forward-only `MIGRATIONS` chain                                     | v73     |
-| Lesto packages              | lockstep changesets workspace version, exact internal pins; scaffold `LESTO_DEP_RANGE` | `0.2.0` |
-| Lesto deploy verdict        | `DEPLOY_JSON_SCHEMA_VERSION` (producer, `packages/cli/src/run.ts`) vs Studio consumer `z.literal` pin | `1`/`1` |
-| Roof client                 | Roof `VERSION` + `StudioClient.minServerVersion` (major-only connect gate)             | `1.0.0` |
-| Application-template        | **does not exist** — severed; invented deliberately in v1 with a named owner           | —       |
+| Seam                       | Authority                                                                                                       | Today   |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- | ------- |
+| Studio `/v1` + WS contract | `API_CONTRACT_VERSION` (`shared/src/contract-version.ts:6`) → OpenAPI `info.version` + WS `hello.serverVersion` | `1.0.0` |
+| Studio product             | `STUDIO_VERSION` (`api/src/version.ts`) — deliberately a separate axis                                          | `0.1.0` |
+| Studio DB                  | `SCHEMA_VERSION` + forward-only `MIGRATIONS` chain                                                              | v73     |
+| Lesto packages             | lockstep changesets workspace version, exact internal pins; scaffold `LESTO_DEP_RANGE`                          | `0.2.0` |
+| Lesto deploy verdict       | `DEPLOY_JSON_SCHEMA_VERSION` (producer, `packages/cli/src/run.ts`) vs Studio consumer `z.literal` pin           | `1`/`1` |
+| Roof client                | Roof `VERSION` + `StudioClient.minServerVersion` (major-only connect gate)                                      | `1.0.0` |
+| Application-template       | **does not exist** — severed; invented deliberately in v1 with a named owner                                    | —       |
 
 The `/v1` contract policy stands: stable, additive-only, deprecate-before-remove
 (`V1_CONTRACT_STATEMENT`); breaking seam changes require a new contract major plus migration

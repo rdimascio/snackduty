@@ -25,13 +25,13 @@ remains, and it is a human's ten minutes: GitHub branch protection.
 
 ## Tier 1 — the pilot (this week)
 
-| # | Item | Owner | Ref |
-|---|------|-------|-----|
-| 1 | GitHub branch protection on the product repos | **Ryan (~10 min)** | `L-a4d52b09` |
-| 2 | Give snackday a **remote** + push the estate (roof is ahead-14/behind-1) | **Ryan** | `L-4655733f` |
-| 3 | Sign decision-sheet **C1** (advisory identity OK for attended pilot — rec: yes); A1 while there | **Ryan** | `L-58698e19` sheet |
-| 4 | Tmp-tree fork-refusal guard (~20 LOC) so a verify tree can't re-anchor the fleet daemon mid-burn | agent, same-day | `L-9c151fac` |
-| 5 | **Dispatch the burn:** 3–5 real Snackday tasks through the dev-loop fleet (Kimi K3 live for cheap capacity), approvals attended from Roof/TUI | operator | — |
+| #   | Item                                                                                                                                          | Owner              | Ref                |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------ |
+| 1   | GitHub branch protection on the product repos                                                                                                 | **Ryan (~10 min)** | `L-a4d52b09`       |
+| 2   | Give snackday a **remote** + push the estate (roof is ahead-14/behind-1)                                                                      | **Ryan**           | `L-4655733f`       |
+| 3   | Sign decision-sheet **C1** (advisory identity OK for attended pilot — rec: yes); A1 while there                                               | **Ryan**           | `L-58698e19` sheet |
+| 4   | Tmp-tree fork-refusal guard (~20 LOC) so a verify tree can't re-anchor the fleet daemon mid-burn                                              | agent, same-day    | `L-9c151fac`       |
+| 5   | **Dispatch the burn:** 3–5 real Snackday tasks through the dev-loop fleet (Kimi K3 live for cheap capacity), approvals attended from Roof/TUI | operator           | —                  |
 
 Dogfooding is the probe: every friction the burn surfaces becomes a board task. That is the
 fastest path to finding what actually blocks autonomy, and it is this platform's founding
@@ -42,8 +42,8 @@ method.
 The daemon epic (`L-6e485bca`) in its post-review order — the substrate must stop being a
 hazard during long burns:
 
-1. **Park** (`L-485369f1`) — restarts stop cancelling in-flight runs. *Build first: every
-   later task ends in "restart the daemon."*
+1. **Park** (`L-485369f1`) — restarts stop cancelling in-flight runs. _Build first: every
+   later task ends in "restart the daemon."_
 2. **Fail-closed lifecycle/DB-writer lock + preflight boot** (`L-7a411fa1`) — the pidfile
    singleton does not guard migration today; this closes the v71/v73 stranding class.
 3. **Canonical daemon artifact + `studio daemon install`** (`L-b92dc619`, staged flip).
@@ -85,7 +85,7 @@ matrix (blocked on B6 anyway).
   uncapped — \$-caps see ~\$0 marginal (`L-71f61d70`), and the meter only covers
   executor-dispatched work — harness/CLI sessions bill outside it (`L-f5ecf579`). All block
   `L-5540b242`. Pilot posture: keep the \$25/\$50 + token clamps, few lanes, watch `studio
-  status` AND the daemon log for budget lines (status is blind to exhaustion until L-2414dc3c
+status` AND the daemon log for budget lines (status is blind to exhaustion until L-2414dc3c
   lands), and remember the harness's own sessions are unmetered by Studio.
 
 ## Pilot definition of done
