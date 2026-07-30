@@ -30,7 +30,7 @@ describe("Snackday route shells", () => {
   it("renders the application shell with only existing links enabled", () => {
     const html = render(
       <AppLayout>
-        <appPage.component />
+        <appPage.component state="signed-out" />
       </AppLayout>,
     );
 
@@ -60,7 +60,7 @@ describe("route metadata", () => {
   });
 
   it("marks the product shell private for search crawlers", () => {
-    expect(appPage.metadata?.({}).meta).toContainEqual({
+    expect(appPage.metadata?.({ state: "signed-out" }).meta).toContainEqual({
       name: "robots",
       content: "noindex, nofollow",
     });

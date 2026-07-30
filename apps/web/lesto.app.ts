@@ -37,6 +37,7 @@ import type { LestoAppConfig } from "@lesto/kernel";
 import { z } from "zod";
 
 import { env } from "./env";
+import { provideAppServices } from "./app/lib/server/app-services";
 import {
   authenticatedAdult,
   createIdentity,
@@ -170,6 +171,12 @@ export function buildApp(db: Db, sessions: Sessions, developmentSignIn: boolean)
 // file comes from the typed env (`env.LESTO_DB`, default `lesto.db`) — see `env.ts`.
 const { db: handle } = await openSqlite(env.LESTO_DB);
 const { db, sessions } = await developmentIdentityServices(handle);
+
+// File-routed page loaders (e.g. `app/routes/app/page.tsx`) read the db +
+// sessions through this registry — `PageDef.load` receives only the request
+// context. The Worker never registers services, so those loaders degrade to
+// their signed-out state at the edge.
+provideAppServices({ db, sessions });
 
 const config: LestoAppConfig = {
   db: handle,

@@ -26,14 +26,13 @@ function requirePerson<T>(peopleById: Map<string, T>, personId: string): T {
   return person;
 }
 
-async function listTeams(c: Context<"/api/teams">, db: Db, sessions: Sessions) {
-  const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
-  if (identity === undefined) return c.json(unauthorized, 401);
-
+// The one owner-scoped team-list projection: `GET /api/teams` AND the /app page
+// loader both read through here, so the page and the API cannot drift.
+export async function listOwnedTeams(db: Db, ownerPersonId: string) {
   const teamRows = await db
     .select()
     .from(teams)
-    .where(and(eq(teams.createdByPersonId, identity.person.id), eq(teams.status, "active")))
+    .where(and(eq(teams.createdByPersonId, ownerPersonId), eq(teams.status, "active")))
     .all();
   teamRows.sort(
     (left, right) =>
@@ -58,14 +57,19 @@ async function listTeams(c: Context<"/api/teams">, db: Db, sessions: Sessions) {
       left.startDate.localeCompare(right.startDate) || left.id.localeCompare(right.id),
   );
 
-  return c.json({
-    teams: teamRows.map((team) => ({
-      team: projectTeam(team),
-      seasons: seasonRows
-        .filter((season) => season.teamId === team.id)
-        .map((season) => seasonSchema.parse(season)),
-    })),
-  });
+  return teamRows.map((team) => ({
+    team: projectTeam(team),
+    seasons: seasonRows
+      .filter((season) => season.teamId === team.id)
+      .map((season) => seasonSchema.parse(season)),
+  }));
+}
+
+async function listTeams(c: Context<"/api/teams">, db: Db, sessions: Sessions) {
+  const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
+  if (identity === undefined) return c.json(unauthorized, 401);
+
+  return c.json({ teams: await listOwnedTeams(db, identity.person.id) });
 }
 
 async function activeSeasonParticipants(db: Db, teamId: string, seasonId: string) {
@@ -106,7 +110,10 @@ function activeGuardianEdges(db: Db, participantIds: string[]) {
     .all();
 }
 
-async function loadRoster(db: Db, teamId: string, seasonId: string) {
+// The one roster projection: the roster API and the /app page loader both read
+// through here. Callers MUST have verified the caller owns `teamId` (and that
+// `seasonId` belongs to it) — this helper does no authorization of its own.
+export async function loadRoster(db: Db, teamId: string, seasonId: string) {
   const participantRows = await activeSeasonParticipants(db, teamId, seasonId);
   if (participantRows.length === 0) return [];
 
@@ -151,6 +158,9 @@ async function loadRoster(db: Db, teamId: string, seasonId: string) {
 
   return roster;
 }
+
+/** One roster child with their guardians, as the roster read projects it. */
+export type RosterEntry = Awaited<ReturnType<typeof loadRoster>>[number];
 
 async function readRoster(
   c: Context<"/api/teams/:teamId/seasons/:seasonId/roster">,

@@ -1,7 +1,7 @@
 import { toFetchHandler, withAssets } from "@lesto/cloudflare";
 import type { AssetExecutionContext, AssetFetcher } from "@lesto/cloudflare";
 import { createElement } from "react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 import { lesto } from "@lesto/web";
 
@@ -28,11 +28,15 @@ function PublicFeatures(): ReactNode {
   );
 }
 
-function ProductOverview(): ReactNode {
+// The overview's `load` (spread onto the `.page` registration below) runs at
+// the edge too, but the Worker registers no app services — no filesystem SQLite
+// — so it resolves to the signed-out state and the page degrades gracefully.
+// This wrapper forwards those loaded props into the file-routed component.
+function ProductOverview(props: ComponentProps<typeof overview.component>): ReactNode {
   return createElement(
     RootLayout,
     null,
-    createElement(AppLayout, null, createElement(overview.component)),
+    createElement(AppLayout, null, createElement(overview.component, props)),
   );
 }
 
