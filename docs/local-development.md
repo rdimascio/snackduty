@@ -92,3 +92,13 @@ bun run ios:test
 The scripts automatically use Xcode from `/Applications/Xcode.app` when the command-line tools are selected globally. For a nonstandard installation, set `DEVELOPER_DIR` to that Xcode application's `Contents/Developer` directory.
 
 Alternatively, open `apps/ios/Snackday.xcodeproj`, select the shared Snackday scheme and an available iPhone simulator, then press Run.
+
+## Milestone 1 acceptance
+
+```sh
+bun run accept
+```
+
+`scripts/acceptance.ts` boots the web app on an ephemeral port against a throwaway SQLite database with `SNACKDAY_DEV_SIGN_IN=true`, then drives the full journey over real HTTP: dev sign-in, create team and season, add a child with a birth date, attach two guardians with different relationships, read the team list and roster back through the authorized APIs, and check that `/app` renders the real roster when the session cookie is present (leaking no emails, tokens, or internal identifiers) and the signed-out state without it. It finishes by running the iOS live round trip (`scripts/ios-live-test.sh`, which forwards the base URL to the test runner as `TEST_RUNNER_SNACKDAY_LIVE_API`) against the same server, and fails loudly if that test is skipped instead of run. The server and scratch database are torn down even on failure.
+
+Prerequisites: full Xcode with the iOS 18 Simulator runtime (the same requirement as `bun run ios:test`). The check is not part of `bun run gate`, which stays hermetic — `accept` needs a live local server and a simulator.

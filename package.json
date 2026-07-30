@@ -17,6 +17,7 @@
     "ios:test": "bash scripts/ios-test.sh",
     "ios:verify": "bash scripts/ios-verify.sh",
     "test": "bun run --filter '*' test",
+    "accept": "bun scripts/acceptance.ts",
     "gate": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build"
   },
   "devDependencies": {
