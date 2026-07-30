@@ -4,7 +4,7 @@ import SwiftUI
 struct SnackdayApp: App {
     var body: some Scene {
         WindowGroup {
-            AppRootView(snapshot: .preview)
+            AppLaunchView()
         }
     }
 }

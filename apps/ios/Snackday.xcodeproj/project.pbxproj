@@ -23,6 +23,12 @@
 		10000000000000000000000F /* SnackdayDesignSystem.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* SnackdayDesignSystem.framework */; };
 		100000000000000000000010 /* SnackdayDomain.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000A /* SnackdayDomain.framework */; };
 		100000000000000000000011 /* SnackdayDesignSystem.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* SnackdayDesignSystem.framework */; };
+		100000000000000000000012 /* TransportModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000F /* TransportModels.swift */; };
+		100000000000000000000013 /* SnackdayAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000010 /* SnackdayAPIClient.swift */; };
+		100000000000000000000014 /* AppLaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000011 /* AppLaunchView.swift */; };
+		100000000000000000000015 /* TransportDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000012 /* TransportDecodingTests.swift */; };
+		100000000000000000000016 /* SnapshotMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000013 /* SnapshotMappingTests.swift */; };
+		100000000000000000000017 /* SnackdayAPIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000014 /* SnackdayAPIClientTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -54,6 +60,12 @@
 		20000000000000000000000C /* SnackdayTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnackdayTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		20000000000000000000000D /* SnackdayDomainTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnackdayDomainTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		20000000000000000000000E /* SnackdayDesignSystemTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnackdayDesignSystemTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		20000000000000000000000F /* TransportModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportModels.swift; sourceTree = "<group>"; };
+		200000000000000000000010 /* SnackdayAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnackdayAPIClient.swift; sourceTree = "<group>"; };
+		200000000000000000000011 /* AppLaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLaunchView.swift; sourceTree = "<group>"; };
+		200000000000000000000012 /* TransportDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransportDecodingTests.swift; sourceTree = "<group>"; };
+		200000000000000000000013 /* SnapshotMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotMappingTests.swift; sourceTree = "<group>"; };
+		200000000000000000000014 /* SnackdayAPIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnackdayAPIClientTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -67,11 +79,11 @@
 
 /* Begin PBXGroup section */
 		500000000000000000000001 = {isa = PBXGroup; children = (500000000000000000000002, 500000000000000000000003, 500000000000000000000004, 500000000000000000000005, 500000000000000000000006, 500000000000000000000007, 500000000000000000000008, ); sourceTree = "<group>"; };
-		500000000000000000000002 /* Snackday */ = {isa = PBXGroup; children = (200000000000000000000001, 200000000000000000000002, 200000000000000000000003, ); path = Snackday; sourceTree = "<group>"; };
-		500000000000000000000003 /* SnackdayDomain */ = {isa = PBXGroup; children = (200000000000000000000004, ); path = SnackdayDomain; sourceTree = "<group>"; };
+		500000000000000000000002 /* Snackday */ = {isa = PBXGroup; children = (200000000000000000000001, 200000000000000000000002, 200000000000000000000011, 200000000000000000000003, ); path = Snackday; sourceTree = "<group>"; };
+		500000000000000000000003 /* SnackdayDomain */ = {isa = PBXGroup; children = (200000000000000000000004, 20000000000000000000000F, 200000000000000000000010, ); path = SnackdayDomain; sourceTree = "<group>"; };
 		500000000000000000000004 /* SnackdayDesignSystem */ = {isa = PBXGroup; children = (200000000000000000000005, ); path = SnackdayDesignSystem; sourceTree = "<group>"; };
 		500000000000000000000005 /* SnackdayTests */ = {isa = PBXGroup; children = (200000000000000000000006, ); path = SnackdayTests; sourceTree = "<group>"; };
-		500000000000000000000006 /* SnackdayDomainTests */ = {isa = PBXGroup; children = (200000000000000000000007, ); path = SnackdayDomainTests; sourceTree = "<group>"; };
+		500000000000000000000006 /* SnackdayDomainTests */ = {isa = PBXGroup; children = (200000000000000000000007, 200000000000000000000012, 200000000000000000000013, 200000000000000000000014, ); path = SnackdayDomainTests; sourceTree = "<group>"; };
 		500000000000000000000007 /* SnackdayDesignSystemTests */ = {isa = PBXGroup; children = (200000000000000000000008, ); path = SnackdayDesignSystemTests; sourceTree = "<group>"; };
 		500000000000000000000008 /* Products */ = {isa = PBXGroup; children = (200000000000000000000009, 20000000000000000000000A, 20000000000000000000000B, 20000000000000000000000C, 20000000000000000000000D, 20000000000000000000000E, ); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
@@ -94,11 +106,11 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		600000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000001, 100000000000000000000002, ); runOnlyForDeploymentPostprocessing = 0; };
-		600000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000004, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000001, 100000000000000000000002, 100000000000000000000014, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000004, 100000000000000000000012, 100000000000000000000013, ); runOnlyForDeploymentPostprocessing = 0; };
 		600000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
 		600000000000000000000005 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000006, ); runOnlyForDeploymentPostprocessing = 0; };
-		600000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000007, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000007, 100000000000000000000015, 100000000000000000000016, 100000000000000000000017, ); runOnlyForDeploymentPostprocessing = 0; };
 		600000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000008, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 

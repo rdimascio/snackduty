@@ -34,6 +34,9 @@ private struct HomeView: View {
                     teamHeader
                     nextEventCard
                     quickActions
+                    if !snapshot.roster.isEmpty {
+                        rosterSection
+                    }
                     teamUpdate
                 }
                 .padding(.horizontal, SnackdaySpacing.standard)
@@ -111,6 +114,20 @@ private struct HomeView: View {
         }
     }
 
+    private var rosterSection: some View {
+        VStack(alignment: .leading, spacing: SnackdaySpacing.standard) {
+            Text("Roster")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(Color.snackdayInk)
+
+            VStack(spacing: 10) {
+                ForEach(snapshot.roster) { member in
+                    RosterMemberRow(member: member)
+                }
+            }
+        }
+    }
+
     private var teamUpdate: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Latest from the team")
@@ -164,6 +181,41 @@ private struct ActionTile: View {
     }
 }
 
+private struct RosterMemberRow: View {
+    let member: RosterMember
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(String(member.displayName.prefix(1)))
+                .font(.headline)
+                .foregroundStyle(Color.snackdayForest)
+                .frame(width: 38, height: 38)
+                .background(Color.snackdayForest.opacity(0.12), in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(member.displayName)
+                    .font(.headline)
+                    .foregroundStyle(Color.snackdayInk)
+                Text(guardiansLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(SnackdaySpacing.standard)
+        .background(Color.snackdaySurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var guardiansLine: String {
+        member.guardians.isEmpty
+            ? "No guardians on file"
+            : member.guardians
+                .map { "\($0.displayName) · \($0.relationship)" }
+                .joined(separator: ", ")
+    }
+}
+
 private struct PlaceholderView: View {
     let title: String
     let systemImage: String
@@ -178,6 +230,27 @@ private struct PlaceholderView: View {
 
 #Preview("Home · Light") {
     AppRootView(snapshot: .preview)
+}
+
+#Preview("Home · Roster") {
+    AppRootView(
+        snapshot: HomeSnapshot(
+            greeting: "Welcome back",
+            team: TeamSummary(name: "T-Ball Tigers", season: "Spring 2026"),
+            nextEvent: "No events scheduled yet",
+            roster: [
+                RosterMember(
+                    id: "participant_1",
+                    displayName: "Avery Preview",
+                    guardians: [
+                        RosterGuardian(id: "guardian_1", displayName: "Jordan Preview", relationship: "parent"),
+                        RosterGuardian(id: "guardian_2", displayName: "Sam Preview", relationship: "caregiver"),
+                    ]
+                ),
+                RosterMember(id: "participant_2", displayName: "Riley Preview", guardians: []),
+            ]
+        )
+    )
 }
 
 #Preview("Home · Dark · Accessibility") {
