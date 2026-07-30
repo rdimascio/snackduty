@@ -45,6 +45,7 @@ import {
   developmentSessionCookie,
   ensureDevelopmentAdult,
 } from "./app/lib/server/identity";
+import { createRoster, registerRosterRoutes } from "./app/lib/server/roster";
 import { createTeamsAndSeasons, registerTeamRoutes } from "./app/lib/server/teams";
 
 // The `posts` table — schema as a value backs both the migration's DDL
@@ -128,7 +129,11 @@ function buildBaseApp(db: Db) {
 }
 
 export function buildApp(db: Db, sessions: Sessions, developmentSignIn: boolean) {
-  const app = registerTeamRoutes(buildBaseApp(db), db, sessions);
+  const app = registerRosterRoutes(
+    registerTeamRoutes(buildBaseApp(db), db, sessions),
+    db,
+    sessions,
+  );
 
   if (!developmentSignIn) return app;
 
@@ -168,7 +173,7 @@ const { db, sessions } = await developmentIdentityServices(handle);
 const config: LestoAppConfig = {
   db: handle,
   app: buildApp(db, sessions, env.SNACKDAY_DEV_SIGN_IN),
-  migrations: [createPosts, seedPosts, createIdentity, createTeamsAndSeasons],
+  migrations: [createPosts, seedPosts, createIdentity, createTeamsAndSeasons, createRoster],
   // Security, declared in one place (ADR 0016). Per-client rate-limiting is ALREADY
   // on by the kernel default; `originCheck` layers zero-token CSRF over it — a
   // cross-site POST/PUT/PATCH/DELETE is refused at the door (it reads the browser's
