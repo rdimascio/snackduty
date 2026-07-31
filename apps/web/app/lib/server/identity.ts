@@ -2,6 +2,7 @@ import { installSessionSchema, Sessions, sqlSessionStore } from "@lesto/auth";
 import { createDb, createTableSql, defineTable, dropTableSql, eq, text } from "@lesto/db";
 import type { Db, SqlDatabase } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
+import { z } from "zod";
 
 export const people = defineTable("people", {
   id: text("id").primaryKey(),
@@ -42,6 +43,53 @@ export const DEV_DISPLAY_NAME = "Development Adult";
 export const DEV_SESSION_COOKIE = "snackday_session_dev";
 export const DEV_SESSION_TTL_MS = 24 * 60 * 60 * 1_000;
 
+/**
+ * The BOUNDED development persona allowlist. Each persona is a fixed
+ * Person+Account fixture that the dev sign-in ensures idempotently; nothing
+ * outside this map can ever be minted through `/api/dev/sign-in`, so the
+ * endpoint cannot be used to fabricate arbitrary identities. `default` is the
+ * original development adult (the no-body sign-in behavior); `second-adult`
+ * exists so invitation acceptance is testable end-to-end by a second session.
+ */
+export const DEV_PERSONA_KEYS = ["default", "second-adult"] as const;
+export type DevPersonaKey = (typeof DEV_PERSONA_KEYS)[number];
+
+interface DevPersonaFixture {
+  readonly personId: string;
+  readonly accountId: string;
+  readonly displayName: string;
+}
+
+export const DEV_PERSONAS = {
+  default: {
+    personId: DEV_PERSON_ID,
+    accountId: DEV_ACCOUNT_ID,
+    displayName: DEV_DISPLAY_NAME,
+  },
+  "second-adult": {
+    personId: "person_dev_second_adult",
+    accountId: "account_dev_second_adult",
+    displayName: "Second Development Adult",
+  },
+} as const satisfies Record<DevPersonaKey, DevPersonaFixture>;
+
+const devSignInInputSchema = z.strictObject({
+  persona: z.enum(DEV_PERSONA_KEYS).optional(),
+});
+
+/**
+ * Interpret a dev sign-in request body: no body (or `{}`) selects the default
+ * persona; a body may ONLY pick from the bounded allowlist. Anything else —
+ * unknown keys, unknown personas, non-objects — returns `undefined` so the
+ * route can keep answering the historical generic 400.
+ */
+export function devPersonaFromBody(body: unknown): DevPersonaKey | undefined {
+  if (body === undefined) return "default";
+
+  const parsed = devSignInInputSchema.safeParse(body);
+  return parsed.success ? (parsed.data.persona ?? "default") : undefined;
+}
+
 export interface AdultIdentity {
   readonly account: { readonly id: string };
   readonly person: { readonly id: string; readonly displayName: string };
@@ -56,34 +104,47 @@ export async function developmentIdentityServices(handle: SqlDatabase) {
   };
 }
 
-function projection(): AdultIdentity {
+function personaProjection(fixture: DevPersonaFixture): AdultIdentity {
   return {
-    account: { id: DEV_ACCOUNT_ID },
-    person: { id: DEV_PERSON_ID, displayName: DEV_DISPLAY_NAME },
+    account: { id: fixture.accountId },
+    person: { id: fixture.personId, displayName: fixture.displayName },
   };
 }
 
 function isFixtureValid(
+  fixture: DevPersonaFixture,
   person: { id: string; displayName: string; status: string } | undefined,
   account: { id: string; personId: string; status: string } | undefined,
 ): boolean {
   return (
-    person?.id === DEV_PERSON_ID &&
-    person.displayName === DEV_DISPLAY_NAME &&
+    person?.id === fixture.personId &&
+    person.displayName === fixture.displayName &&
     person.status === "active" &&
-    account?.id === DEV_ACCOUNT_ID &&
+    account?.id === fixture.accountId &&
     account.personId === person.id &&
     account.status === "active"
   );
 }
 
-export function ensureDevelopmentAdult(db: Db): Promise<AdultIdentity> {
+/**
+ * Idempotently ensure ONE allowlisted persona's fixed Person+Account pair.
+ * Creating is only legal when BOTH rows are absent; a half-present or mutated
+ * fixture is refused rather than repaired, exactly like the original
+ * single-adult behavior.
+ */
+export function ensureDevelopmentPersona(db: Db, persona: DevPersonaKey): Promise<AdultIdentity> {
+  const fixture = DEV_PERSONAS[persona];
+
   return db.transaction(async (tx) => {
-    const existingPerson = await tx.select().from(people).where(eq(people.id, DEV_PERSON_ID)).get();
+    const existingPerson = await tx
+      .select()
+      .from(people)
+      .where(eq(people.id, fixture.personId))
+      .get();
     const existingAccount = await tx
       .select()
       .from(accounts)
-      .where(eq(accounts.id, DEV_ACCOUNT_ID))
+      .where(eq(accounts.id, fixture.accountId))
       .get();
 
     if (existingPerson === undefined && existingAccount === undefined) {
@@ -92,8 +153,8 @@ export function ensureDevelopmentAdult(db: Db): Promise<AdultIdentity> {
       await tx
         .insert(people)
         .values({
-          id: DEV_PERSON_ID,
-          displayName: DEV_DISPLAY_NAME,
+          id: fixture.personId,
+          displayName: fixture.displayName,
           status: "active",
           createdAt: now,
           updatedAt: now,
@@ -102,25 +163,32 @@ export function ensureDevelopmentAdult(db: Db): Promise<AdultIdentity> {
       await tx
         .insert(accounts)
         .values({
-          id: DEV_ACCOUNT_ID,
-          personId: DEV_PERSON_ID,
+          id: fixture.accountId,
+          personId: fixture.personId,
           status: "active",
           createdAt: now,
           updatedAt: now,
         })
         .run();
 
-      return projection();
+      return personaProjection(fixture);
     }
 
-    if (!isFixtureValid(existingPerson, existingAccount)) {
+    if (!isFixtureValid(fixture, existingPerson, existingAccount)) {
       throw new Error("Development identity is unavailable.");
     }
 
-    return projection();
+    return personaProjection(fixture);
   });
 }
 
+/**
+ * Resolve the session cookie to ANY authenticated adult: an active Account
+ * joined to an active Person. The development fixture is no longer
+ * special-cased — it is just one Account row like any future real one, so
+ * invitation acceptance (and every other authorized route) works for every
+ * signed-in adult the same way.
+ */
 export async function authenticatedAdult(
   db: Db,
   sessions: Sessions,
@@ -131,15 +199,18 @@ export async function authenticatedAdult(
   if (token === undefined) return undefined;
 
   const session = await sessions.verify(token);
-
-  if (session?.userId !== DEV_ACCOUNT_ID) return undefined;
+  if (session === undefined) return undefined;
 
   const account = await db.select().from(accounts).where(eq(accounts.id, session.userId)).get();
-  if (account === undefined) return undefined;
+  if (account === undefined || account.status !== "active") return undefined;
 
   const person = await db.select().from(people).where(eq(people.id, account.personId)).get();
+  if (person === undefined || person.status !== "active") return undefined;
 
-  return isFixtureValid(person, account) ? projection() : undefined;
+  return {
+    account: { id: account.id },
+    person: { id: person.id, displayName: person.displayName },
+  };
 }
 
 export function developmentSessionCookie(token: string): string {

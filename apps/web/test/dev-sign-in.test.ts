@@ -13,7 +13,7 @@ const app = await createApp(config);
 
 async function clearIdentityState() {
   await config.db.exec(
-    "DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -79,6 +79,83 @@ describe("enabled development adult sign-in", () => {
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+});
+
+describe("development personas", () => {
+  const SECOND_PERSON_ID = "person_dev_second_adult";
+  const SECOND_ACCOUNT_ID = "account_dev_second_adult";
+
+  it("signs in the second-adult persona as its own fixed identity", async () => {
+    const signIn = await app.handle("POST", "/api/dev/sign-in", {
+      headers: { "sec-fetch-site": "same-origin" },
+      body: { persona: "second-adult" },
+    });
+
+    expect(signIn.status).toBe(200);
+    expect(json(signIn)).toEqual({
+      account: { id: SECOND_ACCOUNT_ID },
+      person: { id: SECOND_PERSON_ID, displayName: "Second Development Adult" },
+    });
+
+    const cookiePair = header(signIn, "set-cookie").split(";", 1)[0] ?? "";
+    const session = await app.handle("GET", "/api/dev/session", {
+      headers: { cookie: cookiePair },
+    });
+    expect(session.status).toBe(200);
+    expect(json(session)).toEqual(json(signIn));
+  });
+
+  it("selects the default adult for an explicit default persona and an empty body", async () => {
+    for (const body of [{ persona: "default" }, {}]) {
+      const signIn = await app.handle("POST", "/api/dev/sign-in", {
+        headers: { "sec-fetch-site": "same-origin" },
+        body,
+      });
+
+      expect(signIn.status).toBe(200);
+      expect(json(signIn)).toEqual({
+        account: { id: DEV_ACCOUNT_ID },
+        person: { id: DEV_PERSON_ID, displayName: "Development Adult" },
+      });
+    }
+  });
+
+  it("keeps each persona's fixture separate and idempotent", async () => {
+    await app.handle("POST", "/api/dev/sign-in", {
+      headers: { "sec-fetch-site": "same-origin" },
+    });
+    for (let i = 0; i < 2; i += 1) {
+      await app.handle("POST", "/api/dev/sign-in", {
+        headers: { "sec-fetch-site": "same-origin" },
+        body: { persona: "second-adult" },
+      });
+    }
+
+    expect(await config.db.prepare("SELECT id FROM people ORDER BY id").all()).toEqual([
+      { id: DEV_PERSON_ID },
+      { id: SECOND_PERSON_ID },
+    ]);
+    expect(await config.db.prepare("SELECT id, person_id FROM accounts ORDER BY id").all()).toEqual(
+      [
+        { id: DEV_ACCOUNT_ID, person_id: DEV_PERSON_ID },
+        { id: SECOND_ACCOUNT_ID, person_id: SECOND_PERSON_ID },
+      ],
+    );
+  });
+
+  it("rejects personas outside the bounded allowlist without minting anything", async () => {
+    for (const persona of ["admin", "third-adult", "", "person_dev_adult"]) {
+      const response = await app.handle("POST", "/api/dev/sign-in", {
+        headers: { "sec-fetch-site": "same-origin" },
+        body: { persona },
+      });
+
+      expect(response.status).toBe(400);
+      expect(json(response)).toEqual({ error: "request body is not allowed" });
+    }
+    expect(await config.db.prepare("SELECT id FROM accounts").all()).toEqual([]);
+    expect(await config.db.prepare("SELECT id FROM people").all()).toEqual([]);
   });
 });
 
