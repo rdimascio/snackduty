@@ -42,10 +42,14 @@ import {
   authenticatedAdult,
   createIdentity,
   developmentIdentityServices,
+  devPersonaFromBody,
   DEV_SESSION_TTL_MS,
   developmentSessionCookie,
-  ensureDevelopmentAdult,
 } from "./app/lib/server/identity";
+import { devPersonaProvider } from "./app/lib/server/identity-providers";
+import { devInviteDeliverer } from "./app/lib/server/invite-delivery";
+import type { InviteDeliverer } from "./app/lib/server/invite-delivery";
+import { createInvitations, registerInvitationRoutes } from "./app/lib/server/invitations";
 import { createRoster, registerRosterRoutes } from "./app/lib/server/roster";
 import { registerTeamReadRoutes } from "./app/lib/server/team-reads";
 import { createTeamsAndSeasons, registerTeamRoutes } from "./app/lib/server/teams";
@@ -130,20 +134,40 @@ function buildBaseApp(db: Db) {
     });
 }
 
-export function buildApp(db: Db, sessions: Sessions, developmentSignIn: boolean) {
-  const app = registerTeamReadRoutes(
-    registerRosterRoutes(registerTeamRoutes(buildBaseApp(db), db, sessions), db, sessions),
+export function buildApp(
+  db: Db,
+  sessions: Sessions,
+  developmentSignIn: boolean,
+  inviteDelivery: InviteDeliverer = devInviteDeliverer(),
+) {
+  const app = registerInvitationRoutes(
+    registerTeamReadRoutes(
+      registerRosterRoutes(registerTeamRoutes(buildBaseApp(db), db, sessions), db, sessions),
+      db,
+      sessions,
+    ),
     db,
     sessions,
+    inviteDelivery,
   );
 
   if (!developmentSignIn) return app;
 
   return app
     .post("/api/dev/sign-in", async (c) => {
-      if (c.req.body !== undefined) return c.json({ error: "request body is not allowed" }, 400);
+      // No body → the default development adult (the historical behavior). A
+      // body may ONLY select a persona from the bounded allowlist; anything
+      // else keeps the historical generic rejection, so this endpoint can
+      // never mint an arbitrary identity.
+      const persona = devPersonaFromBody(c.req.body);
+      if (persona === undefined) return c.json({ error: "request body is not allowed" }, 400);
 
-      const identity = await ensureDevelopmentAdult(db);
+      const identity = await devPersonaProvider.resolveAdult(db, {
+        provider: "dev-persona",
+        subject: persona,
+      });
+      if (identity === undefined) return c.json({ error: "request body is not allowed" }, 400);
+
       const session = await sessions.create(identity.account.id, DEV_SESSION_TTL_MS);
 
       return {
@@ -172,6 +196,11 @@ export function buildApp(db: Db, sessions: Sessions, developmentSignIn: boolean)
 const { db: handle } = await openSqlite(env.LESTO_DB);
 const { db, sessions } = await developmentIdentityServices(handle);
 
+// The dev invite deliverer records each invitation's copyable link in memory
+// (a real email adapter replaces it later). Exported so tests can assert the
+// delivery payloads carry no child-sensitive data.
+export const devInviteDelivery = devInviteDeliverer();
+
 // File-routed page loaders (e.g. `app/routes/app/page.tsx`) read the db +
 // sessions through this registry — `PageDef.load` receives only the request
 // context. The Worker never registers services, so those loaders degrade to
@@ -180,8 +209,15 @@ provideAppServices({ db, sessions });
 
 const config: LestoAppConfig = {
   db: handle,
-  app: buildApp(db, sessions, env.SNACKDAY_DEV_SIGN_IN),
-  migrations: [createPosts, seedPosts, createIdentity, createTeamsAndSeasons, createRoster],
+  app: buildApp(db, sessions, env.SNACKDAY_DEV_SIGN_IN, devInviteDelivery),
+  migrations: [
+    createPosts,
+    seedPosts,
+    createIdentity,
+    createTeamsAndSeasons,
+    createRoster,
+    createInvitations,
+  ],
   // Security, declared in one place (ADR 0016). Per-client rate-limiting is ALREADY
   // on by the kernel default; `originCheck` layers zero-token CSRF over it — a
   // cross-site POST/PUT/PATCH/DELETE is refused at the door (it reads the browser's
