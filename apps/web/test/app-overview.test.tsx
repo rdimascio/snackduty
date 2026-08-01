@@ -36,8 +36,11 @@ function header(response: { headers: Record<string, string | string[]> }, name: 
 
 const sameOrigin = { "sec-fetch-site": "same-origin" };
 
-async function signIn(): Promise<string> {
-  const response = await app.handle("POST", "/api/dev/sign-in", { headers: sameOrigin });
+async function signIn(persona?: "second-adult"): Promise<string> {
+  const response = await app.handle("POST", "/api/dev/sign-in", {
+    headers: sameOrigin,
+    ...(persona === undefined ? {} : { body: { persona } }),
+  });
   expect(response.status).toBe(200);
   return header(response, "set-cookie").split(";", 1)[0] ?? "";
 }
@@ -86,7 +89,7 @@ async function attachGuardian(cookie: string, participantId: string, body: unkno
   expect(response.status).toBe(201);
 }
 
-async function seedFullTeam(cookie: string): Promise<void> {
+async function seedFullTeam(cookie: string): Promise<string> {
   const teamId = await createTeam(cookie);
   const seasonId = await createSeason(cookie, teamId);
   const participantId = await addChild(cookie, teamId, seasonId);
@@ -99,6 +102,26 @@ async function seedFullTeam(cookie: string): Promise<void> {
     relationship: "caregiver",
     permissions: ["participant.read"],
   });
+  return teamId;
+}
+
+/** Joins `teamId` as the second persona through a real invitation accept. */
+async function joinAsSecondAdult(ownerCookie: string, teamId: string): Promise<string> {
+  const memberCookie = await signIn("second-adult");
+  const created = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
+    headers: { ...sameOrigin, cookie: ownerCookie },
+    body: { invitedRole: "adult", inviteeLabel: "joining adult" },
+  });
+  expect(created.status).toBe(201);
+  const inviteUrl =
+    (json(created) as { invitation: { inviteUrl?: string } }).invitation.inviteUrl ?? "";
+  expect(inviteUrl.startsWith("/invite/")).toBe(true);
+  const accepted = await app.handle("POST", "/api/invitations/accept", {
+    headers: { ...sameOrigin, cookie: memberCookie },
+    body: { token: inviteUrl.slice("/invite/".length) },
+  });
+  expect(accepted.status).toBe(200);
+  return memberCookie;
 }
 
 type Loaded = PageProps<NonNullable<typeof appPage.load>>;
@@ -137,6 +160,21 @@ describe("/app overview loader", () => {
     expect(html).toContain("Bailey Guardian");
     expect(html).toContain("caregiver");
     expect(html).not.toContain("Signed out");
+  });
+
+  it("shows an adult member the team they joined by invitation", async () => {
+    const ownerCookie = await signIn();
+    const teamId = await seedFullTeam(ownerCookie);
+    const memberCookie = await joinAsSecondAdult(ownerCookie, teamId);
+
+    const loaded = await loadOverview(memberCookie);
+    expect(loaded.state).toBe("team");
+
+    const html = render(<appPage.component {...loaded} />);
+    expect(html).toContain("T-Ball Tigers");
+    expect(html).toContain("Spring 2026");
+    expect(html).toContain("Casey Kid");
+    expect(html).not.toContain("No team yet");
   });
 
   it("resolves the signed-out state for unauthenticated and forged requests", async () => {

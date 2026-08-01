@@ -8,12 +8,12 @@ import { authenticatedAdult, people } from "./identity";
 import {
   guardianRelationships,
   memberships,
-  ownedActiveTeam,
   participants,
   projectGuardian,
   projectParticipant,
 } from "./roster";
-import { projectTeam, seasons, teams } from "./teams";
+import { adultMemberships, projectTeam, readableActiveTeam, seasons, teams } from "./teams";
+import type { TeamAccessLevel } from "./teams";
 
 const unauthorized = { error: "authentication required" } as const;
 const teamNotFound = { error: "team not found" } as const;
@@ -26,14 +26,48 @@ function requirePerson<T>(peopleById: Map<string, T>, personId: string): T {
   return person;
 }
 
-// The one owner-scoped team-list projection: `GET /api/teams` AND the /app page
-// loader both read through here, so the page and the API cannot drift.
-export async function listOwnedTeams(db: Db, ownerPersonId: string) {
-  const teamRows = await db
+// The one team-list projection: `GET /api/teams` AND the /app page loader both
+// read through here, so the page and the API cannot drift. A team is listed
+// when the person CREATED it or holds an ACTIVE adult membership on it, and
+// each entry carries its access level — "manage" for creators and owner-role
+// members, "read" for adult-role members — so surfaces can render read-only
+// versus management affordances without re-deriving authorization.
+export async function listAccessibleTeams(db: Db, personId: string) {
+  const createdRows = await db
     .select()
     .from(teams)
-    .where(and(eq(teams.createdByPersonId, ownerPersonId), eq(teams.status, "active")))
+    .where(and(eq(teams.createdByPersonId, personId), eq(teams.status, "active")))
     .all();
+
+  const membershipRows = await db
+    .select()
+    .from(adultMemberships)
+    .where(and(eq(adultMemberships.personId, personId), eq(adultMemberships.status, "active")))
+    .all();
+  const accessByTeamId = new Map<string, TeamAccessLevel>();
+  for (const membership of membershipRows) {
+    // Mirrors `teamAccess`: owner-role manages, adult-role reads, unknown
+    // roles grant nothing; owner outranks adult should both somehow exist.
+    if (membership.role === "owner") accessByTeamId.set(membership.teamId, "manage");
+    else if (membership.role === "adult" && accessByTeamId.get(membership.teamId) !== "manage") {
+      accessByTeamId.set(membership.teamId, "read");
+    }
+  }
+  // Creator authority is implicit (no membership row required) and manages.
+  for (const team of createdRows) accessByTeamId.set(team.id, "manage");
+
+  const createdIds = new Set(createdRows.map((team) => team.id));
+  const memberTeamIds = [...accessByTeamId.keys()].filter((teamId) => !createdIds.has(teamId));
+  const memberRows =
+    memberTeamIds.length === 0
+      ? []
+      : await db
+          .select()
+          .from(teams)
+          .where(and(inList(teams.id, memberTeamIds), eq(teams.status, "active")))
+          .all();
+
+  const teamRows = [...createdRows, ...memberRows];
   teamRows.sort(
     (left, right) =>
       left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
@@ -62,6 +96,9 @@ export async function listOwnedTeams(db: Db, ownerPersonId: string) {
     seasons: seasonRows
       .filter((season) => season.teamId === team.id)
       .map((season) => seasonSchema.parse(season)),
+    // Every listed team has an entry by construction; "read" is the
+    // never-granting-more fallback the types demand.
+    access: accessByTeamId.get(team.id) ?? "read",
   }));
 }
 
@@ -69,7 +106,7 @@ async function listTeams(c: Context<"/api/teams">, db: Db, sessions: Sessions) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  return c.json({ teams: await listOwnedTeams(db, identity.person.id) });
+  return c.json({ teams: await listAccessibleTeams(db, identity.person.id) });
 }
 
 async function activeSeasonParticipants(db: Db, teamId: string, seasonId: string) {
@@ -111,8 +148,8 @@ function activeGuardianEdges(db: Db, participantIds: string[]) {
 }
 
 // The one roster projection: the roster API and the /app page loader both read
-// through here. Callers MUST have verified the caller owns `teamId` (and that
-// `seasonId` belongs to it) — this helper does no authorization of its own.
+// through here. Callers MUST have verified the caller may READ `teamId` (and
+// that `seasonId` belongs to it) — this helper does no authorization of its own.
 export async function loadRoster(db: Db, teamId: string, seasonId: string) {
   const participantRows = await activeSeasonParticipants(db, teamId, seasonId);
   if (participantRows.length === 0) return [];
@@ -170,7 +207,7 @@ async function readRoster(
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const team = await ownedActiveTeam(db, c.param("teamId"), identity.person.id);
+  const team = await readableActiveTeam(db, c.param("teamId"), identity.person.id);
   if (team === undefined) return c.json(teamNotFound, 404);
 
   const season = await db

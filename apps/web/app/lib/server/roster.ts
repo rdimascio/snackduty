@@ -7,7 +7,7 @@ import { guardianRelationshipSchema, participantSchema, personSchema } from "@sn
 import { z } from "zod";
 
 import { authenticatedAdult, people } from "./identity";
-import { seasons, teams } from "./teams";
+import { manageableActiveTeam, seasons, teams } from "./teams";
 
 export const participants = defineTable("participants", {
   id: text("id").primaryKey(),
@@ -161,20 +161,6 @@ export function projectGuardian(
   };
 }
 
-export function ownedActiveTeam(tx: Db, teamId: string, ownerPersonId: string) {
-  return tx
-    .select()
-    .from(teams)
-    .where(
-      and(
-        eq(teams.id, teamId),
-        eq(teams.createdByPersonId, ownerPersonId),
-        eq(teams.status, "active"),
-      ),
-    )
-    .get();
-}
-
 function insertActivePerson(tx: Db, displayName: string, now: string) {
   return tx
     .insert(people)
@@ -199,7 +185,7 @@ async function addParticipant(
 
   const input = c.valid(addParticipantInputSchema);
   const participant = await db.transaction(async (tx) => {
-    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
+    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
     const season = await tx
@@ -311,7 +297,7 @@ async function attachGuardian(
       .get();
     if (membership === undefined) return null;
 
-    const team = await ownedActiveTeam(tx, membership.teamId, identity.person.id);
+    const team = await manageableActiveTeam(tx, membership.teamId, identity.person.id);
     if (team === undefined) return null;
 
     if (await hasDuplicateActiveGuardian(tx, participant.id, input)) return "duplicate" as const;

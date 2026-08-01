@@ -160,12 +160,15 @@ describe("authorized team reads", () => {
       ],
     });
 
-    // The team list mirrors the single-team read exactly, wrapped in `teams`.
+    // The team list mirrors the single-team read exactly, wrapped in `teams`
+    // and annotated with the caller's access level (the creator manages).
     const singleRead = await app.handle("GET", `/api/teams/${teamId}`, { headers: { cookie } });
     expect(singleRead.status).toBe(200);
     const listRead = await app.handle("GET", "/api/teams", { headers: { cookie } });
     expect(listRead.status).toBe(200);
-    expect(json(listRead)).toEqual({ teams: [json(singleRead)] });
+    expect(json(listRead)).toEqual({
+      teams: [{ ...(json(singleRead) as Record<string, unknown>), access: "manage" }],
+    });
     const listedTeam = (json(listRead) as { teams: { team: { id: string } }[] }).teams;
     expect(listedTeam).toHaveLength(1);
     expect(listedTeam[0]?.team.id).toBe(teamId);

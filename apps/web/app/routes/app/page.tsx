@@ -5,7 +5,7 @@ import type { Context, PageDef, PageProps } from "@lesto/web";
 import { EmptyState } from "../../components/states/empty-state";
 import { appServices } from "../../lib/server/app-services";
 import { authenticatedAdult } from "../../lib/server/identity";
-import { listOwnedTeams, loadRoster } from "../../lib/server/team-reads";
+import { listAccessibleTeams, loadRoster } from "../../lib/server/team-reads";
 import type { RosterEntry } from "../../lib/server/team-reads";
 
 type OverviewData =
@@ -21,10 +21,11 @@ type OverviewData =
 /**
  * The server loader IS the authorized read path: it resolves the signed-in
  * adult from the request's session cookie and reads that adult's data through
- * the same owner-scoped helpers the /api/teams routes use, so the page and the
- * API cannot drift. Unauthenticated — or on the DB-less edge Worker, where no
- * services are registered — it resolves to the signed-out state: the shell is
- * not an authorization boundary, the DATA path is.
+ * the same access-scoped helpers the /api/teams routes use, so the page and
+ * the API cannot drift — teams the adult created AND teams they joined by
+ * invitation both appear. Unauthenticated — or on the DB-less edge Worker,
+ * where no services are registered — it resolves to the signed-out state: the
+ * shell is not an authorization boundary, the DATA path is.
  */
 const load = async (c: Context<"/app">): Promise<OverviewData> => {
   const services = appServices();
@@ -33,8 +34,8 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
   const identity = await authenticatedAdult(services.db, services.sessions, c.header("cookie"));
   if (identity === undefined) return { state: "signed-out" };
 
-  const owned = await listOwnedTeams(services.db, identity.person.id);
-  const first = owned[0];
+  const accessible = await listAccessibleTeams(services.db, identity.person.id);
+  const first = accessible[0];
   if (first === undefined) return { state: "no-team" };
 
   const season = first.seasons[0];

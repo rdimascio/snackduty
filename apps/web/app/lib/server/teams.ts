@@ -49,6 +49,83 @@ export const createTeamsAndSeasons: MigrationEntry = {
   },
 };
 
+// Adult team membership is TEAM-scoped, mirroring how team ownership itself is
+// scoped (`teams.created_by_person_id`): the season-scoped roster table
+// (`memberships` in roster.ts) binds participants to one season, while a row
+// here binds an invited adult to the whole team. Rows are written when an
+// invitation is accepted (invitations.ts, which also owns the migration) and
+// read by the `teamAccess` seam below.
+export const adultMemberships = defineTable("adult_memberships", {
+  id: text("id").primaryKey(),
+  teamId: text("team_id")
+    .notNull()
+    .references(() => teams.id),
+  personId: text("person_id")
+    .notNull()
+    .references(() => people.id),
+  role: text("role").notNull(),
+  status: text("status").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export type TeamAccessLevel = "manage" | "read";
+
+/**
+ * THE team authorization seam: every team-scoped surface resolves the caller's
+ * relationship to a team through this one helper (directly or via the
+ * `manageableActiveTeam` / `readableActiveTeam` wrappers).
+ *
+ * - The CREATOR (`teams.created_by_person_id`) manages implicitly — creators
+ *   may predate `adult_memberships` and never need a row.
+ * - An ACTIVE `owner`-role membership manages with full creator parity.
+ * - An ACTIVE `adult`-role membership may READ (team, seasons, roster).
+ * - Everyone else — strangers, revoked or otherwise inactive memberships,
+ *   unknown roles — resolves to undefined, and callers answer the same 404 a
+ *   missing team gets: existence itself is never disclosed, never a 403.
+ */
+export async function teamAccess(tx: Db, teamId: string, personId: string) {
+  const team = await tx
+    .select()
+    .from(teams)
+    .where(and(eq(teams.id, teamId), eq(teams.status, "active")))
+    .get();
+  if (team === undefined) return undefined;
+  if (team.createdByPersonId === personId) return { team, level: "manage" as const };
+
+  const membership = await tx
+    .select()
+    .from(adultMemberships)
+    .where(
+      and(
+        eq(adultMemberships.teamId, team.id),
+        eq(adultMemberships.personId, personId),
+        eq(adultMemberships.status, "active"),
+      ),
+    )
+    .get();
+  if (membership === undefined) return undefined;
+  if (membership.role === "owner") return { team, level: "manage" as const };
+
+  return membership.role === "adult" ? { team, level: "read" as const } : undefined;
+}
+
+/**
+ * The active team when `personId` may MANAGE it (creator or owner-member), or
+ * undefined. Every team-scoped MUTATION and the invitation surface authorize
+ * through this: a read-only adult member is hidden from management exactly
+ * like a stranger (404-hiding).
+ */
+export async function manageableActiveTeam(tx: Db, teamId: string, personId: string) {
+  const access = await teamAccess(tx, teamId, personId);
+  return access?.level === "manage" ? access.team : undefined;
+}
+
+/** The active team when `personId` may at least READ it, or undefined. */
+export async function readableActiveTeam(tx: Db, teamId: string, personId: string) {
+  return (await teamAccess(tx, teamId, personId))?.team;
+}
+
 export const createTeamInputSchema = z.strictObject({
   name: z.string().trim().min(1, "Team name is required."),
 });
@@ -112,17 +189,7 @@ async function createSeason(c: Context<"/api/teams/:teamId/seasons">, db: Db, se
 
   const input = c.valid(createSeasonInputSchema);
   const season = await db.transaction(async (tx) => {
-    const team = await tx
-      .select()
-      .from(teams)
-      .where(
-        and(
-          eq(teams.id, c.param("teamId")),
-          eq(teams.createdByPersonId, identity.person.id),
-          eq(teams.status, "active"),
-        ),
-      )
-      .get();
+    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
     const now = new Date().toISOString();
@@ -152,17 +219,7 @@ async function readTeam(c: Context<"/api/teams/:teamId">, db: Db, sessions: Sess
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const team = await db
-    .select()
-    .from(teams)
-    .where(
-      and(
-        eq(teams.id, c.param("teamId")),
-        eq(teams.createdByPersonId, identity.person.id),
-        eq(teams.status, "active"),
-      ),
-    )
-    .get();
+  const team = await readableActiveTeam(db, c.param("teamId"), identity.person.id);
   if (team === undefined) return c.json(notFound, 404);
 
   const seasonRows = await db

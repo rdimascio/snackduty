@@ -9,8 +9,8 @@ import { z } from "zod";
 import { authenticatedAdult, people } from "./identity";
 import type { AdultIdentity } from "./identity";
 import type { InvitedRole, InviteDeliverer } from "./invite-delivery";
-import { guardianRelationships, memberships, ownedActiveTeam, participants } from "./roster";
-import { projectTeam, teams } from "./teams";
+import { guardianRelationships, memberships, participants } from "./roster";
+import { adultMemberships, manageableActiveTeam, projectTeam, teams } from "./teams";
 
 export const invitations = defineTable("invitations", {
   id: text("id").primaryKey(),
@@ -40,24 +40,9 @@ export const invitations = defineTable("invitations", {
   expiresAt: text("expires_at").notNull(),
 });
 
-// Adult team membership is TEAM-scoped, mirroring how team ownership itself is
-// scoped (`teams.created_by_person_id`), so it gets its own table: the
-// existing `memberships` table is the season-scoped roster (its season_id is
-// NOT NULL), and an invitation carries no season to bind an adult to.
-export const adultMemberships = defineTable("adult_memberships", {
-  id: text("id").primaryKey(),
-  teamId: text("team_id")
-    .notNull()
-    .references(() => teams.id),
-  personId: text("person_id")
-    .notNull()
-    .references(() => people.id),
-  role: text("role").notNull(),
-  status: text("status").notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
-
+// The `adult_memberships` table itself lives in teams.ts beside the
+// `teamAccess` seam that reads it; acceptance below writes it, and this
+// module keeps its migration.
 export const createInvitations: MigrationEntry = {
   version: "006_create_invitations",
   migration: {
@@ -211,7 +196,7 @@ async function createInvitation(
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
   const outcome = await db.transaction(async (tx) => {
-    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
+    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
     if (input.participantId !== undefined) {
@@ -245,6 +230,8 @@ async function createInvitation(
         inviteeLabel: input.inviteeLabel,
         tokenHash,
         status: "pending",
+        // The ACTUAL inviter — an owner-member's invitations record them, not
+        // the team creator.
         createdByPersonId: identity.person.id,
         acceptedByPersonId: null,
         createdAt: nowIso,
@@ -280,7 +267,7 @@ async function resendInvitation(
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
   const outcome = await db.transaction(async (tx) => {
-    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
+    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
 
     const row = await tx
@@ -327,7 +314,7 @@ async function revokeInvitation(
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const outcome = await db.transaction(async (tx) => {
-    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
+    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
 
     const row = await tx
@@ -370,7 +357,11 @@ async function listInvitations(
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const team = await ownedActiveTeam(db, c.param("teamId"), identity.person.id);
+  // Invitations are MANAGEMENT surface: the creator and owner-role members see
+  // this list identically (pending invite links included). An adult-role
+  // member's reads are team + roster only — for them, as for strangers, this
+  // answers the hiding 404, so pending links never reach read-only adults.
+  const team = await manageableActiveTeam(db, c.param("teamId"), identity.person.id);
   if (team === undefined) return c.json(teamNotFound, 404);
 
   const rows = await db.select().from(invitations).where(eq(invitations.teamId, team.id)).all();
