@@ -12,7 +12,14 @@ import {
   projectGuardian,
   projectParticipant,
 } from "./roster";
-import { adultMemberships, projectTeam, readableActiveTeam, seasons, teams } from "./teams";
+import {
+  adultMemberships,
+  grantedAccess,
+  projectTeam,
+  readableActiveTeam,
+  seasons,
+  teams,
+} from "./teams";
 import type { TeamAccessLevel } from "./teams";
 
 const unauthorized = { error: "authentication required" } as const;
@@ -44,14 +51,19 @@ export async function listAccessibleTeams(db: Db, personId: string) {
     .from(adultMemberships)
     .where(and(eq(adultMemberships.personId, personId), eq(adultMemberships.status, "active")))
     .all();
-  const accessByTeamId = new Map<string, TeamAccessLevel>();
+  const rolesByTeamId = new Map<string, string[]>();
   for (const membership of membershipRows) {
-    // Mirrors `teamAccess`: owner-role manages, adult-role reads, unknown
-    // roles grant nothing; owner outranks adult should both somehow exist.
-    if (membership.role === "owner") accessByTeamId.set(membership.teamId, "manage");
-    else if (membership.role === "adult" && accessByTeamId.get(membership.teamId) !== "manage") {
-      accessByTeamId.set(membership.teamId, "read");
-    }
+    const roles = rolesByTeamId.get(membership.teamId);
+    if (roles === undefined) rolesByTeamId.set(membership.teamId, [membership.role]);
+    else roles.push(membership.role);
+  }
+  // The SAME fold `teamAccess` authorizes with — owner outranks adult, unknown
+  // roles grant nothing — so this list and the authorization seam agree by
+  // construction rather than by two copies of the rule staying in sync.
+  const accessByTeamId = new Map<string, TeamAccessLevel>();
+  for (const [teamId, roles] of rolesByTeamId) {
+    const granted = grantedAccess(roles);
+    if (granted !== undefined) accessByTeamId.set(teamId, granted.level);
   }
   // Creator authority is implicit (no membership row required) and manages.
   for (const team of createdRows) accessByTeamId.set(team.id, "manage");

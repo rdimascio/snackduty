@@ -10,7 +10,14 @@ import { authenticatedAdult, people } from "./identity";
 import type { AdultIdentity } from "./identity";
 import type { InvitedRole, InviteDeliverer } from "./invite-delivery";
 import { guardianRelationships, memberships, participants } from "./roster";
-import { adultMemberships, manageableActiveTeam, projectTeam, teams } from "./teams";
+import {
+  adultMemberships,
+  grantedAccess,
+  manageableActiveTeam,
+  projectTeam,
+  roleOutranks,
+  teams,
+} from "./teams";
 
 export const invitations = defineTable("invitations", {
   id: text("id").primaryKey(),
@@ -102,6 +109,11 @@ export async function hashInviteToken(token: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * The link shape — a bearer credential IN THE URL PATH, which every access log
+ * records by default. `lib/server/access-log.ts` keeps the matching redaction
+ * rule; change this path and change that rule in the same commit.
+ */
 export function inviteUrlFor(token: string): string {
   return `/invite/${token}`;
 }
@@ -136,6 +148,32 @@ function projectInvitation(row: InvitationRow, link?: string) {
     expiresAt: row.expiresAt,
     ...(link === undefined ? {} : { inviteUrl: link }),
   };
+}
+
+/** Every ACTIVE adult membership one person holds on one team. */
+function activeMemberships(tx: Db, teamId: string, personId: string) {
+  return tx
+    .select()
+    .from(adultMemberships)
+    .where(
+      and(
+        eq(adultMemberships.teamId, teamId),
+        eq(adultMemberships.personId, personId),
+        eq(adultMemberships.status, "active"),
+      ),
+    )
+    .all();
+}
+
+/**
+ * The role a person ACTUALLY holds on a team right now — their active
+ * memberships folded exactly as `teamAccess` folds them — or undefined when no
+ * membership is in force. Every surface that reports a role reads it from here,
+ * so nobody is ever told they hold something the row does not grant.
+ */
+async function heldTeamRole(tx: Db, teamId: string, personId: string): Promise<string | undefined> {
+  const rows = await activeMemberships(tx, teamId, personId);
+  return grantedAccess(rows.map((membership) => membership.role))?.role;
 }
 
 /** An active participant rostered on this team, or undefined — 404-hiding. */
@@ -405,7 +443,14 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
       // accepted (an accept flow retried by refresh/double-tap must not
       // error), 409 for anyone else (a used single-use token presented by a
       // different adult is a real conflict) — without revealing who accepted.
-      return row.acceptedByPersonId === identity.person.id ? { row, team } : ("conflict" as const);
+      if (row.acceptedByPersonId !== identity.person.id) return "conflict" as const;
+
+      // The retry reports the role in force NOW — a later invitation may have
+      // upgraded it. A membership that has since been REVOKED grants nothing,
+      // and this endpoint refuses to claim otherwise: the token collapses into
+      // the same hiding 404 an unknown one gets.
+      const grantedRole = await heldTeamRole(tx, team.id, identity.person.id);
+      return grantedRole === undefined ? null : { row, team, grantedRole };
     }
 
     const nowIso = new Date().toISOString();
@@ -414,18 +459,18 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
     // No identity duplication: the accepting adult keeps their existing
     // Person/Account — acceptance only BINDS that person to the team (and
     // optionally to a participant), it never creates people.
-    const existingMembership = await tx
-      .select()
-      .from(adultMemberships)
-      .where(
-        and(
-          eq(adultMemberships.teamId, team.id),
-          eq(adultMemberships.personId, identity.person.id),
-          eq(adultMemberships.status, "active"),
-        ),
-      )
-      .get();
-    if (existingMembership === undefined) {
+    //
+    // A membership already in force is UPGRADED when this invitation outranks
+    // it (an adult member who accepts an owner invitation manages from here
+    // on) and left completely alone when it would reduce it (an owner who
+    // accepts a later adult invitation stays an owner). `grantedRole` is what
+    // the row grants once this transaction commits — the ONLY role reported
+    // back, so the answer can never outrun the grant.
+    const membershipRows = await activeMemberships(tx, team.id, identity.person.id);
+    const heldRole = grantedAccess(membershipRows.map((membership) => membership.role))?.role;
+    const upgrades = roleOutranks(row.invitedRole, heldRole);
+
+    if (membershipRows.length === 0) {
       await tx
         .insert(adultMemberships)
         .values({
@@ -438,7 +483,23 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
           updatedAt: nowIso,
         })
         .run();
+    } else if (upgrades) {
+      // Every active row moves together: a duplicate row can never be left
+      // behind holding a weaker role for the fold to trip over, and since the
+      // invited role outranks the strongest of them, no row is reduced.
+      await tx
+        .update(adultMemberships)
+        .set({ role: row.invitedRole, updatedAt: nowIso })
+        .where(
+          and(
+            eq(adultMemberships.teamId, team.id),
+            eq(adultMemberships.personId, identity.person.id),
+            eq(adultMemberships.status, "active"),
+          ),
+        )
+        .run();
     }
+    const grantedRole = upgrades ? row.invitedRole : (heldRole ?? row.invitedRole);
 
     // Create enforces that participantId and relationship travel together.
     if (row.participantId !== null && row.relationship !== null) {
@@ -478,7 +539,7 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
     const accepted = await tx.select().from(invitations).where(eq(invitations.id, row.id)).get();
     if (accepted === undefined) throw new Error("Invitation disappeared during accept.");
 
-    return { row: accepted, team };
+    return { row: accepted, team, grantedRole };
   });
 
   if (outcome === null) return c.json(invitationNotFound, 404);
@@ -486,13 +547,16 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
 
   // The accept response deliberately omits the invitee label (the inviter's
   // wording may reference a child's first name) and the participant id — the
-  // accepting adult learns the team and role they now hold, nothing more.
+  // accepting adult learns the team and the role they now hold, nothing more.
+  //
+  // `membership.role` is the role the DATABASE grants after this acceptance,
+  // which is not always the role the invitation asked for: an owner accepting
+  // a later adult invitation keeps `owner`. The invitation's own role is
+  // deliberately NOT echoed here — it is the offer, not the grant, and the
+  // owner-facing invitation projections are where an offer is read.
   return c.json({
-    invitation: {
-      id: outcome.row.id,
-      invitedRole: outcome.row.invitedRole,
-      status: outcome.row.status,
-    },
+    invitation: { id: outcome.row.id, status: outcome.row.status },
+    membership: { role: outcome.grantedRole },
     team: projectTeam(outcome.team),
   });
 }
@@ -510,7 +574,10 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
  * revoked, expired, and accepted tokens all collapse to `undefined`, so the
  * page can render exactly one generic "not valid" state — which of those it
  * was is never distinguishable from outside, exactly like accept's hiding 404.
- * The raw token is hashed in-process and never logged.
+ * The raw token is hashed in-process and this module never logs it — but it
+ * DOES travel in the request path (`inviteUrlFor`), which every access sink
+ * records by default, so the credential segment is redacted at the logging
+ * seam (`lib/server/access-log.ts`).
  */
 export interface InvitationPreview {
   readonly teamName: string;
@@ -545,18 +612,26 @@ export async function previewInvitation(
 }
 
 /**
- * The team an invitation joined THIS adult to — defined only when `personId`
- * is the person who accepted the token, mirroring the accept endpoint's
- * idempotent same-adult semantics so a refreshed landing page shows "you're
- * on the team" instead of a scary invalid state. Every other situation —
- * unknown, revoked, expired, still pending, or accepted by a DIFFERENT adult —
- * is `undefined`: who accepted an invitation is never revealed.
+ * The team an invitation joined THIS adult to, and the role they now hold on
+ * it — defined only when `personId` is the person who accepted the token,
+ * mirroring the accept endpoint's idempotent same-adult semantics so a
+ * refreshed landing page shows "you're on the team" instead of a scary invalid
+ * state. Every other situation — unknown, revoked, expired, still pending, or
+ * accepted by a DIFFERENT adult — is `undefined`: who accepted an invitation is
+ * never revealed.
+ *
+ * `grantedRole` is read from the MEMBERSHIP in force, never from the
+ * invitation: a later invitation may have upgraded the role since, and an
+ * invitation that would have reduced it changed nothing. A person whose
+ * membership has been revoked holds no role at all, so this resolves to
+ * `undefined` and the page falls back to its one generic invalid state rather
+ * than claiming a grant that no longer exists.
  */
 export async function invitationAcceptedBy(
   db: Db,
   token: string,
   personId: string,
-): Promise<{ teamName: string; invitedRole: InvitedRole } | undefined> {
+): Promise<{ teamName: string; grantedRole: InvitedRole } | undefined> {
   const tokenHash = await hashInviteToken(token);
   const row = await db.select().from(invitations).where(eq(invitations.tokenHash, tokenHash)).get();
   if (row === undefined || row.status !== "accepted" || row.acceptedByPersonId !== personId) {
@@ -570,7 +645,10 @@ export async function invitationAcceptedBy(
     .get();
   if (team === undefined) return undefined;
 
-  return { teamName: team.name, invitedRole: row.invitedRole as InvitedRole };
+  const grantedRole = await heldTeamRole(db, team.id, personId);
+  if (grantedRole === undefined) return undefined;
+
+  return { teamName: team.name, grantedRole: grantedRole as InvitedRole };
 }
 
 export function registerInvitationRoutes(

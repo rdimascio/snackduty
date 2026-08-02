@@ -1,12 +1,22 @@
 import { createApp } from "@lesto/kernel";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
+import { appServices } from "../app/lib/server/app-services";
+import { DEV_PERSON_ID } from "../app/lib/server/identity";
+import { invitationAcceptedBy } from "../app/lib/server/invitations";
+
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
 const { default: config, devInviteDelivery } = await import("../lesto.app");
 
 const app = await createApp(config);
+
+// `lesto.app.ts` registers the live services on import — the same typed Db the
+// `/invite/<token>` landing page reads its accepted-state projection through.
+const services = appServices();
+if (services === undefined) throw new Error("lesto.app must register the app services.");
+const db = services.db;
 
 async function clearState() {
   // `lesto_rate_limits` is the kernel's shared per-client budget — this suite
@@ -40,13 +50,19 @@ async function signIn(persona?: "second-adult"): Promise<string> {
   return header(response, "set-cookie").split(";", 1)[0] ?? "";
 }
 
-async function createTeamAndSeason(cookie: string): Promise<{ teamId: string; seasonId: string }> {
-  const createdTeam = await app.handle("POST", "/api/teams", {
+const TEAM_NAME = "Invite Falcons";
+
+async function createTeam(cookie: string, name: string): Promise<string> {
+  const created = await app.handle("POST", "/api/teams", {
     headers: { ...sameOrigin, cookie },
-    body: { name: "Invite Falcons" },
+    body: { name },
   });
-  expect(createdTeam.status).toBe(201);
-  const teamId = (json(createdTeam) as { team: { id: string } }).team.id;
+  expect(created.status).toBe(201);
+  return (json(created) as { team: { id: string } }).team.id;
+}
+
+async function createTeamAndSeason(cookie: string): Promise<{ teamId: string; seasonId: string }> {
+  const teamId = await createTeam(cookie, TEAM_NAME);
 
   const createdSeason = await app.handle("POST", `/api/teams/${teamId}/seasons`, {
     headers: { ...sameOrigin, cookie },
@@ -106,6 +122,20 @@ function tokenOf(invitation: InvitationBody): string {
   const url = invitation.inviteUrl ?? "";
   expect(url).toStartWith("/invite/");
   return url.slice("/invite/".length);
+}
+
+/**
+ * Blank the OPAQUE random identifiers — record uuids and the 64-hex invite
+ * token — before a short-word leak scan. Those digits are hexadecimal, so a run
+ * spells `dad` (or any other hex-only word) roughly one time in thirty purely
+ * by chance; scanning them tests the random number generator, not the
+ * projection. Every id that must not appear is matched by its `<kind>_` PREFIX,
+ * which survives this substitution, so the scan keeps all of its teeth.
+ */
+function withoutOpaqueIds(text: string): string {
+  return text
+    .replaceAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gu, "[uuid]")
+    .replaceAll(/[0-9a-f]{64}/gu, "[token]");
 }
 
 describe("generalized authentication", () => {
@@ -296,7 +326,10 @@ describe("invitation lifecycle", () => {
     const accepted = await accept(secondCookie, tokenOf(created));
     expect(accepted.status).toBe(200);
     expect(json(accepted)).toEqual({
-      invitation: { id: created.id, invitedRole: "adult", status: "accepted" },
+      invitation: { id: created.id, status: "accepted" },
+      // The role REPORTED is the one the membership row grants, not the one the
+      // invitation asked for — here they agree.
+      membership: { role: "adult" },
       team: {
         id: teamId,
         name: "Invite Falcons",
@@ -307,8 +340,9 @@ describe("invitation lifecycle", () => {
     });
     // The accepting adult learns the team and role — never the child's name
     // or the inviter's label for them.
+    const scanned = withoutOpaqueIds(accepted.body.toLowerCase());
     for (const forbidden of ["rowan", "dad", "participant_", "person_"]) {
-      expect(accepted.body.toLowerCase()).not.toContain(forbidden);
+      expect(scanned).not.toContain(forbidden);
     }
 
     expect(
@@ -360,6 +394,14 @@ describe("invitation lifecycle", () => {
     expect(other.status).toBe(409);
     expect(json(other)).toEqual({ error: "invitation already accepted" });
     expect(other.body).not.toContain(SECOND_PERSON_ID);
+
+    // Once the membership is revoked the adult holds nothing on this team, so
+    // the used token stops claiming a role: it hides behind the same 404 an
+    // unknown token gets rather than reporting a grant that no longer exists.
+    await config.db.exec("UPDATE adult_memberships SET status = 'revoked'");
+    const afterRevoke = await accept(secondCookie, token);
+    expect(afterRevoke.status).toBe(404);
+    expect(json(afterRevoke)).toEqual({ error: "invitation not found" });
   });
 
   it("an existing member accepts another invitation without a duplicate membership", async () => {
@@ -375,12 +417,89 @@ describe("invitation lifecycle", () => {
     );
 
     expect((await accept(secondCookie, tokenOf(first))).status).toBe(200);
-    expect((await accept(secondCookie, tokenOf(second))).status).toBe(200);
+    const again = await accept(secondCookie, tokenOf(second));
+    expect(again.status).toBe(200);
 
-    expect(await config.db.prepare("SELECT id FROM adult_memberships").all()).toHaveLength(1);
+    // A second invitation for the SAME role is a no-op on the grant, and the
+    // reported role still matches the one row in force.
+    expect(json(again)).toMatchObject({ membership: { role: "adult" } });
+    expect(await config.db.prepare("SELECT role, status FROM adult_memberships").all()).toEqual([
+      { role: "adult", status: "active" },
+    ]);
     expect(
       await config.db.prepare("SELECT status FROM invitations ORDER BY created_at, id").all(),
     ).toEqual([{ status: "accepted" }, { status: "accepted" }]);
+  });
+
+  it("upgrades the membership when a later invitation outranks the role in force", async () => {
+    const cookie = await signIn();
+    const { teamId } = await createTeamAndSeason(cookie);
+    const secondCookie = await signIn("second-adult");
+
+    const asAdult = invitationOf(
+      await invite(cookie, teamId, { invitedRole: "adult", inviteeLabel: "Maya's dad" }),
+    );
+    expect((await accept(secondCookie, tokenOf(asAdult))).status).toBe(200);
+
+    // Re-using the label is legal once the first invitation stops being
+    // pending — this is the exact sequence that used to consume the owner
+    // invitation while leaving the membership on `adult`.
+    const asOwner = invitationOf(
+      await invite(cookie, teamId, { invitedRole: "owner", inviteeLabel: "Maya's dad" }),
+    );
+    const upgraded = await accept(secondCookie, tokenOf(asOwner));
+    expect(upgraded.status).toBe(200);
+    expect(json(upgraded)).toMatchObject({
+      invitation: { id: asOwner.id, status: "accepted" },
+      membership: { role: "owner" },
+    });
+
+    // The GRANT moved with the report: still one row, now owner.
+    expect(
+      await config.db
+        .prepare("SELECT team_id, person_id, role, status FROM adult_memberships")
+        .all(),
+    ).toEqual([{ team_id: teamId, person_id: SECOND_PERSON_ID, role: "owner", status: "active" }]);
+
+    // Both landing pages agree — including the OLDER adult invitation's, which
+    // reports the role in force rather than the role it originally offered.
+    for (const token of [tokenOf(asOwner), tokenOf(asAdult)]) {
+      expect(await invitationAcceptedBy(db, token, SECOND_PERSON_ID)).toEqual({
+        teamName: TEAM_NAME,
+        grantedRole: "owner",
+      });
+    }
+  });
+
+  it("never demotes: an owner accepting a later adult invitation stays an owner", async () => {
+    const cookie = await signIn();
+    const { teamId } = await createTeamAndSeason(cookie);
+    const secondCookie = await signIn("second-adult");
+
+    const asOwner = invitationOf(
+      await invite(cookie, teamId, { invitedRole: "owner", inviteeLabel: "Maya's dad" }),
+    );
+    expect((await accept(secondCookie, tokenOf(asOwner))).status).toBe(200);
+
+    const asAdult = invitationOf(
+      await invite(cookie, teamId, { invitedRole: "adult", inviteeLabel: "Maya's dad" }),
+    );
+    const accepted = await accept(secondCookie, tokenOf(asAdult));
+    expect(accepted.status).toBe(200);
+
+    // The invitation is consumed but grants nothing, so the EFFECTIVE role is
+    // reported — never the "adult" the invitation asked for.
+    expect(json(accepted)).toMatchObject({
+      invitation: { id: asAdult.id, status: "accepted" },
+      membership: { role: "owner" },
+    });
+    expect(await config.db.prepare("SELECT role, status FROM adult_memberships").all()).toEqual([
+      { role: "owner", status: "active" },
+    ]);
+    expect(await invitationAcceptedBy(db, tokenOf(asAdult), SECOND_PERSON_ID)).toEqual({
+      teamName: TEAM_NAME,
+      grantedRole: "owner",
+    });
   });
 
   it("revokes pending invitations, refuses accepted ones, and re-revokes idempotently", async () => {
@@ -517,6 +636,74 @@ describe("invitation authorization boundaries", () => {
     ).toEqual([{ status: "pending" }]);
   });
 
+  it("refuses to resend or revoke another team's invitation, even for the same owner", async () => {
+    const cookie = await signIn();
+    const { teamId: teamOne } = await createTeamAndSeason(cookie);
+    // A SECOND team the same owner manages: `manageableActiveTeam` passes for
+    // both, so the invitation lookup's own team clause is the only thing
+    // keeping team two's routes off team one's invitation.
+    const teamTwo = await createTeam(cookie, "Invite Hawks");
+    const created = invitationOf(
+      await invite(cookie, teamOne, { invitedRole: "adult", inviteeLabel: "Maya's dad" }),
+    );
+    const before = await config.db
+      .prepare("SELECT * FROM invitations WHERE id = ?")
+      .get([created.id]);
+
+    for (const action of ["resend", "revoke"]) {
+      const response = await app.handle(
+        "POST",
+        `/api/teams/${teamTwo}/invitations/${created.id}/${action}`,
+        { headers: { ...sameOrigin, cookie } },
+      );
+      expect(response.status).toBe(404);
+      expect(json(response)).toEqual({ error: "invitation not found" });
+    }
+
+    // Untouched down to the token hash and the expiry — neither rotated nor
+    // revoked through the wrong team's route.
+    expect(
+      await config.db.prepare("SELECT * FROM invitations WHERE id = ?").get([created.id]),
+    ).toEqual(before);
+    // ... and the original link still works on the team it belongs to.
+    expect((await accept(await signIn("second-adult"), tokenOf(created))).status).toBe(200);
+  });
+
+  it("stops honoring a live session once the account or the person is deactivated", async () => {
+    const cookie = await signIn();
+    const { teamId } = await createTeamAndSeason(cookie);
+    const readTeam = () => app.handle("GET", `/api/teams/${teamId}`, { headers: { cookie } });
+    expect((await readTeam()).status).toBe(200);
+
+    // The SESSION stays valid throughout — only the identity behind it is
+    // deactivated, which every authorized route must notice.
+    await config.db
+      .prepare("UPDATE accounts SET status = 'revoked' WHERE person_id = ?")
+      .run([DEV_PERSON_ID]);
+    const withRevokedAccount = await readTeam();
+    expect(withRevokedAccount.status).toBe(401);
+    expect(json(withRevokedAccount)).toEqual({ error: "authentication required" });
+    const mutation = await invite(cookie, teamId, {
+      invitedRole: "adult",
+      inviteeLabel: "after deactivation",
+    });
+    expect(mutation.status).toBe(401);
+
+    await config.db
+      .prepare("UPDATE accounts SET status = 'active' WHERE person_id = ?")
+      .run([DEV_PERSON_ID]);
+    expect((await readTeam()).status).toBe(200);
+
+    // Deactivating the PERSON behind an active account is refused just as hard.
+    await config.db
+      .prepare("UPDATE people SET status = 'revoked' WHERE id = ?")
+      .run([DEV_PERSON_ID]);
+    const withRevokedPerson = await readTeam();
+    expect(withRevokedPerson.status).toBe(401);
+    expect(json(withRevokedPerson)).toEqual({ error: "authentication required" });
+    expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual([]);
+  });
+
   it("refuses cross-site and metadata-less mutations before touching state", async () => {
     const cookie = await signIn();
     const { teamId } = await createTeamAndSeason(cookie);
@@ -579,7 +766,7 @@ describe("delivery privacy", () => {
         "teamName",
       ]);
     }
-    const serialized = JSON.stringify(delivered).toLowerCase();
+    const serialized = withoutOpaqueIds(JSON.stringify(delivered).toLowerCase());
     for (const forbidden of ["rowan", "dad", "participant", "birth", "label"]) {
       expect(serialized).not.toContain(forbidden);
     }

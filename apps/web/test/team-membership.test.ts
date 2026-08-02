@@ -316,6 +316,81 @@ describe("adult-role membership: reads only", () => {
   });
 });
 
+describe("membership upgrades: a later invitation that outranks the role in force", () => {
+  it("promotes an adult member to owner and hands over management immediately", async () => {
+    const ownerCookie = await signIn();
+    const teamId = await createTeam(ownerCookie);
+    const memberCookie = await joinTeam(ownerCookie, teamId, "adult");
+    expect(teamsOf(await listTeams(memberCookie))[0]).toMatchObject({ access: "read" });
+    // Management is hidden from the adult member before the promotion.
+    expect((await createSeason(memberCookie, teamId)).status).toBe(404);
+
+    const promotion = await invite(ownerCookie, teamId, {
+      invitedRole: "owner",
+      inviteeLabel: "promotion",
+    });
+    expect(promotion.status).toBe(201);
+    const accepted = await accept(memberCookie, tokenOf(invitationOf(promotion)));
+    expect(accepted.status).toBe(200);
+    expect(json(accepted)).toMatchObject({ membership: { role: "owner" } });
+
+    // Still ONE membership row for this person, now carrying the owner role.
+    expect(
+      await config.db
+        .prepare("SELECT role, status FROM adult_memberships WHERE person_id = ?")
+        .all([SECOND_PERSON_ID]),
+    ).toEqual([{ role: "owner", status: "active" }]);
+
+    // The promotion is REAL, not just reported: full management parity.
+    const createdSeason = await createSeason(memberCookie, teamId);
+    expect(createdSeason.status).toBe(201);
+    const seasonId = (json(createdSeason) as { season: { id: string } }).season.id;
+    expect((await addChild(memberCookie, teamId, seasonId)).status).toBe(201);
+    expect((await listInvitations(memberCookie, teamId)).status).toBe(200);
+    expect(
+      (
+        await invite(memberCookie, teamId, {
+          invitedRole: "adult",
+          inviteeLabel: "invited by them",
+        })
+      ).status,
+    ).toBe(201);
+    expect(teamsOf(await listTeams(memberCookie))[0]).toMatchObject({
+      team: { id: teamId },
+      access: "manage",
+    });
+  });
+
+  it("never demotes an owner-member who accepts a later adult invitation", async () => {
+    const ownerCookie = await signIn();
+    const teamId = await createTeam(ownerCookie);
+    const memberCookie = await joinTeam(ownerCookie, teamId, "owner");
+
+    const demotion = await invite(ownerCookie, teamId, {
+      invitedRole: "adult",
+      inviteeLabel: "demotion",
+    });
+    expect(demotion.status).toBe(201);
+    const invitation = invitationOf(demotion);
+    const accepted = await accept(memberCookie, tokenOf(invitation));
+    expect(accepted.status).toBe(200);
+    // The invitation is consumed, and the role REPORTED is the effective one.
+    expect(json(accepted)).toMatchObject({ membership: { role: "owner" } });
+    expect(
+      await config.db.prepare("SELECT status FROM invitations WHERE id = ?").all([invitation.id]),
+    ).toEqual([{ status: "accepted" }]);
+    expect(
+      await config.db
+        .prepare("SELECT role, status FROM adult_memberships WHERE person_id = ?")
+        .all([SECOND_PERSON_ID]),
+    ).toEqual([{ role: "owner", status: "active" }]);
+
+    // Management survives the would-be demotion.
+    expect((await createSeason(memberCookie, teamId)).status).toBe(201);
+    expect(teamsOf(await listTeams(memberCookie))[0]).toMatchObject({ access: "manage" });
+  });
+});
+
 describe("membership lifecycle", () => {
   it("a revoked membership behaves exactly like a stranger again", async () => {
     const ownerCookie = await signIn();

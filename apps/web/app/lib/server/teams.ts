@@ -72,14 +72,64 @@ export const adultMemberships = defineTable("adult_memberships", {
 export type TeamAccessLevel = "manage" | "read";
 
 /**
+ * THE role → access rule, in exactly ONE place: an `owner` role manages with
+ * full creator parity, an `adult` role may READ (team, seasons, roster), and
+ * any other value — an unknown or future role — grants nothing. `teamAccess`
+ * below, `listAccessibleTeams` in team-reads.ts, and invitation acceptance all
+ * derive from this function, so they cannot drift into disagreeing about what
+ * a role means.
+ */
+export function accessLevelForRole(role: string): TeamAccessLevel | undefined {
+  if (role === "owner") return "manage";
+  return role === "adult" ? "read" : undefined;
+}
+
+const ACCESS_RANK: Record<TeamAccessLevel, number> = { read: 1, manage: 2 };
+
+/**
+ * Whether `role` grants strictly MORE than `held` (`undefined` = holds nothing
+ * yet) — the owner-outranks-adult precedence, derived from the one rule above.
+ * Invitation acceptance upgrades a membership only when this holds, so
+ * accepting can never REDUCE a role someone already has.
+ */
+export function roleOutranks(role: string, held: string | undefined): boolean {
+  const candidate = accessLevelForRole(role);
+  if (candidate === undefined) return false;
+
+  const current = held === undefined ? undefined : accessLevelForRole(held);
+  return current === undefined || ACCESS_RANK[candidate] > ACCESS_RANK[current];
+}
+
+/**
+ * Fold ACTIVE membership roles into the single grant they add up to: the
+ * strongest role (owner outranks adult) and the level it grants, or undefined
+ * when none of them grants anything. Every reader folds duplicate rows the same
+ * way, so the authorization seam, the team list, and the role acceptance
+ * reports can never disagree about one person's standing on one team.
+ */
+export function grantedAccess(
+  roles: readonly string[],
+): { role: string; level: TeamAccessLevel } | undefined {
+  let held: string | undefined;
+  for (const role of roles) {
+    if (roleOutranks(role, held)) held = role;
+  }
+  if (held === undefined) return undefined;
+
+  const level = accessLevelForRole(held);
+  return level === undefined ? undefined : { role: held, level };
+}
+
+/**
  * THE team authorization seam: every team-scoped surface resolves the caller's
  * relationship to a team through this one helper (directly or via the
  * `manageableActiveTeam` / `readableActiveTeam` wrappers).
  *
  * - The CREATOR (`teams.created_by_person_id`) manages implicitly — creators
  *   may predate `adult_memberships` and never need a row.
- * - An ACTIVE `owner`-role membership manages with full creator parity.
- * - An ACTIVE `adult`-role membership may READ (team, seasons, roster).
+ * - ACTIVE memberships are folded through `grantedAccess`: an `owner` role
+ *   manages with full creator parity, an `adult` role may READ, and owner
+ *   outranks adult should both somehow exist.
  * - Everyone else — strangers, revoked or otherwise inactive memberships,
  *   unknown roles — resolves to undefined, and callers answer the same 404 a
  *   missing team gets: existence itself is never disclosed, never a 403.
@@ -93,7 +143,7 @@ export async function teamAccess(tx: Db, teamId: string, personId: string) {
   if (team === undefined) return undefined;
   if (team.createdByPersonId === personId) return { team, level: "manage" as const };
 
-  const membership = await tx
+  const membershipRows = await tx
     .select()
     .from(adultMemberships)
     .where(
@@ -103,11 +153,10 @@ export async function teamAccess(tx: Db, teamId: string, personId: string) {
         eq(adultMemberships.status, "active"),
       ),
     )
-    .get();
-  if (membership === undefined) return undefined;
-  if (membership.role === "owner") return { team, level: "manage" as const };
+    .all();
+  const granted = grantedAccess(membershipRows.map((membership) => membership.role));
 
-  return membership.role === "adult" ? { team, level: "read" as const } : undefined;
+  return granted === undefined ? undefined : { team, level: granted.level };
 }
 
 /**

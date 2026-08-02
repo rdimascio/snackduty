@@ -234,7 +234,7 @@ describe("invitationAcceptedBy", () => {
 
     expect(await invitationAcceptedBy(db, token, "person_dev_second_adult")).toEqual({
       teamName: TEAM_NAME,
-      invitedRole: "adult",
+      grantedRole: "adult",
     });
     // A DIFFERENT adult — even the inviter — learns nothing from the token.
     expect(await invitationAcceptedBy(db, token, DEV_PERSON_ID)).toBeUndefined();
@@ -317,13 +317,56 @@ describe("/invite/:token page loader", () => {
     await acceptAs(memberCookie, token);
 
     const loaded = await loadInvite(token, memberCookie);
-    expect(loaded).toEqual({ state: "accepted", teamName: TEAM_NAME, invitedRole: "adult" });
+    expect(loaded).toEqual({ state: "accepted", teamName: TEAM_NAME, grantedRole: "adult" });
 
     const html = render(loaded);
     expect(html).toContain(`You're on ${TEAM_NAME}`);
     expect(html).toContain("You joined as an adult member.");
     expect(html).toContain('href="/app"');
     expectNoPrivateLeaks(html);
+  });
+
+  it("renders the role the membership GRANTS after an upgrade, not the invitation's", async () => {
+    const { ownerCookie, teamId, token } = await seedInvitation();
+    const memberCookie = await signIn("second-adult");
+    await acceptAs(memberCookie, token);
+
+    const promotion = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
+      headers: { ...sameOrigin, cookie: ownerCookie },
+      body: { invitedRole: "owner", inviteeLabel: "promotion" },
+    });
+    expect(promotion.status).toBe(201);
+    const promotionUrl =
+      (json(promotion) as { invitation: { inviteUrl?: string } }).invitation.inviteUrl ?? "";
+    const ownerToken = promotionUrl.slice("/invite/".length);
+    await acceptAs(memberCookie, ownerToken);
+
+    // BOTH landing pages — the owner token's AND the older adult token's —
+    // name the role in force, so the page can never outrun the grant.
+    for (const accepted of [ownerToken, token]) {
+      const loaded = await loadInvite(accepted, memberCookie);
+      expect(loaded).toEqual({ state: "accepted", teamName: TEAM_NAME, grantedRole: "owner" });
+
+      const html = render(loaded);
+      expect(html).toContain(`You're on ${TEAM_NAME}`);
+      expect(html).toContain("You joined as an owner.");
+      expect(html).not.toContain("an adult member");
+      expectNoPrivateLeaks(html);
+    }
+  });
+
+  it("collapses the success state once the membership is revoked", async () => {
+    const { token } = await seedInvitation();
+    const memberCookie = await signIn("second-adult");
+    await acceptAs(memberCookie, token);
+    expect((await loadInvite(token, memberCookie)).state).toBe("accepted");
+
+    await config.db.exec("UPDATE adult_memberships SET status = 'revoked'");
+
+    // No membership is in force, so there is no role to name: the page shows
+    // the one generic invalid state instead of claiming a lapsed grant.
+    expect(await loadInvite(token, memberCookie)).toEqual({ state: "invalid" });
+    expect(await invitationAcceptedBy(db, token, "person_dev_second_adult")).toBeUndefined();
   });
 
   it("renders the app-only fallback state for the service-less edge Worker", () => {

@@ -6,26 +6,30 @@ import { defineIsland } from "@lesto/ui";
 type AcceptState =
   | { readonly status: "idle" }
   | { readonly status: "accepting" }
-  | { readonly status: "accepted"; readonly teamName: string; readonly invitedRole: string }
+  | { readonly status: "accepted"; readonly teamName: string; readonly grantedRole: string }
   | { readonly status: "failed" };
 
+// `membership.role` is the role the server GRANTED — which is not always the
+// role the invitation asked for (an owner who accepts a later adult invitation
+// keeps `owner`). The invitation's own role is never rendered here: this note
+// tells the person what they now hold.
 interface AcceptResponse {
-  invitation: { invitedRole: string };
+  membership: { role: string };
   team: { name: string };
 }
 
 function AcceptedNote({
-  invitedRole,
+  grantedRole,
   teamName,
 }: {
-  invitedRole: string;
+  grantedRole: string;
   teamName: string;
 }): ReactNode {
   return (
     <div>
       <p className="text-lg font-bold">You&apos;re on {teamName}!</p>
       <p className="mt-1 text-sm text-muted-foreground">
-        You joined as {invitedRole === "owner" ? "an owner" : "an adult member"}.
+        You joined as {grantedRole === "owner" ? "an owner" : "an adult member"}.
       </p>
       <a className="mt-3 inline-block font-semibold text-primary" href="/app">
         Go to your team overview
@@ -38,10 +42,10 @@ function AcceptedNote({
  * The Accept button on the `/invite/<token>` landing page: POSTs the raw token
  * to the EXISTING accept endpoint — a same-origin fetch, so the app-wide
  * `originCheck` CSRF passes and the token travels in a request body, never a
- * query string an access log would keep. Success renders the team + role from
- * the accept response; every failure (404, 409, network) renders the SAME
- * generic message as the server-resolved invalid state — the page never
- * distinguishes why a link stopped working.
+ * query string an access log would keep. Success renders the team plus the
+ * role the server actually GRANTED; every failure (404, 409, network) renders
+ * the SAME generic message as the server-resolved invalid state — the page
+ * never distinguishes why a link stopped working.
  */
 function InviteAccept({ token }: { token: string }): ReactNode {
   const [state, setState] = useState<AcceptState>({ status: "idle" });
@@ -61,7 +65,7 @@ function InviteAccept({ token }: { token: string }): ReactNode {
       }
       const body = (await response.json()) as AcceptResponse;
       setState({
-        invitedRole: body.invitation.invitedRole,
+        grantedRole: body.membership.role,
         status: "accepted",
         teamName: body.team.name,
       });
@@ -71,7 +75,7 @@ function InviteAccept({ token }: { token: string }): ReactNode {
   }
 
   if (state.status === "accepted") {
-    return <AcceptedNote invitedRole={state.invitedRole} teamName={state.teamName} />;
+    return <AcceptedNote grantedRole={state.grantedRole} teamName={state.teamName} />;
   }
 
   if (state.status === "failed") {
