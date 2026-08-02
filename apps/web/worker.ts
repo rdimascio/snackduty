@@ -5,6 +5,7 @@ import type { ComponentProps, ReactNode } from "react";
 
 import { lesto } from "@lesto/web";
 
+import { logAccessLine, redactingLogRequest } from "./app/lib/server/access-log";
 import features from "./app/routes/(marketing)/features/page";
 import MarketingLayout from "./app/routes/(marketing)/layout";
 import home from "./app/routes/(marketing)/page";
@@ -72,7 +73,14 @@ const app = lesto()
   .page("/app", { ...overview, component: ProductOverview })
   .page("/invite/:token", { ...invite, component: InviteLanding });
 
-const handler = toFetchHandler((method, path, options) => app.handle(method, path, options));
+// The edge access log is the one place this Worker writes a request path, and
+// `/invite/<token>` carries a bearer credential in its path — so the default
+// sink (which logs `url.pathname` verbatim, for EVERY admitted request, 404s
+// included) is replaced by the same structured line with credential segments
+// redacted. Method, status, latency, and request id are untouched.
+const handler = toFetchHandler((method, path, options) => app.handle(method, path, options), {
+  logRequest: redactingLogRequest(logAccessLine),
+});
 
 export default {
   fetch(request: Request, env: Env, ctx: AssetExecutionContext): Promise<Response> {
