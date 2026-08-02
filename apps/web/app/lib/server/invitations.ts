@@ -497,6 +497,82 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
   });
 }
 
+/**
+ * The `/invite/<token>` landing page's PREVIEW: exactly the fields the
+ * delivery payload already exposes — team name, inviter display name, invited
+ * role (see invite-delivery.ts). That is the privacy precedent: anyone holding
+ * the link could have read the email that carried these same fields, so
+ * showing them requires no authentication. Everything else stays out BY
+ * CONSTRUCTION — never the invitee label (the inviter's wording may reference
+ * a child), never participant data, never person or team ids.
+ *
+ * Only a PENDING, unexpired invitation on an active team previews. Unknown,
+ * revoked, expired, and accepted tokens all collapse to `undefined`, so the
+ * page can render exactly one generic "not valid" state — which of those it
+ * was is never distinguishable from outside, exactly like accept's hiding 404.
+ * The raw token is hashed in-process and never logged.
+ */
+export interface InvitationPreview {
+  readonly teamName: string;
+  readonly inviterDisplayName: string;
+  readonly invitedRole: InvitedRole;
+}
+
+export async function previewInvitation(
+  db: Db,
+  token: string,
+): Promise<InvitationPreview | undefined> {
+  const tokenHash = await hashInviteToken(token);
+  const row = await db.select().from(invitations).where(eq(invitations.tokenHash, tokenHash)).get();
+  if (row === undefined || row.status !== "pending") return undefined;
+  if (row.expiresAt <= new Date().toISOString()) return undefined;
+
+  const team = await db
+    .select()
+    .from(teams)
+    .where(and(eq(teams.id, row.teamId), eq(teams.status, "active")))
+    .get();
+  if (team === undefined) return undefined;
+
+  const inviter = await db.select().from(people).where(eq(people.id, row.createdByPersonId)).get();
+  if (inviter === undefined) return undefined;
+
+  return {
+    teamName: team.name,
+    inviterDisplayName: inviter.displayName,
+    invitedRole: row.invitedRole as InvitedRole,
+  };
+}
+
+/**
+ * The team an invitation joined THIS adult to — defined only when `personId`
+ * is the person who accepted the token, mirroring the accept endpoint's
+ * idempotent same-adult semantics so a refreshed landing page shows "you're
+ * on the team" instead of a scary invalid state. Every other situation —
+ * unknown, revoked, expired, still pending, or accepted by a DIFFERENT adult —
+ * is `undefined`: who accepted an invitation is never revealed.
+ */
+export async function invitationAcceptedBy(
+  db: Db,
+  token: string,
+  personId: string,
+): Promise<{ teamName: string; invitedRole: InvitedRole } | undefined> {
+  const tokenHash = await hashInviteToken(token);
+  const row = await db.select().from(invitations).where(eq(invitations.tokenHash, tokenHash)).get();
+  if (row === undefined || row.status !== "accepted" || row.acceptedByPersonId !== personId) {
+    return undefined;
+  }
+
+  const team = await db
+    .select()
+    .from(teams)
+    .where(and(eq(teams.id, row.teamId), eq(teams.status, "active")))
+    .get();
+  if (team === undefined) return undefined;
+
+  return { teamName: team.name, invitedRole: row.invitedRole as InvitedRole };
+}
+
 export function registerInvitationRoutes(
   app: Lesto,
   db: Db,

@@ -10,6 +10,7 @@ import MarketingLayout from "./app/routes/(marketing)/layout";
 import home from "./app/routes/(marketing)/page";
 import AppLayout from "./app/routes/app/layout";
 import overview from "./app/routes/app/page";
+import invite from "./app/routes/invite/[token]/page";
 import RootLayout from "./app/routes/layout";
 
 function PublicHome(): ReactNode {
@@ -40,6 +41,14 @@ function ProductOverview(props: ComponentProps<typeof overview.component>): Reac
   );
 }
 
+// The invite landing's `load` runs at the edge too; with no registered app
+// services it resolves to the "open this link in the app" state — the invited
+// parent gets a calm explanation instead of a 404, and no invitation data is
+// ever readable from the DB-less Worker.
+function InviteLanding(props: ComponentProps<typeof invite.component>): ReactNode {
+  return createElement(RootLayout, null, createElement(invite.component, props));
+}
+
 /** The bindings this Worker is configured with (see wrangler.jsonc). */
 interface Env {
   readonly ASSETS: AssetFetcher;
@@ -60,7 +69,8 @@ const app = lesto()
   .styles("/styles.css")
   .page("/", { ...home, component: PublicHome })
   .page("/features", { ...features, component: PublicFeatures })
-  .page("/app", { ...overview, component: ProductOverview });
+  .page("/app", { ...overview, component: ProductOverview })
+  .page("/invite/:token", { ...invite, component: InviteLanding });
 
 const handler = toFetchHandler((method, path, options) => app.handle(method, path, options));
 
