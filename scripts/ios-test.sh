@@ -15,10 +15,22 @@ if ! xcodebuild -version >/dev/null 2>&1; then
   exit 1
 fi
 
+# xcodebuild prints "** TEST SUCCEEDED **" and exits 0 for a run that matched
+# ZERO tests, so neither signal proves anything was verified. Capture the log,
+# keep streaming it, and let the shared verdict guard decide — the same guard
+# the acceptance journey uses, so the gated path can never be the weak one.
+LOG_FILE="$(mktemp -t snackday-ios-test)"
+trap 'rm -f "$LOG_FILE"' EXIT
+
+set +e
 xcodebuild test \
   -project "$PROJECT" \
   -scheme Snackday \
   -configuration Debug \
   -destination "$IOS_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
-  CODE_SIGNING_ALLOWED=NO
+  CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$LOG_FILE"
+XCODEBUILD_STATUS="${PIPESTATUS[0]}"
+set -e
+
+bun "$ROOT_DIR/scripts/lib/xcodebuild-verdict.ts" "$LOG_FILE" "$XCODEBUILD_STATUS"

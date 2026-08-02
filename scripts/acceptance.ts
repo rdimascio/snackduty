@@ -22,6 +22,8 @@ import { fileURLToPath } from "node:url";
 
 import type { Subprocess } from "bun";
 
+import { namedTestProblems, zeroTestProblems } from "./lib/xcodebuild-verdict";
+
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 const TEAM_NAME = "Acceptance Falcons";
@@ -443,32 +445,15 @@ async function runIosLiveCheck(port: number, scratchDir: string): Promise<void> 
   const output = `${stdout}\n${stderr}`;
   await Bun.write(join(scratchDir, "xcodebuild.log"), output);
   const tail = output.split("\n").slice(-40).join("\n");
-  ensure(step, exitCode === 0, `scripts/ios-live-test.sh exited ${exitCode}; log tail:\n${tail}`);
-  ensure(
-    step,
-    /LIVE API|liveDevServerRoundTrip/u.test(output),
-    `xcodebuild output never mentions the live test; log tail:\n${tail}`,
-  );
-  // A skipped live test would be a silent no-op acceptance: the verdict line
-  // names the test, and its lowercase "skipped" cannot be confused with the
-  // uppercase "SKIPPED" inside the test's own display name.
-  ensure(
-    step,
-    !/(?:LIVE API|liveDevServerRoundTrip)[^\n]*skipped/u.test(output),
-    `the live test was SKIPPED — SNACKDAY_LIVE_API never reached the test runner; log tail:\n${tail}`,
-  );
-  ensure(
-    step,
-    /(?:LIVE API|liveDevServerRoundTrip)[^\n]*passed|passed[^\n]*(?:LIVE API|liveDevServerRoundTrip)/u.test(
-      output,
-    ),
-    `no pass verdict for the live test in the xcodebuild output; log tail:\n${tail}`,
-  );
-  ensure(
-    step,
-    output.includes("** TEST SUCCEEDED **"),
-    `xcodebuild did not report TEST SUCCEEDED; log tail:\n${tail}`,
-  );
+  // Both iOS entry points share ONE verdict guard (scripts/lib/xcodebuild-verdict.ts):
+  // a zero-match run prints the success banner and exits 0, so neither signal is
+  // evidence on its own. `zeroTestProblems` covers the generic trap; the named
+  // check covers the one test THIS leg exists to run.
+  const problems = [
+    ...zeroTestProblems(exitCode, output),
+    ...namedTestProblems(output, "the live round-trip test", "LIVE API|liveDevServerRoundTrip"),
+  ];
+  ensure(step, problems.length === 0, `${problems.join("; ")}; log tail:\n${tail}`);
 }
 
 async function dumpServerLogs(server: WebServer): Promise<void> {
