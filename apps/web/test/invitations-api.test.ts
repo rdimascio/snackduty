@@ -13,7 +13,7 @@ const { default: config, devInviteDelivery } = await import("../lesto.app");
 const app = await createApp(config);
 
 // `lesto.app.ts` registers the live services on import — the same typed Db the
-// `/invite/<token>` landing page reads its accepted-state projection through.
+// `/invite` landing page reads its accepted-state projection through.
 const services = appServices();
 if (services === undefined) throw new Error("lesto.app must register the app services.");
 const db = services.db;
@@ -118,10 +118,12 @@ function invitationOf(response: { body: string }): InvitationBody {
   return (json(response) as { invitation: InvitationBody }).invitation;
 }
 
+// The token lives in the URL FRAGMENT, so `/invite` is the entire request line
+// a server ever sees. Splitting on `#` here is the link-shape contract.
 function tokenOf(invitation: InvitationBody): string {
   const url = invitation.inviteUrl ?? "";
-  expect(url).toStartWith("/invite/");
-  return url.slice("/invite/".length);
+  expect(url).toStartWith("/invite#");
+  return url.slice("/invite#".length);
 }
 
 /**
@@ -213,7 +215,7 @@ describe("invitation lifecycle", () => {
         teamName: "Invite Falcons",
         inviterDisplayName: "Development Adult",
         invitedRole: "adult",
-        inviteUrl: `/invite/${token}`,
+        inviteUrl: `/invite#${token}`,
       },
     ]);
   });

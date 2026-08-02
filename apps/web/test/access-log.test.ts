@@ -121,18 +121,33 @@ async function edgeAccessLines(path: string): Promise<Record<string, unknown>[]>
 }
 
 describe("the deployed edge handler", () => {
-  it("logs the invite request with the token redacted", async () => {
+  // The live link shape is `/invite#<token>`: a fragment is never transmitted,
+  // so this is what the edge receives for a real invitation — one log line
+  // carrying no credential because no credential ever arrived.
+  it("logs the invite page request, which carries no credential at all", async () => {
+    const [access, ...rest] = await edgeAccessLines("/invite");
+
+    expect(rest).toEqual([]);
+    expect(access?.["event"]).toBe("http.access");
+    expect(access?.["path"]).toBe("/invite");
+    expect(access?.["status"]).toBe(200);
+    // The line stays operationally useful: everything but the credential.
+    expect(access?.["method"]).toBe("GET");
+    expect(typeof access?.["ms"]).toBe("number");
+    expect(typeof access?.["request_id"]).toBe("string");
+  });
+
+  // A legacy-shaped link — already delivered, bookmarked, or scanner-rewritten
+  // — no longer routes, but the access log still fires, so the seam still has
+  // to redact it.
+  it("logs a legacy path-shaped invite request with the token redacted", async () => {
     const [access, ...rest] = await edgeAccessLines(`/invite/${TOKEN}`);
 
     expect(rest).toEqual([]);
     expect(access?.["event"]).toBe("http.access");
     expect(access?.["path"]).toBe("/invite/[redacted]");
+    expect(access?.["status"]).toBe(404);
     expect(JSON.stringify(access)).not.toContain(TOKEN);
-    // The line stays operationally useful: everything but the credential.
-    expect(access?.["method"]).toBe("GET");
-    expect(access?.["status"]).toBe(200);
-    expect(typeof access?.["ms"]).toBe("number");
-    expect(typeof access?.["request_id"]).toBe("string");
   });
 
   it("redacts even when no route matches — the log fires on the 404 too", async () => {

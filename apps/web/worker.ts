@@ -11,7 +11,7 @@ import MarketingLayout from "./app/routes/(marketing)/layout";
 import home from "./app/routes/(marketing)/page";
 import AppLayout from "./app/routes/app/layout";
 import overview from "./app/routes/app/page";
-import invite from "./app/routes/invite/[token]/page";
+import invite from "./app/routes/invite/page";
 import RootLayout from "./app/routes/layout";
 
 function PublicHome(): ReactNode {
@@ -45,7 +45,8 @@ function ProductOverview(props: ComponentProps<typeof overview.component>): Reac
 // The invite landing's `load` runs at the edge too; with no registered app
 // services it resolves to the "open this link in the app" state — the invited
 // parent gets a calm explanation instead of a 404, and no invitation data is
-// ever readable from the DB-less Worker.
+// ever readable from the DB-less Worker. The token is in the URL fragment, so
+// the edge never receives it either way.
 function InviteLanding(props: ComponentProps<typeof invite.component>): ReactNode {
   return createElement(RootLayout, null, createElement(invite.component, props));
 }
@@ -71,13 +72,17 @@ const app = lesto()
   .page("/", { ...home, component: PublicHome })
   .page("/features", { ...features, component: PublicFeatures })
   .page("/app", { ...overview, component: ProductOverview })
-  .page("/invite/:token", { ...invite, component: InviteLanding });
+  .page("/invite", { ...invite, component: InviteLanding });
 
-// The edge access log is the one place this Worker writes a request path, and
-// `/invite/<token>` carries a bearer credential in its path — so the default
-// sink (which logs `url.pathname` verbatim, for EVERY admitted request, 404s
-// included) is replaced by the same structured line with credential segments
-// redacted. Method, status, latency, and request id are untouched.
+// The edge access log is the one place this Worker writes a request path. The
+// invitation token now travels in the URL FRAGMENT, which no browser sends, so
+// no live credential reaches this sink by the current link shape — but the
+// default sink logs `url.pathname` verbatim for EVERY admitted request (404s
+// included), so it stays replaced by the same structured line with credential
+// segments redacted: legacy-shaped `/invite/<token>` hits still arrive from
+// already-sent mail and bookmarks, and the next secret-bearing path is one
+// line in `access-log.ts` rather than a new incident. Method, status, latency,
+// and request id are untouched.
 const handler = toFetchHandler((method, path, options) => app.handle(method, path, options), {
   logRequest: redactingLogRequest(logAccessLine),
 });

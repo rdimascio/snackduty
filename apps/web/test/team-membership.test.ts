@@ -133,10 +133,11 @@ function invitationOf(response: { body: string }): InvitationBody {
   return (json(response) as { invitation: InvitationBody }).invitation;
 }
 
+// The token lives in the URL FRAGMENT — `/invite` is the whole request line.
 function tokenOf(invitation: InvitationBody): string {
   const url = invitation.inviteUrl ?? "";
-  expect(url).toStartWith("/invite/");
-  return url.slice("/invite/".length);
+  expect(url).toStartWith("/invite#");
+  return url.slice("/invite#".length);
 }
 
 /** Signs in the second persona and joins `teamId` with `role` via an invitation. */

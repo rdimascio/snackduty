@@ -8,8 +8,11 @@
  * different relationships → read the team list and roster back through the
  * authorized APIs → verify the /app page renders the real roster server-side
  * (and leaks no identifiers) → verify the signed-out /app page shows none of
- * it. Finally it runs the env-gated iOS live round trip (SnackdayDomainTests)
- * against the SAME running server and refuses to accept a skipped run.
+ * it → drive the whole INVITATION journey (invite a second adult, preview the
+ * link while signed out, accept, read the team back at the right access level,
+ * resend, revoke) with the bearer token in the URL fragment throughout. Finally
+ * it runs the env-gated iOS live round trip (SnackdayDomainTests) against the
+ * SAME running server and refuses to accept a skipped run.
  *
  * The server is torn down and the scratch database removed even on failure;
  * any assertion failure exits nonzero naming the failing step.
@@ -41,6 +44,25 @@ const GUARDIAN_TWO = {
   permissions: ["participant.read"],
 } as const;
 const DEFAULT_GUARDIAN_PERMISSIONS = ["participant.read", "participant.manage"] as const;
+const SECOND_ADULT_NAME = "Second Development Adult";
+// The INVITER's own wording for the invitee — child-derived by design, which is
+// exactly why the preview leg below proves it never reaches the invited parent.
+// It is never printed: every assertion about it is phrased, not dumped.
+const INVITEE_LABEL = `${CHILD.displayName.split(" ")[0] ?? ""}'s dad`;
+const SECOND_INVITEE_LABEL = `${CHILD.displayName.split(" ")[0] ?? ""}'s aunt`;
+// The invited parent may see the team, the inviter, and the role — the delivery
+// payload's exact fields (docs: invite-delivery.ts). Anything else in a preview
+// response is a leak: the child's name (and the label that quotes it), any
+// internal id, and any credential-ish vocabulary.
+const FORBIDDEN_PREVIEW = [
+  CHILD.displayName.split(" ")[0] ?? "",
+  "participant_",
+  "person_",
+  "invitation_",
+  "team_",
+  "token",
+  "label",
+] as const;
 const REAL_NAMES = [
   TEAM_NAME,
   CHILD.displayName,
@@ -425,6 +447,357 @@ async function verifySignedOutAppPage(base: string): Promise<void> {
   }
 }
 
+/**
+ * The token out of a delivered invitation link, with the LINK-SHAPE RULE
+ * asserted on the way through: a bearer credential may never appear in the
+ * request line (path or query) of a Snackday URL, so the whole of `/invite` is
+ * what a server ever receives and the token rides the fragment. Nothing here
+ * ever prints the token.
+ */
+function tokenOf(step: string, inviteUrl: string): string {
+  const [requestLine, ...fragment] = inviteUrl.split("#");
+  ensure(
+    step,
+    requestLine === "/invite" && fragment.length === 1,
+    "invite link must be exactly `/invite#<token>`: a bearer credential may never appear in a request line",
+  );
+  const token = fragment[0] ?? "";
+  ensure(step, /^[0-9a-f]{64}$/u.test(token), "invite link fragment is not a 64-hex token");
+  return token;
+}
+
+interface PendingInvitation {
+  readonly invitationId: string;
+  readonly token: string;
+}
+
+async function createInvitation(
+  base: string,
+  cookie: string,
+  teamId: string,
+  label: string,
+  participantId?: string,
+): Promise<PendingInvitation> {
+  const step = "create-invitation";
+  const body = await requestJson(
+    step,
+    `${base}/api/teams/${teamId}/invitations`,
+    {
+      method: "POST",
+      headers: mutationHeaders(cookie),
+      body: JSON.stringify({
+        invitedRole: "adult",
+        inviteeLabel: label,
+        ...(participantId === undefined ? {} : { participantId, relationship: "parent" }),
+      }),
+    },
+    201,
+  );
+  const invitation = body["invitation"] as { id?: string; status?: string; inviteUrl?: string };
+  ensure(step, typeof invitation?.id === "string", "created invitation carries no id");
+  ensure(
+    step,
+    invitation.status === "pending",
+    `new invitation is not pending: ${String(invitation.status)}`,
+  );
+  ensure(step, typeof invitation.inviteUrl === "string", "created invitation carries no link");
+
+  return { invitationId: invitation.id, token: tokenOf(step, invitation.inviteUrl) };
+}
+
+/** `POST /api/invitations/preview` — the token in a BODY, never a request line. */
+function previewInvitation(base: string, token: string, cookie?: string): Promise<Response> {
+  return fetch(`${base}/api/invitations/preview`, {
+    method: "POST",
+    headers: mutationHeaders(cookie),
+    body: JSON.stringify({ token }),
+  });
+}
+
+/** The one hiding answer, as bytes — every invalid reason must equal this. */
+async function hiddenPreviewBody(base: string): Promise<string> {
+  const step = "preview-hiding";
+  const response = await previewInvitation(base, "not-a-real-token");
+  ensure(
+    step,
+    response.status === 404,
+    `preview of an unknown token answered ${response.status} (expected 404)`,
+  );
+  return await response.text();
+}
+
+async function verifyPendingInvitationListed(
+  base: string,
+  cookie: string,
+  teamId: string,
+  pending: PendingInvitation,
+): Promise<void> {
+  const step = "list-invitations";
+  const body = await requestJson(
+    step,
+    `${base}/api/teams/${teamId}/invitations`,
+    { headers: { Cookie: cookie } },
+    200,
+  );
+  const invitations = body["invitations"] as readonly {
+    id?: string;
+    status?: string;
+    inviteUrl?: string;
+  }[];
+  ensure(step, Array.isArray(invitations), "invitation list is not an array");
+  const listed = invitations.find((entry) => entry.id === pending.invitationId);
+  ensure(step, listed !== undefined, "the created invitation is missing from the owner's list");
+  ensure(
+    step,
+    listed.status === "pending",
+    `listed invitation is not pending: ${String(listed.status)}`,
+  );
+  ensure(
+    step,
+    typeof listed.inviteUrl === "string",
+    "a pending invitation is listed without its link",
+  );
+  ensure(
+    step,
+    tokenOf(step, listed.inviteUrl) === pending.token,
+    "the listed link does not carry the token the create response delivered",
+  );
+}
+
+/**
+ * The invited parent's view, resolved the way the landing page resolves it: the
+ * token from the fragment, POSTed in a body, while SIGNED OUT (which is the
+ * invited parent's actual situation).
+ */
+async function verifySignedOutPreview(base: string, token: string): Promise<void> {
+  const step = "preview-invitation";
+  const response = await previewInvitation(base, token);
+  const text = await response.text();
+  ensure(step, response.status === 200, `preview answered ${response.status} (expected 200)`);
+  const preview = JSON.parse(text) as Record<string, unknown>;
+  ensure(
+    step,
+    preview["state"] === "preview" &&
+      preview["teamName"] === TEAM_NAME &&
+      preview["inviterDisplayName"] === "Development Adult" &&
+      preview["invitedRole"] === "adult",
+    "preview does not name the team, the inviter, and the invited role",
+  );
+  // The privacy contract as an EXACT key set — no room for a field to creep in.
+  ensure(
+    step,
+    JSON.stringify(Object.keys(preview).toSorted()) ===
+      JSON.stringify(["invitedRole", "inviterDisplayName", "state", "teamName"]),
+    `preview payload has unexpected fields: ${JSON.stringify(Object.keys(preview).toSorted())}`,
+  );
+  const scanned = text.toLowerCase();
+  for (const forbidden of FORBIDDEN_PREVIEW) {
+    ensure(
+      step,
+      !scanned.includes(forbidden.toLowerCase()),
+      `preview response leaks forbidden substring "${forbidden}"`,
+    );
+  }
+}
+
+/** Accepting the invitation, and what the new member can see afterwards. */
+async function verifyAcceptAndMembership(
+  base: string,
+  memberCookie: string,
+  token: string,
+  teamId: string,
+): Promise<void> {
+  const step = "accept-invitation";
+  const body = await requestJson(
+    step,
+    `${base}/api/invitations/accept`,
+    { method: "POST", headers: mutationHeaders(memberCookie), body: JSON.stringify({ token }) },
+    200,
+  );
+  const membership = body["membership"] as { role?: string };
+  const team = body["team"] as { id?: string; name?: string };
+  ensure(step, membership?.role === "adult", `granted role mismatch: ${String(membership?.role)}`);
+  ensure(step, team?.id === teamId && team.name === TEAM_NAME, "accept named the wrong team");
+
+  const listStep = "member-team-list";
+  const listed = await requestJson(
+    listStep,
+    `${base}/api/teams`,
+    { headers: { Cookie: memberCookie } },
+    200,
+  );
+  const teams = listed["teams"] as readonly {
+    team?: { id?: string; name?: string };
+    access?: string;
+  }[];
+  ensure(
+    listStep,
+    Array.isArray(teams) && teams.length === 1 && teams[0]?.team?.id === teamId,
+    "the accepting adult does not see exactly the team they joined",
+  );
+  // The access level the member reads must be the one their GRANTED role means:
+  // `adult` reads, `owner` manages (lib/server/teams.ts owns that rule).
+  ensure(
+    listStep,
+    teams[0].access === (membership.role === "owner" ? "manage" : "read"),
+    `access level "${String(teams[0].access)}" does not match granted role "${String(membership.role)}"`,
+  );
+}
+
+/**
+ * The accepted token stays calm for the adult who used it — and stays hidden
+ * from everyone else, including the inviter.
+ */
+async function verifyAcceptedPreview(
+  base: string,
+  memberCookie: string,
+  ownerCookie: string,
+  token: string,
+  hidden: string,
+): Promise<void> {
+  const step = "preview-accepted";
+  const mine = await previewInvitation(base, token, memberCookie);
+  const text = await mine.text();
+  ensure(step, mine.status === 200, `accepted preview answered ${mine.status} (expected 200)`);
+  const accepted = JSON.parse(text) as Record<string, unknown>;
+  ensure(
+    step,
+    accepted["state"] === "accepted" &&
+      accepted["teamName"] === TEAM_NAME &&
+      accepted["grantedRole"] === "adult",
+    "the accepted state does not name the team and the role in force",
+  );
+  const scanned = text.toLowerCase();
+  for (const forbidden of FORBIDDEN_PREVIEW) {
+    ensure(
+      step,
+      !scanned.includes(forbidden.toLowerCase()),
+      `accepted preview leaks forbidden substring "${forbidden}"`,
+    );
+  }
+
+  for (const cookie of [ownerCookie, undefined]) {
+    const other = await previewInvitation(base, token, cookie);
+    ensure(step, other.status === 404, `a used token answered ${other.status} to another visitor`);
+    ensure(
+      step,
+      (await other.text()) === hidden,
+      "a used token is distinguishable from an unknown one",
+    );
+  }
+}
+
+/** Resend rotates the token (the old link dies); revoke kills the new one. */
+async function verifyResendAndRevoke(
+  base: string,
+  ownerCookie: string,
+  teamId: string,
+  hidden: string,
+): Promise<void> {
+  const step = "resend-invitation";
+  const first = await createInvitation(base, ownerCookie, teamId, SECOND_INVITEE_LABEL);
+  const resent = await requestJson(
+    step,
+    `${base}/api/teams/${teamId}/invitations/${first.invitationId}/resend`,
+    { method: "POST", headers: mutationHeaders(ownerCookie) },
+    200,
+  );
+  const rotatedUrl = (resent["invitation"] as { inviteUrl?: string }).inviteUrl ?? "";
+  const rotated = tokenOf(step, rotatedUrl);
+  ensure(step, rotated !== first.token, "resend did not rotate the token");
+
+  const dead = await previewInvitation(base, first.token);
+  ensure(step, dead.status === 404, `the resent-over token answered ${dead.status}`);
+  ensure(step, (await dead.text()) === hidden, "a rotated-away token is distinguishable");
+
+  const live = await previewInvitation(base, rotated);
+  ensure(step, live.status === 200, `the rotated token answered ${live.status} (expected 200)`);
+  await live.text();
+
+  const revokeStep = "revoke-invitation";
+  const revoked = await requestJson(
+    revokeStep,
+    `${base}/api/teams/${teamId}/invitations/${first.invitationId}/revoke`,
+    { method: "POST", headers: mutationHeaders(ownerCookie) },
+    200,
+  );
+  ensure(
+    revokeStep,
+    (revoked["invitation"] as { status?: string }).status === "revoked",
+    "revoke did not move the invitation to revoked",
+  );
+  const afterRevoke = await previewInvitation(base, rotated);
+  ensure(
+    revokeStep,
+    afterRevoke.status === 404,
+    `a revoked token answered ${afterRevoke.status} (expected 404)`,
+  );
+  ensure(
+    revokeStep,
+    (await afterRevoke.text()) === hidden,
+    "a revoked token is distinguishable from an unknown one",
+  );
+}
+
+async function signInAsSecondAdult(base: string): Promise<string> {
+  const step = "second-adult-sign-in";
+  const response = await fetch(`${base}/api/dev/sign-in`, {
+    method: "POST",
+    headers: mutationHeaders(),
+    body: JSON.stringify({ persona: "second-adult" }),
+  });
+  ensure(
+    step,
+    response.status === 200,
+    `POST /api/dev/sign-in (second-adult) answered ${response.status}`,
+  );
+  const setCookie = response.headers.get("set-cookie");
+  ensure(
+    step,
+    setCookie !== null && setCookie.startsWith("snackday_session_dev="),
+    "the second adult sign-in issued no session cookie",
+  );
+  const cookie = setCookie.split(";", 1)[0];
+  ensure(step, cookie !== undefined && cookie.length > 0, "second adult session cookie is empty");
+  const identity = (await response.json()) as { person?: { displayName?: string } };
+  ensure(
+    step,
+    identity.person?.displayName === SECOND_ADULT_NAME,
+    `second-adult identity mismatch: ${JSON.stringify(identity)}`,
+  );
+  return cookie;
+}
+
+/**
+ * The invitation journey, end to end and over real HTTP: an owner invites a
+ * second adult (binding them to the child as a guardian), the invited parent
+ * previews the link SIGNED OUT, signs in, accepts, and reads the team back —
+ * then resend rotates the link and revoke kills it. The credential is in the
+ * fragment throughout, so every server-visible request line is just `/invite`
+ * or an API path, and nothing here prints the token or the invitee label.
+ */
+async function verifyInvitationJourney(
+  base: string,
+  ownerCookie: string,
+  ids: JourneyIds,
+): Promise<void> {
+  const hidden = await hiddenPreviewBody(base);
+  const pending = await createInvitation(
+    base,
+    ownerCookie,
+    ids.teamId,
+    INVITEE_LABEL,
+    ids.participantId,
+  );
+  await verifyPendingInvitationListed(base, ownerCookie, ids.teamId, pending);
+  await verifySignedOutPreview(base, pending.token);
+
+  const memberCookie = await signInAsSecondAdult(base);
+  await verifyAcceptAndMembership(base, memberCookie, pending.token, ids.teamId);
+  await verifyAcceptedPreview(base, memberCookie, ownerCookie, pending.token, hidden);
+  await verifyResendAndRevoke(base, ownerCookie, ids.teamId, hidden);
+}
+
 async function runIosLiveCheck(port: number, scratchDir: string): Promise<void> {
   const step = "ios-live-round-trip";
   // localhost inside the simulator IS the host loopback, and http://localhost
@@ -478,6 +851,7 @@ async function main(): Promise<void> {
     await verifyRoster(base, cookie, ids);
     await verifySignedInAppPage(base, cookie);
     await verifySignedOutAppPage(base);
+    await verifyInvitationJourney(base, cookie, ids);
     await runIosLiveCheck(port, scratchDir);
   } catch (error) {
     await dumpServerLogs(server);
@@ -489,7 +863,11 @@ async function main(): Promise<void> {
   console.log(
     `PASS acceptance on ${base}: dev sign-in, create team, create season, add child (birth date), ` +
       "attach two guardians (parent + caregiver), GET /api/teams, GET roster, " +
-      "/app signed-in HTML (real names, no identifier leaks), /app signed-out HTML, iOS live round trip.",
+      "/app signed-in HTML (real names, no identifier leaks), /app signed-out HTML, " +
+      "invitation journey (create, list pending with link, signed-out preview by POSTed fragment " +
+      "token with no label/child/id leaks, second-adult sign-in, accept, member team list with " +
+      "matching access level, accepted preview hidden from everyone else, resend rotates, revoke), " +
+      "iOS live round trip.",
   );
 }
 

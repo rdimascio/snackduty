@@ -115,10 +115,11 @@ async function joinAsSecondAdult(ownerCookie: string, teamId: string): Promise<s
   expect(created.status).toBe(201);
   const inviteUrl =
     (json(created) as { invitation: { inviteUrl?: string } }).invitation.inviteUrl ?? "";
-  expect(inviteUrl.startsWith("/invite/")).toBe(true);
+  // The token is in the FRAGMENT, so the request line is just `/invite`.
+  expect(inviteUrl.startsWith("/invite#")).toBe(true);
   const accepted = await app.handle("POST", "/api/invitations/accept", {
     headers: { ...sameOrigin, cookie: memberCookie },
-    body: { token: inviteUrl.slice("/invite/".length) },
+    body: { token: inviteUrl.slice("/invite#".length) },
   });
   expect(accepted.status).toBe(200);
   return memberCookie;

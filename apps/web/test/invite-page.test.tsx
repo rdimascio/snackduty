@@ -7,7 +7,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { appServices } from "../app/lib/server/app-services";
 import { DEV_PERSON_ID } from "../app/lib/server/identity";
 import { invitationAcceptedBy, previewInvitation } from "../app/lib/server/invitations";
-import invitePage from "../app/routes/invite/[token]/page";
+import invitePage from "../app/routes/invite/page";
 
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
@@ -95,6 +95,18 @@ async function createTeamSeasonAndChild(
   };
 }
 
+/**
+ * The token out of a delivered link. It lives in the FRAGMENT — everything
+ * before the `#` is the whole request line the server ever sees, and asserting
+ * that here is the link-shape contract itself.
+ */
+function tokenOf(inviteUrl: string): string {
+  const [path, ...fragment] = inviteUrl.split("#");
+  expect(path).toBe("/invite");
+  expect(fragment).toHaveLength(1);
+  return fragment[0] ?? "";
+}
+
 /** Creates a participant-bound invitation and returns its raw token + id. */
 async function createInvitation(
   cookie: string,
@@ -113,9 +125,7 @@ async function createInvitation(
   expect(created.status).toBe(201);
   const invitation = (json(created) as { invitation: { id: string; inviteUrl?: string } })
     .invitation;
-  const url = invitation.inviteUrl ?? "";
-  expect(url.startsWith("/invite/")).toBe(true);
-  return { token: url.slice("/invite/".length), invitationId: invitation.id };
+  return { token: tokenOf(invitation.inviteUrl ?? ""), invitationId: invitation.id };
 }
 
 async function acceptAs(cookie: string, token: string): Promise<void> {
@@ -141,11 +151,11 @@ async function seedInvitation(): Promise<{
 
 type Loaded = PageProps<NonNullable<typeof invitePage.load>>;
 
-async function loadInvite(token: string, cookie?: string): Promise<Loaded> {
-  const context = new Context<"/invite/:token">({
+async function loadInvite(cookie?: string): Promise<Loaded> {
+  const context = new Context<"/invite">({
     method: "GET",
-    path: `/invite/${token}`,
-    params: { token },
+    path: "/invite",
+    params: {},
     query: {},
     headers: cookie === undefined ? {} : { cookie },
     body: undefined,
@@ -162,16 +172,37 @@ function render(loaded: Loaded): string {
   return renderToStaticMarkup(<invitePage.component {...loaded} />).replaceAll("&#x27;", "'");
 }
 
+/** `POST /api/invitations/preview` — the token in a BODY, never a request line. */
+function previewOverHttp(token: string, cookie?: string) {
+  return app.handle("POST", "/api/invitations/preview", {
+    headers: { ...sameOrigin, ...(cookie === undefined ? {} : { cookie }) },
+    body: { token },
+  });
+}
+
 // The accepting person may only ever see team + inviter + role: never the
 // invitee label ("Maya's dad" references a child), never the child, never an
-// internal id. The token itself legitimately appears (it is the page's own
-// URL segment, echoed into the Accept island's props).
-function expectNoPrivateLeaks(html: string): void {
-  const scanned = html.toLowerCase();
+// internal id. Applied to rendered markup AND to every preview response body.
+function expectNoPrivateLeaks(text: string): void {
+  const scanned = text.toLowerCase();
   for (const forbidden of ["maya", "casey", "person_", "participant_", "invitation_", "team_"]) {
     expect(scanned).not.toContain(forbidden);
   }
 }
+
+describe("the invitation link shape", () => {
+  it("carries the token in the fragment, so the request line holds no credential", async () => {
+    const { token } = await seedInvitation();
+
+    expect(token).toMatch(/^[0-9a-f]{64}$/u);
+    // `tokenOf` already asserted the path is exactly `/invite`; this pins the
+    // whole rule: nothing a server receives — path or query — carries it.
+    const url = new URL(`https://snackday.test/invite#${token}`);
+    expect(url.pathname).toBe("/invite");
+    expect(url.search).toBe("");
+    expect(`${url.pathname}${url.search}`).not.toContain(token);
+  });
+});
 
 describe("previewInvitation", () => {
   it("returns exactly the delivery-payload fields for a pending invitation", async () => {
@@ -242,91 +273,54 @@ describe("invitationAcceptedBy", () => {
   });
 });
 
-describe("/invite/:token page loader", () => {
-  it("previews a valid invitation to a signed-out visitor with a sign-in affordance", async () => {
+describe("POST /api/invitations/preview", () => {
+  it("previews a pending invitation to a SIGNED-OUT visitor", async () => {
     const { token } = await seedInvitation();
 
-    const loaded = await loadInvite(token);
-    expect(loaded).toEqual({
+    const response = await previewOverHttp(token);
+    expect(response.status).toBe(200);
+    expect(json(response)).toEqual({
       state: "preview",
-      signedIn: false,
       teamName: TEAM_NAME,
       inviterDisplayName: "Development Adult",
       invitedRole: "adult",
-      token,
     });
-
-    const html = render(loaded);
-    expect(html).toContain("You're invited");
-    expect(html).toContain(TEAM_NAME);
-    expect(html).toContain("Development Adult invited you to join as an adult member.");
-    expect(html).toContain("Sign in to accept");
-    expect(html).not.toContain("Accept invitation");
-    expectNoPrivateLeaks(html);
+    // The privacy contract as an EXACT key set, on the wire this time: the
+    // invitee label, the participant binding, and every id stay behind.
+    expect(Object.keys(json(response) as object).toSorted()).toEqual([
+      "invitedRole",
+      "inviterDisplayName",
+      "state",
+      "teamName",
+    ]);
+    expectNoPrivateLeaks(response.body);
   });
 
-  it("previews with an Accept button for a signed-in adult", async () => {
-    const { token } = await seedInvitation();
-    const memberCookie = await signIn("second-adult");
-
-    const loaded = await loadInvite(token, memberCookie);
-    expect(loaded.state).toBe("preview");
-    expect(loaded).toMatchObject({ signedIn: true, teamName: TEAM_NAME });
-
-    const html = render(loaded);
-    expect(html).toContain(TEAM_NAME);
-    expect(html).toContain("Accept invitation");
-    expect(html).not.toContain("Sign in to accept");
-    expectNoPrivateLeaks(html);
-  });
-
-  it("collapses unknown and revoked tokens into one indistinguishable invalid state", async () => {
-    const { ownerCookie, teamId, token, invitationId } = await seedInvitation();
-
-    const unknown = await loadInvite("not-a-real-token");
-    expect(unknown).toEqual({ state: "invalid" });
-
-    const revoked = await app.handle(
-      "POST",
-      `/api/teams/${teamId}/invitations/${invitationId}/revoke`,
-      { headers: { ...sameOrigin, cookie: ownerCookie } },
-    );
-    expect(revoked.status).toBe(200);
-    // Byte-identical loader results: a revoked link and a never-existing link
-    // cannot be told apart from the page.
-    expect(await loadInvite(token)).toEqual(unknown);
-
-    const html = render(unknown);
-    expect(html).toContain("This invite link isn't valid");
-    expect(html).toContain("send a fresh link");
-    expect(html).not.toContain(TEAM_NAME);
-    expectNoPrivateLeaks(html);
-  });
-
-  it("shows the accepted invitation as invalid to a DIFFERENT signed-in adult", async () => {
+  it("answers the accepted state to the adult who accepted, and hides it from everyone else", async () => {
     const { ownerCookie, token } = await seedInvitation();
-    await acceptAs(await signIn("second-adult"), token);
-
-    expect(await loadInvite(token, ownerCookie)).toEqual({ state: "invalid" });
-    expect(await loadInvite(token)).toEqual({ state: "invalid" });
-  });
-
-  it("shows the success state to the adult who already accepted", async () => {
-    const { token } = await seedInvitation();
     const memberCookie = await signIn("second-adult");
     await acceptAs(memberCookie, token);
 
-    const loaded = await loadInvite(token, memberCookie);
-    expect(loaded).toEqual({ state: "accepted", teamName: TEAM_NAME, grantedRole: "adult" });
+    const mine = await previewOverHttp(token, memberCookie);
+    expect(mine.status).toBe(200);
+    expect(json(mine)).toEqual({ state: "accepted", teamName: TEAM_NAME, grantedRole: "adult" });
+    expect(Object.keys(json(mine) as object).toSorted()).toEqual([
+      "grantedRole",
+      "state",
+      "teamName",
+    ]);
+    expectNoPrivateLeaks(mine.body);
 
-    const html = render(loaded);
-    expect(html).toContain(`You're on ${TEAM_NAME}`);
-    expect(html).toContain("You joined as an adult member.");
-    expect(html).toContain('href="/app"');
-    expectNoPrivateLeaks(html);
+    // A different adult — even the inviter — and a signed-out visitor get the
+    // hiding 404: who accepted an invitation is never revealed.
+    for (const cookie of [ownerCookie, undefined]) {
+      const other = await previewOverHttp(token, cookie);
+      expect(other.status).toBe(404);
+      expect(json(other)).toEqual({ error: "invitation not found" });
+    }
   });
 
-  it("renders the role the membership GRANTS after an upgrade, not the invitation's", async () => {
+  it("reports the role the MEMBERSHIP grants after an upgrade, not the invitation's", async () => {
     const { ownerCookie, teamId, token } = await seedInvitation();
     const memberCookie = await signIn("second-adult");
     await acceptAs(memberCookie, token);
@@ -336,43 +330,132 @@ describe("/invite/:token page loader", () => {
       body: { invitedRole: "owner", inviteeLabel: "promotion" },
     });
     expect(promotion.status).toBe(201);
-    const promotionUrl =
-      (json(promotion) as { invitation: { inviteUrl?: string } }).invitation.inviteUrl ?? "";
-    const ownerToken = promotionUrl.slice("/invite/".length);
+    const ownerToken = tokenOf(
+      (json(promotion) as { invitation: { inviteUrl?: string } }).invitation.inviteUrl ?? "",
+    );
     await acceptAs(memberCookie, ownerToken);
 
-    // BOTH landing pages — the owner token's AND the older adult token's —
-    // name the role in force, so the page can never outrun the grant.
+    // BOTH tokens — the owner one AND the older adult one — name the role in
+    // force, so the page can never outrun the grant.
     for (const accepted of [ownerToken, token]) {
-      const loaded = await loadInvite(accepted, memberCookie);
-      expect(loaded).toEqual({ state: "accepted", teamName: TEAM_NAME, grantedRole: "owner" });
-
-      const html = render(loaded);
-      expect(html).toContain(`You're on ${TEAM_NAME}`);
-      expect(html).toContain("You joined as an owner.");
-      expect(html).not.toContain("an adult member");
-      expectNoPrivateLeaks(html);
+      const response = await previewOverHttp(accepted, memberCookie);
+      expect(response.status).toBe(200);
+      expect(json(response)).toEqual({
+        state: "accepted",
+        teamName: TEAM_NAME,
+        grantedRole: "owner",
+      });
     }
   });
 
-  it("collapses the success state once the membership is revoked", async () => {
+  it("collapses the accepted state once the membership is revoked", async () => {
     const { token } = await seedInvitation();
     const memberCookie = await signIn("second-adult");
     await acceptAs(memberCookie, token);
-    expect((await loadInvite(token, memberCookie)).state).toBe("accepted");
+    expect((await previewOverHttp(token, memberCookie)).status).toBe(200);
 
     await config.db.exec("UPDATE adult_memberships SET status = 'revoked'");
 
-    // No membership is in force, so there is no role to name: the page shows
-    // the one generic invalid state instead of claiming a lapsed grant.
-    expect(await loadInvite(token, memberCookie)).toEqual({ state: "invalid" });
-    expect(await invitationAcceptedBy(db, token, "person_dev_second_adult")).toBeUndefined();
+    // No membership is in force, so there is no role to name: the endpoint
+    // answers its one hiding 404 rather than claiming a lapsed grant.
+    const response = await previewOverHttp(token, memberCookie);
+    expect(response.status).toBe(404);
+    expect(json(response)).toEqual({ error: "invitation not found" });
   });
 
-  it("renders the app-only fallback state for the service-less edge Worker", () => {
+  it("answers ONE byte-identical response for unknown, revoked, expired, and someone-else's", async () => {
+    const { ownerCookie, teamId, token, invitationId } = await seedInvitation();
+
+    const unknown = await previewOverHttp("not-a-real-token");
+    expect(unknown.status).toBe(404);
+    expect(json(unknown)).toEqual({ error: "invitation not found" });
+
+    const revokedInvitation = await app.handle(
+      "POST",
+      `/api/teams/${teamId}/invitations/${invitationId}/revoke`,
+      { headers: { ...sameOrigin, cookie: ownerCookie } },
+    );
+    expect(revokedInvitation.status).toBe(200);
+    const revoked = await previewOverHttp(token);
+
+    // A second fixture, expired rather than revoked, plus one accepted by a
+    // DIFFERENT adult — every hidden reason answers the same bytes.
+    const second = await seedInvitation();
+    await config.db
+      .prepare("UPDATE invitations SET expires_at = ? WHERE id = ?")
+      .run(["2020-01-01T00:00:00.000Z", second.invitationId]);
+    const expired = await previewOverHttp(second.token);
+
+    const third = await seedInvitation();
+    await acceptAs(await signIn("second-adult"), third.token);
+    const someoneElses = await previewOverHttp(third.token, third.ownerCookie);
+
+    for (const response of [revoked, expired, someoneElses]) {
+      expect(response.status).toBe(unknown.status);
+      expect(response.body).toBe(unknown.body);
+    }
+  });
+
+  it("refuses a cross-site POST and validates the body at the boundary", async () => {
+    const { token } = await seedInvitation();
+
+    // Same zero-token CSRF as every other mutating route: the browser's
+    // `Sec-Fetch-Site` is the whole check, so the island's same-origin fetch
+    // passes and a cross-site form post never reaches the handler.
+    const crossSite = await app.handle("POST", "/api/invitations/preview", {
+      headers: { "sec-fetch-site": "cross-site" },
+      body: { token },
+    });
+    expect(crossSite.status).toBe(403);
+
+    // Boundary validation (ADR 0005) throws the coded `WEB_VALIDATION_FAILED`
+    // that the HTTP layer answers 400 with — an empty token and an unknown key
+    // both stop here rather than reaching a query.
+    await expect(previewOverHttp("")).rejects.toThrow("Request body failed validation.");
+    await expect(
+      app.handle("POST", "/api/invitations/preview", {
+        headers: sameOrigin,
+        body: { token, teamId: "team_anything" },
+      }),
+    ).rejects.toThrow("Request body failed validation.");
+  });
+});
+
+describe("/invite page loader", () => {
+  it("resolves the app-only state for the service-less edge Worker", () => {
+    // `appServices()` is registered in this process, so the edge branch is
+    // exercised through the state it produces rather than by unregistering.
     const html = render({ state: "app-only" });
     expect(html).toContain("Open this link in the app");
     expect(html).toContain("Snackday app");
+    expectNoPrivateLeaks(html);
+  });
+
+  it("reports no session for a signed-out visitor", async () => {
+    await seedInvitation();
+
+    expect(await loadInvite()).toEqual({ state: "in-browser", signedIn: false });
+  });
+
+  it("reports a session for a signed-in adult", async () => {
+    await seedInvitation();
+    const memberCookie = await signIn("second-adult");
+
+    expect(await loadInvite(memberCookie)).toEqual({ state: "in-browser", signedIn: true });
+  });
+
+  it("renders no invitation data server-side — the fragment never reaches it", async () => {
+    const { token } = await seedInvitation();
+
+    const html = render(await loadInvite());
+    // The loader never saw the token, so no state derived from it can be here.
+    expect(html).not.toContain(token);
+    expect(html).not.toContain(TEAM_NAME);
+    expect(html).not.toContain("Development Adult");
+    expect(html).not.toContain("Accept invitation");
+    // What IS here: the calm resolving shell and an honest no-JavaScript note.
+    expect(html).toContain("Checking your invitation");
+    expect(html).toContain("needs JavaScript");
     expectNoPrivateLeaks(html);
   });
 });

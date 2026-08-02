@@ -68,7 +68,10 @@ export const createInvitations: MigrationEntry = {
   },
 };
 
-export const INVITATION_TTL_MS = 14 * 24 * 60 * 60 * 1_000;
+// Seven days. Parents accept within hours, and `resend` re-arms a fresh token
+// cheaply (it rotates the hash, killing the old link), so a short window costs
+// the product nothing and shrinks how long a mislaid link stays live.
+export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 const invitedRoleSchema = z.enum(["owner", "adult"] as const satisfies readonly InvitedRole[]);
 
@@ -84,7 +87,12 @@ export const createInvitationInputSchema = z
     path: ["relationship"],
   });
 
-export const acceptInvitationInputSchema = z.strictObject({
+/**
+ * The one body shape both token-bearing POSTs carry — preview and accept. The
+ * token travels in a request BODY and never in a path segment or a query
+ * parameter, so no access log, proxy, CDN, or span attribute can record it.
+ */
+export const invitationTokenInputSchema = z.strictObject({
   token: z.string().trim().min(1, "Invitation token is required."),
 });
 
@@ -110,12 +118,21 @@ export async function hashInviteToken(token: string): Promise<string> {
 }
 
 /**
- * The link shape — a bearer credential IN THE URL PATH, which every access log
- * records by default. `lib/server/access-log.ts` keeps the matching redaction
- * rule; change this path and change that rule in the same commit.
+ * The link shape — the bearer credential lives in the URL FRAGMENT.
+ *
+ * THE RULE: a bearer credential may never appear in the REQUEST LINE (path or
+ * query) of a Snackday URL. A fragment is never transmitted to any server, so
+ * this token cannot land in our access logs, a proxy or CDN record, a `Referer`
+ * header, or the OTLP `http.path` span attribute — none of which we control,
+ * and only one of which a redaction seam of ours could ever reach.
+ *
+ * `/invite` therefore resolves NOTHING server-side: the landing island reads
+ * `location.hash`, strips it from the URL bar and the history entry with
+ * `history.replaceState`, and POSTs the token in a request BODY to
+ * `/api/invitations/preview` (and to `/api/invitations/accept`).
  */
 export function inviteUrlFor(token: string): string {
-  return `/invite/${token}`;
+  return `/invite#${token}`;
 }
 
 interface InvitationRow {
@@ -419,7 +436,7 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const input = c.valid(acceptInvitationInputSchema);
+  const input = c.valid(invitationTokenInputSchema);
   const tokenHash = await hashInviteToken(input.token);
   const outcome = await db.transaction(async (tx) => {
     const row = await tx
@@ -562,22 +579,21 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
 }
 
 /**
- * The `/invite/<token>` landing page's PREVIEW: exactly the fields the
- * delivery payload already exposes — team name, inviter display name, invited
- * role (see invite-delivery.ts). That is the privacy precedent: anyone holding
- * the link could have read the email that carried these same fields, so
- * showing them requires no authentication. Everything else stays out BY
- * CONSTRUCTION — never the invitee label (the inviter's wording may reference
- * a child), never participant data, never person or team ids.
+ * The `/invite` landing page's PREVIEW: exactly the fields the delivery payload
+ * already exposes — team name, inviter display name, invited role (see
+ * invite-delivery.ts). That is the privacy precedent: anyone holding the link
+ * could have read the email that carried these same fields, so showing them
+ * requires no authentication. Everything else stays out BY CONSTRUCTION — never
+ * the invitee label (the inviter's wording may reference a child), never
+ * participant data, never person or team ids.
  *
  * Only a PENDING, unexpired invitation on an active team previews. Unknown,
  * revoked, expired, and accepted tokens all collapse to `undefined`, so the
  * page can render exactly one generic "not valid" state — which of those it
  * was is never distinguishable from outside, exactly like accept's hiding 404.
- * The raw token is hashed in-process and this module never logs it — but it
- * DOES travel in the request path (`inviteUrlFor`), which every access sink
- * records by default, so the credential segment is redacted at the logging
- * seam (`lib/server/access-log.ts`).
+ * The raw token is hashed in-process, this module never logs it, and it reaches
+ * here in a request BODY (`POST /api/invitations/preview`) — never in a path
+ * segment or a query parameter (`inviteUrlFor`).
  */
 export interface InvitationPreview {
   readonly teamName: string;
@@ -651,6 +667,46 @@ export async function invitationAcceptedBy(
   return { teamName: team.name, grantedRole: grantedRole as InvitedRole };
 }
 
+/**
+ * The landing page's resolution step, over HTTP — the endpoint that exists
+ * BECAUSE the token is no longer in the URL the server sees. The token arrives
+ * in the request BODY; the answer is exactly one of three things:
+ *
+ *   - 200 `{ state: "preview", teamName, inviterDisplayName, invitedRole }` —
+ *     a pending, unexpired invitation. NO authentication: the invited parent is
+ *     signed out by definition, and this says no more than the delivery payload
+ *     they already hold.
+ *   - 200 `{ state: "accepted", teamName, grantedRole }` — this session's adult
+ *     is the one who accepted this token and their membership is still in force
+ *     (accept's idempotent-same-adult semantics, so a re-tapped link stays calm).
+ *   - 404 `{ error: "invitation not found" }` — everything else.
+ *
+ * The 404 is the HIDING answer, byte-identical for an unknown token, a revoked
+ * one, an expired one, and one accepted by a DIFFERENT adult: a token is not
+ * proof an invitation exists, and who accepted one is never revealed. Never a
+ * 403 — that would confirm the invitation is real.
+ */
+async function invitationPreview(
+  c: Context<"/api/invitations/preview">,
+  db: Db,
+  sessions: Sessions,
+) {
+  const input = c.valid(invitationTokenInputSchema);
+
+  const preview = await previewInvitation(db, input.token);
+  if (preview !== undefined) return c.json({ state: "preview", ...preview });
+
+  // Only now is a session interesting: a token already accepted BY THIS ADULT
+  // resolves to their success state, and by nobody else's.
+  const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
+  if (identity !== undefined) {
+    const accepted = await invitationAcceptedBy(db, input.token, identity.person.id);
+    if (accepted !== undefined) return c.json({ state: "accepted", ...accepted });
+  }
+
+  return c.json(invitationNotFound, 404);
+}
+
 export function registerInvitationRoutes(
   app: Lesto,
   db: Db,
@@ -666,5 +722,6 @@ export function registerInvitationRoutes(
       revokeInvitation(c, db, sessions),
     )
     .get("/api/teams/:teamId/invitations", (c) => listInvitations(c, db, sessions, deliverer))
+    .post("/api/invitations/preview", (c) => invitationPreview(c, db, sessions))
     .post("/api/invitations/accept", (c) => acceptInvitation(c, db, sessions));
 }
