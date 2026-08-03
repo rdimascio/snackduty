@@ -5,10 +5,10 @@ import type { Context, Lesto } from "@lesto/web";
 import { seasonSchema } from "@snackday/domain";
 
 import { authenticatedAdult, people } from "./identity";
+import { invitations, projectedInvitationStatus } from "./invitations";
 import {
+  activeSeasonParticipantRows,
   guardianRelationships,
-  memberships,
-  participants,
   projectGuardian,
   projectParticipant,
 } from "./roster";
@@ -121,31 +121,6 @@ async function listTeams(c: Context<"/api/teams">, db: Db, sessions: Sessions) {
   return c.json({ teams: await listAccessibleTeams(db, identity.person.id) });
 }
 
-async function activeSeasonParticipants(db: Db, teamId: string, seasonId: string) {
-  const membershipRows = await db
-    .select()
-    .from(memberships)
-    .where(
-      and(
-        eq(memberships.teamId, teamId),
-        eq(memberships.seasonId, seasonId),
-        eq(memberships.memberKind, "participant"),
-        eq(memberships.status, "active"),
-      ),
-    )
-    .all();
-  const memberParticipantIds = membershipRows
-    .map((membership) => membership.memberParticipantId)
-    .filter((participantId): participantId is string => participantId !== null);
-  if (memberParticipantIds.length === 0) return [];
-
-  return db
-    .select()
-    .from(participants)
-    .where(and(inList(participants.id, memberParticipantIds), eq(participants.status, "active")))
-    .all();
-}
-
 function activeGuardianEdges(db: Db, participantIds: string[]) {
   return db
     .select()
@@ -159,11 +134,65 @@ function activeGuardianEdges(db: Db, participantIds: string[]) {
     .all();
 }
 
+/** Per-child invitation state, as the roster projection reports it. */
+interface GuardianInvitationCounts {
+  pending: number;
+  expired: number;
+  accepted: number;
+}
+
+function emptyInvitationCounts(): GuardianInvitationCounts {
+  return { pending: 0, expired: 0, accepted: 0 };
+}
+
+/**
+ * How many guardian invitations each child on this roster has out, by the state
+ * a READER is shown — pending, expired (pending past its expiry: the same rule
+ * the invitation list and the accept path apply), or accepted.
+ *
+ * COUNTS ONLY, on purpose. The invitation row carries two things this projection
+ * must never surface: the invitee LABEL (the inviter's own wording, which
+ * routinely quotes a child — "Maya's dad") and the token that reaches the
+ * invitation list. A manager gets what they need here ("this child still has
+ * nobody accepted") and reads the labelled list through the owner-scoped
+ * invitations endpoint, which authorizes with `manageableActiveTeam`.
+ *
+ * Revoked invitations are deliberately not counted: a withdrawn invitation is
+ * not a state of the child's roster entry.
+ */
+async function guardianInvitationCounts(
+  db: Db,
+  teamId: string,
+  participantIds: string[],
+): Promise<Map<string, GuardianInvitationCounts>> {
+  const counts = new Map<string, GuardianInvitationCounts>(
+    participantIds.map((participantId) => [participantId, emptyInvitationCounts()] as const),
+  );
+  const rows = await db
+    .select()
+    .from(invitations)
+    .where(and(eq(invitations.teamId, teamId), inList(invitations.participantId, participantIds)))
+    .all();
+
+  const nowIso = new Date().toISOString();
+  for (const row of rows) {
+    const bucket = row.participantId === null ? undefined : counts.get(row.participantId);
+    if (bucket === undefined) continue;
+
+    const status = projectedInvitationStatus(row, nowIso);
+    if (status === "pending") bucket.pending += 1;
+    else if (status === "expired") bucket.expired += 1;
+    else if (status === "accepted") bucket.accepted += 1;
+  }
+
+  return counts;
+}
+
 // The one roster projection: the roster API and the /app page loader both read
 // through here. Callers MUST have verified the caller may READ `teamId` (and
 // that `seasonId` belongs to it) — this helper does no authorization of its own.
 export async function loadRoster(db: Db, teamId: string, seasonId: string) {
-  const participantRows = await activeSeasonParticipants(db, teamId, seasonId);
+  const participantRows = await activeSeasonParticipantRows(db, teamId, seasonId);
   if (participantRows.length === 0) return [];
 
   const guardianRows = await activeGuardianEdges(
@@ -181,6 +210,11 @@ export async function loadRoster(db: Db, teamId: string, seasonId: string) {
     )
     .all();
   const peopleById = new Map(personRows.map((person) => [person.id, person] as const));
+  const invitationCounts = await guardianInvitationCounts(
+    db,
+    teamId,
+    participantRows.map((participant) => participant.id),
+  );
 
   const roster = participantRows.map((participant) => {
     const guardians = guardianRows
@@ -197,6 +231,9 @@ export async function loadRoster(db: Db, teamId: string, seasonId: string) {
     return {
       ...projectParticipant(participant, requirePerson(peopleById, participant.personId)),
       guardians,
+      guardianInvitations:
+        invitationCounts.get(participant.id) ??
+        (emptyInvitationCounts() as GuardianInvitationCounts),
     };
   });
   roster.sort(

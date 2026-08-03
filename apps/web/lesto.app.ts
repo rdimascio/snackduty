@@ -50,6 +50,7 @@ import { devPersonaProvider } from "./app/lib/server/identity-providers";
 import { devInviteDeliverer } from "./app/lib/server/invite-delivery";
 import type { InviteDeliverer } from "./app/lib/server/invite-delivery";
 import { createInvitations, registerInvitationRoutes } from "./app/lib/server/invitations";
+import { registerRosterImportRoutes } from "./app/lib/server/roster-import";
 import { createRoster, registerRosterRoutes } from "./app/lib/server/roster";
 import { registerTeamReadRoutes } from "./app/lib/server/team-reads";
 import { createTeamsAndSeasons, registerTeamRoutes } from "./app/lib/server/teams";
@@ -142,7 +143,11 @@ export function buildApp(
 ) {
   const app = registerInvitationRoutes(
     registerTeamReadRoutes(
-      registerRosterRoutes(registerTeamRoutes(buildBaseApp(db), db, sessions), db, sessions),
+      registerRosterImportRoutes(
+        registerRosterRoutes(registerTeamRoutes(buildBaseApp(db), db, sessions), db, sessions),
+        db,
+        sessions,
+      ),
       db,
       sessions,
     ),

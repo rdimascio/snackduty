@@ -178,6 +178,43 @@ describe("/app overview loader", () => {
     expect(html).not.toContain("No team yet");
   });
 
+  it("shows a child's guardian invitation counts without the inviter's label", async () => {
+    const cookie = await signIn();
+    const teamId = await seedFullTeam(cookie);
+    const seasonId = (
+      (await config.db.prepare("SELECT id FROM seasons WHERE team_id = ?").get([teamId])) as {
+        id: string;
+      }
+    ).id;
+    const participantId = (
+      (await config.db
+        .prepare(
+          "SELECT member_participant_id AS id FROM memberships WHERE team_id = ? AND season_id = ?",
+        )
+        .get([teamId, seasonId])) as { id: string }
+    ).id;
+
+    const before = render(<appPage.component {...await loadOverview(cookie)} />);
+    expect(before).not.toContain("Guardian invitations");
+
+    const invited = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
+      headers: { ...sameOrigin, cookie },
+      body: {
+        invitedRole: "adult",
+        inviteeLabel: "Casey's dad",
+        participantId,
+        relationship: "parent",
+      },
+    });
+    expect(invited.status).toBe(201);
+
+    const html = render(<appPage.component {...await loadOverview(cookie)} />);
+    expect(html).toContain("Guardian invitations");
+    expect(html).toContain("1 invited");
+    // The inviter's wording for the invitee quotes the child — it never renders.
+    expect(html).not.toContain("dad");
+  });
+
   it("resolves the signed-out state for unauthenticated and forged requests", async () => {
     const unauthenticated = await loadOverview();
     expect(unauthenticated).toEqual({ state: "signed-out" });

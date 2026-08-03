@@ -1,5 +1,5 @@
 import type { Sessions } from "@lesto/auth";
-import { and, createTableSql, defineTable, dropTableSql, eq, text } from "@lesto/db";
+import { and, createTableSql, defineTable, dropTableSql, eq, gt, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
@@ -9,7 +9,13 @@ import { z } from "zod";
 import { authenticatedAdult, people } from "./identity";
 import type { AdultIdentity } from "./identity";
 import type { InvitedRole, InviteDeliverer } from "./invite-delivery";
-import { guardianRelationships, memberships, participants } from "./roster";
+import {
+  DEFAULT_GUARDIAN_PERMISSIONS,
+  findActiveGuardianByIdentity,
+  guardianRelationships,
+  memberships,
+  participants,
+} from "./roster";
 import {
   adultMemberships,
   grantedAccess,
@@ -104,8 +110,6 @@ const invitationAlreadyPending = { error: "invitation already pending" } as cons
 const invitationNotPending = { error: "invitation is not pending" } as const;
 const invitationAlreadyAccepted = { error: "invitation already accepted" } as const;
 
-const DEFAULT_GUARDIAN_PERMISSIONS = ["participant.read", "participant.manage"] as const;
-
 function generateInviteToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -151,15 +155,33 @@ interface InvitationRow {
   expiresAt: string;
 }
 
+/**
+ * THE status a reader is shown, derived rather than stored.
+ *
+ * `status` is a LIFECYCLE column — what a human did to the invitation (created,
+ * revoked, accepted) — and nothing sweeps it on expiry, so a stored `pending`
+ * outlives its own `expiresAt`. Accept and `previewInvitation` have always
+ * treated such a row as dead; every reader now agrees, because they all read
+ * through this one function. The row itself is left alone on purpose: `resend`
+ * re-arms an expired invitation, which needs the lifecycle status, not the
+ * projected one.
+ */
+export function projectedInvitationStatus(
+  row: { readonly status: string; readonly expiresAt: string },
+  nowIso: string,
+): string {
+  return row.status === "pending" && row.expiresAt <= nowIso ? "expired" : row.status;
+}
+
 // Deliberately drops tokenHash and every person id (creator and acceptor).
-function projectInvitation(row: InvitationRow, link?: string) {
+function projectInvitation(row: InvitationRow, nowIso: string, link?: string) {
   return {
     id: row.id,
     invitedRole: row.invitedRole,
     inviteeLabel: row.inviteeLabel,
     ...(row.participantId === null ? {} : { participantId: row.participantId }),
     ...(row.relationship === null ? {} : { relationship: row.relationship }),
-    status: row.status,
+    status: projectedInvitationStatus(row, nowIso),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     expiresAt: row.expiresAt,
@@ -259,6 +281,13 @@ async function createInvitation(
       if (rostered === undefined) return "no-participant" as const;
     }
 
+    const now = new Date();
+    const nowIso = now.toISOString();
+    // LIVE pending only. Without the expiry predicate an invitation that had
+    // quietly aged out still blocked the label with a 409 — while its link was
+    // already dead everywhere else — so the owner could neither use the old
+    // invitation nor create a new one. `gt` here is the same boundary accept
+    // and `previewInvitation` apply (`expiresAt <= now` is dead).
     const pending = await tx
       .select()
       .from(invitations)
@@ -267,13 +296,12 @@ async function createInvitation(
           eq(invitations.teamId, team.id),
           eq(invitations.inviteeLabel, input.inviteeLabel),
           eq(invitations.status, "pending"),
+          gt(invitations.expiresAt, nowIso),
         ),
       )
       .get();
     if (pending !== undefined) return "duplicate" as const;
 
-    const now = new Date();
-    const nowIso = now.toISOString();
     const row = await tx
       .insert(invitations)
       .values({
@@ -307,7 +335,10 @@ async function createInvitation(
   // invitation can never have leaked a live link.
   const link = await deliverInvite(deliverer, outcome.row, outcome.teamName, identity, token);
 
-  return c.json({ invitation: projectInvitation(outcome.row, link) }, 201);
+  return c.json(
+    { invitation: projectInvitation(outcome.row, new Date().toISOString(), link) },
+    201,
+  );
 }
 
 async function resendInvitation(
@@ -357,7 +388,7 @@ async function resendInvitation(
 
   const link = await deliverInvite(deliverer, outcome.row, outcome.teamName, identity, token);
 
-  return c.json({ invitation: projectInvitation(outcome.row, link) });
+  return c.json({ invitation: projectInvitation(outcome.row, new Date().toISOString(), link) });
 }
 
 async function revokeInvitation(
@@ -400,7 +431,7 @@ async function revokeInvitation(
   if (outcome === null) return c.json(invitationNotFound, 404);
   if (outcome === "accepted") return c.json(invitationAlreadyAccepted, 409);
 
-  return c.json({ invitation: projectInvitation(outcome.row) });
+  return c.json({ invitation: projectInvitation(outcome.row, new Date().toISOString()) });
 }
 
 async function listInvitations(
@@ -425,11 +456,100 @@ async function listInvitations(
       left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
   );
 
+  // A link is offered for LIVE pending invitations only. An expired one projects
+  // as `expired` and carries no link: handing the owner a copyable link that is
+  // guaranteed to fail is worse than showing none, and `resend` is the affordance
+  // that makes it live again.
+  const nowIso = new Date().toISOString();
+
   return c.json({
     invitations: rows.map((row) =>
-      projectInvitation(row, row.status === "pending" ? deliverer.currentLink(row.id) : undefined),
+      projectInvitation(
+        row,
+        nowIso,
+        projectedInvitationStatus(row, nowIso) === "pending"
+          ? deliverer.currentLink(row.id)
+          : undefined,
+      ),
     ),
   });
+}
+
+/**
+ * Put the accepting adult on the child's roster as a guardian — ONCE.
+ *
+ * Three situations, and only the third writes a new edge:
+ *
+ *   1. This adult already holds an active edge on this child (an earlier accept,
+ *      or a second invitation for the same child). Nothing to do — the existing
+ *      edge, whatever its relationship label, already grants what this one would.
+ *
+ *   2. A manager typed this guardian onto the child BY HAND before inviting
+ *      them. That edge points at a placeholder Person the manual path minted, so
+ *      it can never match by `guardianPersonId` — which is exactly how accept
+ *      used to leave two identically-named guardians on one child's roster
+ *      (`loadRoster` then showed "Sam Rivera" twice to every reader). We
+ *      recognize it through the SHARED person-identity rule (people-identity.ts,
+ *      the same rule the manual path's duplicate check uses) and REBIND the
+ *      existing edge to the real adult rather than inserting beside it.
+ *
+ *      Rebinding, not skipping: the placeholder has no Account, so skipping
+ *      would leave the accepting parent with no guardian edge at all and hence
+ *      no participant permissions — trading a duplicate row for a silent loss of
+ *      access. Rebinding grants exactly what this invitation already authorizes
+ *      (a manager named this participant and this relationship at invite time),
+ *      so no privilege is created that accept did not already confer.
+ *
+ *   3. Neither — insert a fresh edge bound to the adult's own Person.
+ */
+async function bindGuardianOnAccept(
+  tx: Db,
+  input: {
+    participantId: string;
+    relationship: string;
+    guardian: { id: string; displayName: string };
+    nowIso: string;
+  },
+): Promise<void> {
+  const heldEdge = await tx
+    .select()
+    .from(guardianRelationships)
+    .where(
+      and(
+        eq(guardianRelationships.guardianPersonId, input.guardian.id),
+        eq(guardianRelationships.participantId, input.participantId),
+        eq(guardianRelationships.status, "active"),
+      ),
+    )
+    .get();
+  if (heldEdge !== undefined) return;
+
+  const placeholderEdge = await findActiveGuardianByIdentity(tx, input.participantId, {
+    displayName: input.guardian.displayName,
+    relationship: input.relationship,
+  });
+  if (placeholderEdge !== undefined) {
+    await tx
+      .update(guardianRelationships)
+      .set({ guardianPersonId: input.guardian.id, updatedAt: input.nowIso })
+      .where(eq(guardianRelationships.id, placeholderEdge.id))
+      .run();
+    return;
+  }
+
+  await tx
+    .insert(guardianRelationships)
+    .values({
+      id: `guardian_relationship_${crypto.randomUUID()}`,
+      guardianPersonId: input.guardian.id,
+      participantId: input.participantId,
+      relationship: input.relationship,
+      status: "active",
+      permissions: JSON.stringify(DEFAULT_GUARDIAN_PERMISSIONS),
+      createdAt: input.nowIso,
+      updatedAt: input.nowIso,
+    })
+    .run();
 }
 
 async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, sessions: Sessions) {
@@ -520,32 +640,12 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
 
     // Create enforces that participantId and relationship travel together.
     if (row.participantId !== null && row.relationship !== null) {
-      const existingEdge = await tx
-        .select()
-        .from(guardianRelationships)
-        .where(
-          and(
-            eq(guardianRelationships.guardianPersonId, identity.person.id),
-            eq(guardianRelationships.participantId, row.participantId),
-            eq(guardianRelationships.status, "active"),
-          ),
-        )
-        .get();
-      if (existingEdge === undefined) {
-        await tx
-          .insert(guardianRelationships)
-          .values({
-            id: `guardian_relationship_${crypto.randomUUID()}`,
-            guardianPersonId: identity.person.id,
-            participantId: row.participantId,
-            relationship: row.relationship,
-            status: "active",
-            permissions: JSON.stringify(DEFAULT_GUARDIAN_PERMISSIONS),
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          })
-          .run();
-      }
+      await bindGuardianOnAccept(tx, {
+        participantId: row.participantId,
+        relationship: row.relationship,
+        guardian: identity.person,
+        nowIso,
+      });
     }
 
     await tx

@@ -43,6 +43,10 @@ const GUARDIAN_TWO = {
   relationship: "caregiver",
   permissions: ["participant.read"],
 } as const;
+// The bulk-entry half of the journey: one child a manager uploads rather than
+// types, with a guardian in the same CSV row.
+const IMPORTED_CHILD = { displayName: "Harper Acceptance", birthDate: "2018-11-02" } as const;
+const IMPORTED_GUARDIAN = { displayName: "Robin Acceptance", relationship: "guardian" } as const;
 const DEFAULT_GUARDIAN_PERMISSIONS = ["participant.read", "participant.manage"] as const;
 const SECOND_ADULT_NAME = "Second Development Adult";
 // The INVITER's own wording for the invitee — child-derived by design, which is
@@ -327,31 +331,41 @@ async function verifyTeamList(base: string, cookie: string, ids: JourneyIds): Pr
   );
 }
 
-async function verifyRoster(base: string, cookie: string, ids: JourneyIds): Promise<void> {
-  const step = "read-roster";
+interface RosterEntry {
+  participantId?: string;
+  displayName?: string;
+  birthDate?: string;
+  guardians?: readonly {
+    guardianId?: string;
+    displayName?: string;
+    relationship?: string;
+    permissions?: readonly string[];
+    status?: string;
+  }[];
+  guardianInvitations?: { pending?: number; expired?: number; accepted?: number };
+}
+
+async function readRoster(
+  step: string,
+  base: string,
+  cookie: string,
+  ids: JourneyIds,
+): Promise<readonly RosterEntry[]> {
   const body = await requestJson(
     step,
     `${base}/api/teams/${ids.teamId}/seasons/${ids.seasonId}/roster`,
     { headers: { Cookie: cookie } },
     200,
   );
-  const roster = body["roster"] as readonly {
-    participantId?: string;
-    displayName?: string;
-    birthDate?: string;
-    guardians?: readonly {
-      guardianId?: string;
-      displayName?: string;
-      relationship?: string;
-      permissions?: readonly string[];
-      status?: string;
-    }[];
-  }[];
-  ensure(
-    step,
-    Array.isArray(roster) && roster.length === 1,
-    `expected one roster entry: ${JSON.stringify(body)}`,
-  );
+  const roster = body["roster"] as readonly RosterEntry[];
+  ensure(step, Array.isArray(roster), `roster read did not return a list: ${JSON.stringify(body)}`);
+  return roster;
+}
+
+async function verifyRoster(base: string, cookie: string, ids: JourneyIds): Promise<void> {
+  const step = "read-roster";
+  const roster = await readRoster(step, base, cookie, ids);
+  ensure(step, roster.length === 1, `expected one roster entry, got ${roster.length}`);
   const child = roster[0];
   ensure(
     step,
@@ -383,6 +397,131 @@ async function verifyRoster(base: string, cookie: string, ids: JourneyIds): Prom
     one.guardianId !== undefined && one.guardianId !== two.guardianId,
     "guardian ids are not distinct",
   );
+  ensure(
+    step,
+    JSON.stringify(child.guardianInvitations) ===
+      JSON.stringify({ pending: 0, expired: 0, accepted: 0 }),
+    `roster invitation counts should start at zero: ${JSON.stringify(child.guardianInvitations)}`,
+  );
+}
+
+/**
+ * The bulk half of roster entry, over real HTTP: PREVIEW the CSV (which writes
+ * nothing and rules on every row), COMMIT what it returned, then COMMIT THE SAME
+ * PAYLOAD AGAIN and prove the replay creates nothing. The file deliberately
+ * carries all four verdicts a manager meets in practice — a new child, the same
+ * child twice, a child already on the roster (the one the journey added by
+ * hand), and a row with an unusable birth date.
+ */
+async function verifyRosterImport(base: string, cookie: string, ids: JourneyIds): Promise<void> {
+  const step = "roster-import-preview";
+  const csv =
+    "child_name,birth_date,guardian1_name,guardian1_relationship\r\n" +
+    `"${IMPORTED_CHILD.displayName}",${IMPORTED_CHILD.birthDate},${IMPORTED_GUARDIAN.displayName},${IMPORTED_GUARDIAN.relationship}\r\n` +
+    `${IMPORTED_CHILD.displayName},${IMPORTED_CHILD.birthDate},${IMPORTED_GUARDIAN.displayName},${IMPORTED_GUARDIAN.relationship}\r\n` +
+    `${CHILD.displayName},${CHILD.birthDate},${GUARDIAN_ONE.displayName},${GUARDIAN_ONE.relationship}\r\n` +
+    "Malformed Acceptance,14/05/2019,Nobody Acceptance,parent\r\n";
+
+  const previewed = await requestJson(
+    step,
+    `${base}/api/teams/${ids.teamId}/seasons/${ids.seasonId}/roster/import/preview`,
+    { method: "POST", headers: mutationHeaders(cookie), body: JSON.stringify({ csv }) },
+    200,
+  );
+  const summary = previewed["summary"] as Record<string, number>;
+  ensure(
+    step,
+    JSON.stringify(summary) ===
+      JSON.stringify({
+        rows: 4,
+        valid: 1,
+        duplicateInFile: 1,
+        duplicateInRoster: 1,
+        invalid: 1,
+      }),
+    `preview verdicts mismatch: ${JSON.stringify(summary)}`,
+  );
+  const previewRows = previewed["rows"] as readonly {
+    verdict?: string;
+    row?: { displayName?: string };
+  }[];
+  const committable = previewRows
+    .filter((row) => row.verdict === "valid")
+    .map((row) => row.row)
+    .filter((row): row is { displayName?: string } => row !== undefined);
+  ensure(step, committable.length === 1, "preview offered the wrong number of committable rows");
+  // Preview WRITES NOTHING: the roster is still exactly what the manual legs built.
+  const untouched = await readRoster(step, base, cookie, ids);
+  ensure(step, untouched.length === 1, `preview changed the roster (${untouched.length} entries)`);
+
+  const commitStep = "roster-import-commit";
+  const commitBody = JSON.stringify({ rows: committable });
+  const committed = await requestJson(
+    commitStep,
+    `${base}/api/teams/${ids.teamId}/seasons/${ids.seasonId}/roster/import`,
+    { method: "POST", headers: mutationHeaders(cookie), body: commitBody },
+    201,
+  );
+  ensure(
+    commitStep,
+    JSON.stringify(committed["summary"]) ===
+      JSON.stringify({ requested: 1, created: 1, skipped: 0 }),
+    `commit summary mismatch: ${JSON.stringify(committed["summary"])}`,
+  );
+
+  const replayStep = "roster-import-replay";
+  // The idempotence contract, made observable: the identical payload answers
+  // 200 (not 201) and creates nothing, because every child it names is already
+  // on the roster by the same identity rule the preview ruled on.
+  const replayed = await requestJson(
+    replayStep,
+    `${base}/api/teams/${ids.teamId}/seasons/${ids.seasonId}/roster/import`,
+    { method: "POST", headers: mutationHeaders(cookie), body: commitBody },
+    200,
+  );
+  ensure(
+    replayStep,
+    JSON.stringify(replayed["summary"]) ===
+      JSON.stringify({ requested: 1, created: 0, skipped: 1 }),
+    `replayed commit was not a no-op: ${JSON.stringify(replayed["summary"])}`,
+  );
+
+  const roster = await readRoster(replayStep, base, cookie, ids);
+  ensure(
+    replayStep,
+    roster.length === 2,
+    `expected two children after one import and one replay, got ${roster.length}`,
+  );
+  const imported = roster.find((entry) => entry.displayName === IMPORTED_CHILD.displayName);
+  ensure(
+    replayStep,
+    imported?.birthDate === IMPORTED_CHILD.birthDate &&
+      imported.guardians?.length === 1 &&
+      imported.guardians[0]?.displayName === IMPORTED_GUARDIAN.displayName &&
+      imported.guardians[0].relationship === IMPORTED_GUARDIAN.relationship,
+    `imported child mismatch: ${JSON.stringify(imported)}`,
+  );
+}
+
+/** After a guardian invitation names a child, the roster reports it — counts only. */
+async function verifyRosterInvitationStatus(
+  base: string,
+  cookie: string,
+  ids: JourneyIds,
+): Promise<void> {
+  const step = "roster-invitation-status";
+  const roster = await readRoster(step, base, cookie, ids);
+  const child = roster.find((entry) => entry.participantId === ids.participantId);
+  ensure(
+    step,
+    JSON.stringify(child?.guardianInvitations) ===
+      JSON.stringify({ pending: 1, expired: 0, accepted: 0 }),
+    `roster does not report the pending guardian invitation: ${JSON.stringify(child?.guardianInvitations)}`,
+  );
+  const serialized = JSON.stringify(roster).toLowerCase();
+  for (const forbidden of [INVITEE_LABEL.toLowerCase(), "invitee", "token", "invite#"]) {
+    ensure(step, !serialized.includes(forbidden), `roster leaks "${forbidden}"`);
+  }
 }
 
 /** `lesto dev` injects its own dev-tooling scripts whose plumbing carries the
@@ -790,6 +929,7 @@ async function verifyInvitationJourney(
     ids.participantId,
   );
   await verifyPendingInvitationListed(base, ownerCookie, ids.teamId, pending);
+  await verifyRosterInvitationStatus(base, ownerCookie, ids);
   await verifySignedOutPreview(base, pending.token);
 
   const memberCookie = await signInAsSecondAdult(base);
@@ -851,6 +991,7 @@ async function main(): Promise<void> {
     await verifyRoster(base, cookie, ids);
     await verifySignedInAppPage(base, cookie);
     await verifySignedOutAppPage(base);
+    await verifyRosterImport(base, cookie, ids);
     await verifyInvitationJourney(base, cookie, ids);
     await runIosLiveCheck(port, scratchDir);
   } catch (error) {
@@ -864,7 +1005,10 @@ async function main(): Promise<void> {
     `PASS acceptance on ${base}: dev sign-in, create team, create season, add child (birth date), ` +
       "attach two guardians (parent + caregiver), GET /api/teams, GET roster, " +
       "/app signed-in HTML (real names, no identifier leaks), /app signed-out HTML, " +
-      "invitation journey (create, list pending with link, signed-out preview by POSTed fragment " +
+      "roster CSV import (preview writes nothing and rules on all four verdicts, commit creates " +
+      "one child with a guardian, replayed commit creates nothing), " +
+      "invitation journey (create, list pending with link, roster reports the pending invitation " +
+      "as counts only, signed-out preview by POSTed fragment " +
       "token with no label/child/id leaks, second-adult sign-in, accept, member team list with " +
       "matching access level, accepted preview hidden from everyone else, resend rotates, revoke), " +
       "iOS live round trip.",

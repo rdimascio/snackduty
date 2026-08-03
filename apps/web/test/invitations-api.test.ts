@@ -40,6 +40,7 @@ function header(response: { headers: Record<string, string | string[]> }, name: 
 
 const sameOrigin = { "sec-fetch-site": "same-origin" };
 const SECOND_PERSON_ID = "person_dev_second_adult";
+const SECOND_ADULT_NAME = "Second Development Adult";
 
 async function signIn(persona?: "second-adult"): Promise<string> {
   const response = await app.handle("POST", "/api/dev/sign-in", {
@@ -92,6 +93,40 @@ function invite(cookie: string, teamId: string, body: unknown) {
     headers: { ...sameOrigin, cookie },
     body,
   });
+}
+
+function attachGuardian(cookie: string, participantId: string, body: unknown) {
+  return app.handle("POST", `/api/participants/${participantId}/guardians`, {
+    headers: { ...sameOrigin, cookie },
+    body,
+  });
+}
+
+function readRoster(cookie: string, teamId: string, seasonId: string) {
+  return app.handle("GET", `/api/teams/${teamId}/seasons/${seasonId}/roster`, {
+    headers: { cookie },
+  });
+}
+
+interface RosterEntryBody {
+  participantId: string;
+  displayName: string;
+  guardians: { guardianId: string; displayName: string; relationship: string }[];
+  guardianInvitations: { pending: number; expired: number; accepted: number };
+}
+
+function rosterOf(response: { body: string }): RosterEntryBody[] {
+  return (json(response) as { roster: RosterEntryBody[] }).roster;
+}
+
+function expire(invitationId: string) {
+  return config.db
+    .prepare("UPDATE invitations SET expires_at = ? WHERE id = ?")
+    .run(["2000-01-01T00:00:00.000Z", invitationId]);
+}
+
+function listInvitations(cookie: string, teamId: string) {
+  return app.handle("GET", `/api/teams/${teamId}/invitations`, { headers: { cookie } });
 }
 
 function accept(cookie: string, token: string) {
@@ -578,6 +613,270 @@ describe("invitation lifecycle", () => {
     );
     expect(resent.status).toBe(200);
     expect((await accept(secondCookie, tokenOf(invitationOf(resent)))).status).toBe(200);
+  });
+});
+
+describe("expired invitations", () => {
+  it("projects an expired invitation as expired, without a link", async () => {
+    const cookie = await signIn();
+    const { teamId } = await createTeamAndSeason(cookie);
+    const created = invitationOf(
+      await invite(cookie, teamId, { invitedRole: "adult", inviteeLabel: "Maya's dad" }),
+    );
+    const stillPending = invitationOf(
+      await invite(cookie, teamId, { invitedRole: "adult", inviteeLabel: "Maya's mom" }),
+    );
+    await expire(created.id);
+
+    const listed = await listInvitations(cookie, teamId);
+    expect(listed.status).toBe(200);
+    const byId = new Map(
+      (json(listed) as { invitations: InvitationBody[] }).invitations.map((entry) => [
+        entry.id,
+        entry,
+      ]),
+    );
+
+    // The self-contradiction is gone: a row whose expiry has passed no longer
+    // claims to be pending, and no longer hands out a link that always fails.
+    expect(byId.get(created.id)?.status).toBe("expired");
+    expect(byId.get(created.id)?.inviteUrl).toBeUndefined();
+    expect(byId.get(stillPending.id)?.status).toBe("pending");
+    expect(typeof byId.get(stillPending.id)?.inviteUrl).toBe("string");
+    // The stored LIFECYCLE column is untouched — `resend` still needs it.
+    expect(
+      await config.db.prepare("SELECT status FROM invitations WHERE id = ?").all([created.id]),
+    ).toEqual([{ status: "pending" }]);
+  });
+
+  it("lets the owner re-invite a label whose invitation has expired", async () => {
+    const cookie = await signIn();
+    const { teamId } = await createTeamAndSeason(cookie);
+    const secondCookie = await signIn("second-adult");
+    const created = invitationOf(
+      await invite(cookie, teamId, { invitedRole: "adult", inviteeLabel: "Maya's dad" }),
+    );
+
+    // While it is LIVE the label is held, exactly as before.
+    expect(
+      (await invite(cookie, teamId, { invitedRole: "adult", inviteeLabel: "Maya's dad" })).status,
+    ).toBe(409);
+
+    await expire(created.id);
+
+    // Once it has aged out the owner is no longer blocked by an invitation that
+    // nothing else in the system still honors.
+    const reinvited = await invite(cookie, teamId, {
+      invitedRole: "adult",
+      inviteeLabel: "Maya's dad",
+    });
+    expect(reinvited.status).toBe(201);
+    const fresh = invitationOf(reinvited);
+    expect(fresh.status).toBe("pending");
+
+    // The expired link is still dead; the new one works.
+    expect((await accept(secondCookie, tokenOf(created))).status).toBe(404);
+    expect((await accept(secondCookie, tokenOf(fresh))).status).toBe(200);
+    expect(await config.db.prepare("SELECT id FROM invitations").all()).toHaveLength(2);
+  });
+
+  it("still lets resend re-arm an expired invitation", async () => {
+    const cookie = await signIn();
+    const { teamId } = await createTeamAndSeason(cookie);
+    const created = invitationOf(
+      await invite(cookie, teamId, { invitedRole: "adult", inviteeLabel: "Maya's dad" }),
+    );
+    await expire(created.id);
+
+    const resent = await app.handle(
+      "POST",
+      `/api/teams/${teamId}/invitations/${created.id}/resend`,
+      { headers: { ...sameOrigin, cookie } },
+    );
+    expect(resent.status).toBe(200);
+    expect(invitationOf(resent).status).toBe("pending");
+    expect((await accept(await signIn("second-adult"), tokenOf(invitationOf(resent)))).status).toBe(
+      200,
+    );
+  });
+});
+
+describe("accepting a guardian invitation", () => {
+  it("rebinds the guardian a manager typed in rather than duplicating them", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    const participantId = await addChild(cookie, teamId, seasonId);
+    const secondCookie = await signIn("second-adult");
+
+    // The manager writes the parent onto the child by hand FIRST — a
+    // placeholder Person with no account, which is all the manual path can mint.
+    const manual = await attachGuardian(cookie, participantId, {
+      displayName: SECOND_ADULT_NAME,
+      relationship: "parent",
+    });
+    expect(manual.status).toBe(201);
+    const placeholderEdgeId = (json(manual) as { guardian: { guardianId: string } }).guardian
+      .guardianId;
+
+    // ... then invites the same parent to the same child with the same label.
+    const created = invitationOf(
+      await invite(cookie, teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "Rowan's dad",
+        participantId,
+        relationship: "parent",
+      }),
+    );
+    expect((await accept(secondCookie, tokenOf(created))).status).toBe(200);
+
+    // ONE active edge, now owned by the real adult identity — so the roster
+    // shows one guardian, and the accepting parent actually holds the edge.
+    const edges = await config.db
+      .prepare(
+        "SELECT id, guardian_person_id, relationship, status FROM guardian_relationships WHERE participant_id = ?",
+      )
+      .all([participantId]);
+    expect(edges).toEqual([
+      {
+        id: placeholderEdgeId,
+        guardian_person_id: SECOND_PERSON_ID,
+        relationship: "parent",
+        status: "active",
+      },
+    ]);
+
+    const roster = rosterOf(await readRoster(cookie, teamId, seasonId));
+    expect(roster[0]?.guardians).toHaveLength(1);
+    expect(roster[0]?.guardians[0]?.displayName).toBe(SECOND_ADULT_NAME);
+  });
+
+  it("adds a guardian when the roster's existing one is a different person", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    const participantId = await addChild(cookie, teamId, seasonId);
+    const secondCookie = await signIn("second-adult");
+
+    expect(
+      (
+        await attachGuardian(cookie, participantId, {
+          displayName: "Alex Guardian",
+          relationship: "parent",
+        })
+      ).status,
+    ).toBe(201);
+
+    const created = invitationOf(
+      await invite(cookie, teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "Rowan's aunt",
+        participantId,
+        relationship: "parent",
+      }),
+    );
+    expect((await accept(secondCookie, tokenOf(created))).status).toBe(200);
+
+    // Two genuinely different people, so two edges — the dedupe never merges
+    // guardians who do not share an identity.
+    const roster = rosterOf(await readRoster(cookie, teamId, seasonId));
+    expect(roster[0]?.guardians.map((guardian) => guardian.displayName)).toEqual([
+      "Alex Guardian",
+      SECOND_ADULT_NAME,
+    ]);
+  });
+
+  it("stays idempotent when the same adult accepts a second invitation for one child", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    const participantId = await addChild(cookie, teamId, seasonId);
+    const secondCookie = await signIn("second-adult");
+
+    for (const label of ["first ask", "second ask"]) {
+      const created = invitationOf(
+        await invite(cookie, teamId, {
+          invitedRole: "adult",
+          inviteeLabel: label,
+          participantId,
+          relationship: "parent",
+        }),
+      );
+      expect((await accept(secondCookie, tokenOf(created))).status).toBe(200);
+    }
+
+    expect(
+      await config.db
+        .prepare("SELECT id FROM guardian_relationships WHERE participant_id = ?")
+        .all([participantId]),
+    ).toHaveLength(1);
+  });
+});
+
+describe("roster invitation status", () => {
+  it("counts a child's guardian invitations without leaking the label or the link", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    const participantId = await addChild(cookie, teamId, seasonId);
+    const secondCookie = await signIn("second-adult");
+
+    const before = rosterOf(await readRoster(cookie, teamId, seasonId));
+    expect(before[0]?.guardianInvitations).toEqual({ pending: 0, expired: 0, accepted: 0 });
+
+    const pending = invitationOf(
+      await invite(cookie, teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "Rowan's dad",
+        participantId,
+        relationship: "parent",
+      }),
+    );
+    const withPending = rosterOf(await readRoster(cookie, teamId, seasonId));
+    expect(withPending[0]?.guardianInvitations).toEqual({ pending: 1, expired: 0, accepted: 0 });
+
+    await expire(pending.id);
+    const withExpired = rosterOf(await readRoster(cookie, teamId, seasonId));
+    expect(withExpired[0]?.guardianInvitations).toEqual({ pending: 0, expired: 1, accepted: 0 });
+
+    const acceptedInvite = invitationOf(
+      await invite(cookie, teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "Rowan's aunt",
+        participantId,
+        relationship: "caregiver",
+      }),
+    );
+    expect((await accept(secondCookie, tokenOf(acceptedInvite))).status).toBe(200);
+
+    const rosterRead = await readRoster(cookie, teamId, seasonId);
+    expect(rosterOf(rosterRead)[0]?.guardianInvitations).toEqual({
+      pending: 0,
+      expired: 1,
+      accepted: 1,
+    });
+
+    // A team-scoped invitation that names NO child is not counted against one.
+    const teamWide = invitationOf(
+      await invite(cookie, teamId, { invitedRole: "adult", inviteeLabel: "team manager" }),
+    );
+    expect(teamWide.status).toBe("pending");
+    expect(rosterOf(await readRoster(cookie, teamId, seasonId))[0]?.guardianInvitations).toEqual({
+      pending: 0,
+      expired: 1,
+      accepted: 1,
+    });
+
+    // PRIVACY: the roster projection carries counts only — never the inviter's
+    // wording for the invitee (which quotes a child), never a token or a link.
+    const scanned = withoutOpaqueIds(rosterRead.body.toLowerCase());
+    for (const forbidden of [
+      "dad",
+      "aunt",
+      "invitee",
+      "label",
+      "token",
+      "invite#",
+      "invitation_",
+    ]) {
+      expect(scanned).not.toContain(forbidden);
+    }
   });
 });
 

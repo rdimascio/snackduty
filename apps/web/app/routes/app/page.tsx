@@ -104,6 +104,28 @@ function GuardianList({ guardians }: { guardians: RosterEntry["guardians"] }): R
   );
 }
 
+/**
+ * The child's invitation state, as COUNTS. The roster projection deliberately
+ * carries no invitee label and no link (team-reads.ts explains why), so this
+ * line can say how many guardian invitations are outstanding without repeating
+ * the inviter's wording — which routinely quotes the child.
+ */
+function InvitationStatus({
+  invitations,
+}: {
+  invitations: RosterEntry["guardianInvitations"];
+}): ReactNode {
+  const parts: string[] = [];
+  if (invitations.pending > 0) parts.push(`${invitations.pending} invited`);
+  if (invitations.expired > 0) parts.push(`${invitations.expired} expired`);
+  if (invitations.accepted > 0) parts.push(`${invitations.accepted} joined`);
+  if (parts.length === 0) return null;
+
+  return (
+    <p className="mt-2 text-xs text-muted-foreground">Guardian invitations: {parts.join(", ")}</p>
+  );
+}
+
 function RosterSection({ roster }: { roster: readonly RosterEntry[] }): ReactNode {
   if (roster.length === 0) {
     return (
@@ -126,6 +148,7 @@ function RosterSection({ roster }: { roster: readonly RosterEntry[] }): ReactNod
             <p className="mt-1 text-sm text-muted-foreground">Born {entry.birthDate}</p>
           )}
           <GuardianList guardians={entry.guardians} />
+          <InvitationStatus invitations={entry.guardianInvitations} />
         </li>
       ))}
     </ul>

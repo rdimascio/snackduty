@@ -140,6 +140,8 @@ describe("authorized team reads", () => {
           displayName: "Casey Kid",
           birthDate: "2018-04-09",
           status: "active",
+          // No guardian invitation has been sent for this child yet.
+          guardianInvitations: { pending: 0, expired: 0, accepted: 0 },
           guardians: [
             {
               guardianId: firstGuardianId,

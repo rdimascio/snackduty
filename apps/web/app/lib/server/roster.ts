@@ -7,6 +7,7 @@ import { guardianRelationshipSchema, participantSchema, personSchema } from "@sn
 import { z } from "zod";
 
 import { authenticatedAdult, people } from "./identity";
+import { childIdentityKey, sameDisplayName } from "./people-identity";
 import { manageableActiveTeam, seasons, teams } from "./teams";
 
 export const participants = defineTable("participants", {
@@ -73,6 +74,13 @@ export const createRoster: MigrationEntry = {
   },
 };
 
+/**
+ * What a guardian gets when nobody says otherwise — one constant, shared by the
+ * manual attach path, roster import, and invitation acceptance, so the three
+ * cannot drift into granting different things for the same relationship.
+ */
+export const DEFAULT_GUARDIAN_PERMISSIONS = ["participant.read", "participant.manage"] as const;
+
 export const addParticipantInputSchema = z.strictObject({
   displayName: z.string().trim().min(1, "Participant display name is required."),
   birthDate: z.iso.date().optional(),
@@ -82,8 +90,7 @@ export const attachGuardianInputSchema = z.strictObject({
   displayName: z.string().trim().min(1, "Guardian display name is required."),
   relationship: guardianRelationshipSchema.shape.relationship,
   permissions: guardianRelationshipSchema.shape.permissions.default([
-    "participant.read",
-    "participant.manage",
+    ...DEFAULT_GUARDIAN_PERMISSIONS,
   ]),
 });
 
@@ -175,6 +182,149 @@ function insertActivePerson(tx: Db, displayName: string, now: string) {
     .get();
 }
 
+/**
+ * Create one child on one season's roster: the Person, the Participant, and the
+ * season membership that puts them on the roster. THE one place a child record
+ * is written — the single-add endpoint and the CSV import both go through here,
+ * so "a child is a Person with no Account and no email" is enforced once.
+ */
+export async function createRosteredParticipant(
+  tx: Db,
+  target: { teamId: string; seasonId: string },
+  input: { displayName: string; birthDate?: string | undefined },
+  now: string,
+) {
+  // The child is a Person with no email and no Account — the identity split is
+  // structural: this function only ever writes `people`, never `accounts`.
+  const person = await insertActivePerson(tx, input.displayName, now);
+  const row = await tx
+    .insert(participants)
+    .values({
+      id: `participant_${crypto.randomUUID()}`,
+      personId: person.id,
+      birthDate: input.birthDate ?? null,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+  await tx
+    .insert(memberships)
+    .values({
+      id: `membership_${crypto.randomUUID()}`,
+      teamId: target.teamId,
+      seasonId: target.seasonId,
+      memberKind: "participant",
+      memberParticipantId: row.id,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  return { row, person };
+}
+
+/**
+ * Attach one guardian to one child, minting the placeholder Person that carries
+ * their name. THE one place a guardian edge is written from a typed-in name
+ * (the manual endpoint and the CSV import); invitation acceptance writes its
+ * own edge because it binds an EXISTING adult identity instead of a placeholder.
+ */
+export async function attachGuardianEdge(
+  tx: Db,
+  participantId: string,
+  input: { displayName: string; relationship: string; permissions: readonly string[] },
+  now: string,
+) {
+  const person = await insertActivePerson(tx, input.displayName, now);
+  const edge = await tx
+    .insert(guardianRelationships)
+    .values({
+      id: `guardian_relationship_${crypto.randomUUID()}`,
+      guardianPersonId: person.id,
+      participantId,
+      relationship: input.relationship,
+      status: "active",
+      permissions: JSON.stringify(input.permissions),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+
+  return { edge, person };
+}
+
+/**
+ * Every child already on one season's roster, keyed by the shared child-identity
+ * rule (people-identity.ts). The roster import's duplicate-in-roster verdict is
+ * a lookup in this set — and because the commit rebuilds it inside its own
+ * transaction, replaying a commit finds every child it created last time.
+ */
+export async function seasonChildIdentityKeys(
+  tx: Db,
+  teamId: string,
+  seasonId: string,
+): Promise<Set<string>> {
+  const participantRows = await activeSeasonParticipantRows(tx, teamId, seasonId);
+  if (participantRows.length === 0) return new Set();
+
+  const personRows = await tx
+    .select()
+    .from(people)
+    .where(
+      inList(
+        people.id,
+        participantRows.map((participant) => participant.personId),
+      ),
+    )
+    .all();
+  const peopleById = new Map(personRows.map((person) => [person.id, person] as const));
+
+  const keys = new Set<string>();
+  for (const participant of participantRows) {
+    const person = peopleById.get(participant.personId);
+    if (person === undefined) continue;
+    keys.add(
+      childIdentityKey({ displayName: person.displayName, birthDate: participant.birthDate }),
+    );
+  }
+
+  return keys;
+}
+
+/**
+ * The ACTIVE participants rostered on one team's season. The roster read
+ * projection (team-reads.ts) and the import's duplicate check both start here,
+ * so "who is on this roster" has one answer.
+ */
+export async function activeSeasonParticipantRows(tx: Db, teamId: string, seasonId: string) {
+  const membershipRows = await tx
+    .select()
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.teamId, teamId),
+        eq(memberships.seasonId, seasonId),
+        eq(memberships.memberKind, "participant"),
+        eq(memberships.status, "active"),
+      ),
+    )
+    .all();
+  const memberParticipantIds = membershipRows
+    .map((membership) => membership.memberParticipantId)
+    .filter((participantId): participantId is string => participantId !== null);
+  if (memberParticipantIds.length === 0) return [];
+
+  return tx
+    .select()
+    .from(participants)
+    .where(and(inList(participants.id, memberParticipantIds), eq(participants.status, "active")))
+    .all();
+}
+
 async function addParticipant(
   c: Context<"/api/teams/:teamId/seasons/:seasonId/participants">,
   db: Db,
@@ -195,35 +345,12 @@ async function addParticipant(
       .get();
     if (season === undefined) return null;
 
-    // The child is a Person with no email and no Account — the identity split is
-    // structural: this handler only ever writes `people`, never `accounts`.
-    const now = new Date().toISOString();
-    const person = await insertActivePerson(tx, input.displayName, now);
-    const row = await tx
-      .insert(participants)
-      .values({
-        id: `participant_${crypto.randomUUID()}`,
-        personId: person.id,
-        birthDate: input.birthDate ?? null,
-        status: "active",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    await tx
-      .insert(memberships)
-      .values({
-        id: `membership_${crypto.randomUUID()}`,
-        teamId: team.id,
-        seasonId: season.id,
-        memberKind: "participant",
-        memberParticipantId: row.id,
-        status: "active",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    const { row, person } = await createRosteredParticipant(
+      tx,
+      { teamId: team.id, seasonId: season.id },
+      input,
+      new Date().toISOString(),
+    );
 
     return projectParticipant(row, person);
   });
@@ -231,15 +358,22 @@ async function addParticipant(
   return participant === null ? c.json(teamNotFound, 404) : c.json({ participant }, 201);
 }
 
-// Every attach call mints a fresh guardian Person (people carry no ownership column,
-// so an arbitrary `guardianPersonId` reference could not be authorized owner-scoped).
-// The duplicate_active_guardian invariant is honored pragmatically: a second identical
-// displayName+relationship pair for the same participant is a conflict.
-async function hasDuplicateActiveGuardian(
+/**
+ * The ACTIVE guardian edge on `participantId` whose guardian is, by the shared
+ * person-identity rule, the same person as `input` — or undefined.
+ *
+ * Every attach call mints a fresh guardian Person (people carry no ownership
+ * column, so an arbitrary `guardianPersonId` reference could not be authorized
+ * owner-scoped), which is exactly why identity here is a NAME question and not
+ * an id question. The duplicate_active_guardian invariant is this lookup coming
+ * back defined; invitation acceptance uses the same lookup to recognize the
+ * placeholder a manager typed in and rebind it instead of duplicating it.
+ */
+export async function findActiveGuardianByIdentity(
   tx: Db,
   participantId: string,
   input: { displayName: string; relationship: string },
-): Promise<boolean> {
+) {
   const activeEdges = await tx
     .select()
     .from(guardianRelationships)
@@ -251,7 +385,7 @@ async function hasDuplicateActiveGuardian(
       ),
     )
     .all();
-  if (activeEdges.length === 0) return false;
+  if (activeEdges.length === 0) return undefined;
 
   const guardians = await tx
     .select()
@@ -263,8 +397,21 @@ async function hasDuplicateActiveGuardian(
       ),
     )
     .all();
+  const matched = new Set(
+    guardians
+      .filter((guardian) => sameDisplayName(guardian.displayName, input.displayName))
+      .map((guardian) => guardian.id),
+  );
 
-  return guardians.some((guardian) => guardian.displayName === input.displayName);
+  return activeEdges.find((edge) => matched.has(edge.guardianPersonId));
+}
+
+export async function hasDuplicateActiveGuardian(
+  tx: Db,
+  participantId: string,
+  input: { displayName: string; relationship: string },
+): Promise<boolean> {
+  return (await findActiveGuardianByIdentity(tx, participantId, input)) !== undefined;
 }
 
 async function attachGuardian(
@@ -302,22 +449,12 @@ async function attachGuardian(
 
     if (await hasDuplicateActiveGuardian(tx, participant.id, input)) return "duplicate" as const;
 
-    const now = new Date().toISOString();
-    const person = await insertActivePerson(tx, input.displayName, now);
-    const edge = await tx
-      .insert(guardianRelationships)
-      .values({
-        id: `guardian_relationship_${crypto.randomUUID()}`,
-        guardianPersonId: person.id,
-        participantId: participant.id,
-        relationship: input.relationship,
-        status: "active",
-        permissions: JSON.stringify(input.permissions),
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
+    const { edge, person } = await attachGuardianEdge(
+      tx,
+      participant.id,
+      input,
+      new Date().toISOString(),
+    );
 
     return projectGuardian(edge, person);
   });
