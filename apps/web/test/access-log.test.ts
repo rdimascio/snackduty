@@ -29,6 +29,18 @@ describe("credential-path redaction", () => {
     expect(redactCredentialPath(`/INVITE/${TOKEN}`)).toBe("/INVITE/[redacted]");
   });
 
+  // The calendar feed is the one credential that travels in a request line BY
+  // DESIGN (calendar clients poll a plain GET URL — ADR 0009), so this entry
+  // is the primary defence for a LIVE credential, not a legacy backstop.
+  it("replaces the calendar feed token segment", () => {
+    expect(redactCredentialPath(`/calendar/feed/${TOKEN}`)).toBe("/calendar/feed/[redacted]");
+    expect(redactCredentialPath(`/calendar/feed/${TOKEN}/`)).toBe("/calendar/feed/[redacted]/");
+    expect(redactCredentialPath(`/CALENDAR/Feed/${TOKEN}`)).toBe("/CALENDAR/Feed/[redacted]");
+    for (const token of ["x", "not-hex-at-all", "%2Fencoded%2F"]) {
+      expect(redactCredentialPath(`/calendar/feed/${token}`)).toBe("/calendar/feed/[redacted]");
+    }
+  });
+
   it("leaves every other path untouched", () => {
     for (const path of [
       "/",
@@ -37,7 +49,11 @@ describe("credential-path redaction", () => {
       "/features",
       "/invite",
       "/invite/",
+      "/calendar",
+      "/calendar/feed",
+      "/calendar/feed/",
       "/api/teams/team_123/invitations",
+      "/api/teams/team_123/calendar-feed",
       "/api/invitations/accept",
       "/health",
     ]) {
@@ -163,5 +179,16 @@ describe("the deployed edge handler", () => {
 
     expect(access?.["path"]).toBe("/features");
     expect(access?.["status"]).toBe(200);
+  });
+
+  // The DB-less Worker serves no feed, but a live feed URL pasted at the edge
+  // still hits the access log — with the credential already gone.
+  it("redacts a calendar feed poll that reaches the edge", async () => {
+    const [access, ...rest] = await edgeAccessLines(`/calendar/feed/${TOKEN}`);
+
+    expect(rest).toEqual([]);
+    expect(access?.["path"]).toBe("/calendar/feed/[redacted]");
+    expect(access?.["status"]).toBe(404);
+    expect(JSON.stringify(access)).not.toContain(TOKEN);
   });
 });

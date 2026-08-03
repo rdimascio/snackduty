@@ -47,6 +47,9 @@ import {
   developmentSessionCookie,
 } from "./app/lib/server/identity";
 import { devPersonaProvider } from "./app/lib/server/identity-providers";
+import { registerAttendanceRoutes } from "./app/lib/server/attendance";
+import { createCalendarFeeds, registerCalendarFeedRoutes } from "./app/lib/server/calendar-feeds";
+import { createEvents, registerEventRoutes } from "./app/lib/server/events";
 import { devInviteDeliverer } from "./app/lib/server/invite-delivery";
 import type { InviteDeliverer } from "./app/lib/server/invite-delivery";
 import { createInvitations, registerInvitationRoutes } from "./app/lib/server/invitations";
@@ -141,10 +144,27 @@ export function buildApp(
   developmentSignIn: boolean,
   inviteDelivery: InviteDeliverer = devInviteDeliverer(),
 ) {
-  const app = registerInvitationRoutes(
-    registerTeamReadRoutes(
-      registerRosterImportRoutes(
-        registerRosterRoutes(registerTeamRoutes(buildBaseApp(db), db, sessions), db, sessions),
+  const app = registerCalendarFeedRoutes(
+    registerAttendanceRoutes(
+      registerEventRoutes(
+        registerInvitationRoutes(
+          registerTeamReadRoutes(
+            registerRosterImportRoutes(
+              registerRosterRoutes(
+                registerTeamRoutes(buildBaseApp(db), db, sessions),
+                db,
+                sessions,
+              ),
+              db,
+              sessions,
+            ),
+            db,
+            sessions,
+          ),
+          db,
+          sessions,
+          inviteDelivery,
+        ),
         db,
         sessions,
       ),
@@ -153,7 +173,6 @@ export function buildApp(
     ),
     db,
     sessions,
-    inviteDelivery,
   );
 
   if (!developmentSignIn) return app;
@@ -222,6 +241,8 @@ const config: LestoAppConfig = {
     createTeamsAndSeasons,
     createRoster,
     createInvitations,
+    createEvents,
+    createCalendarFeeds,
   ],
   // Security, declared in one place (ADR 0016). Per-client rate-limiting is ALREADY
   // on by the kernel default; `originCheck` layers zero-token CSRF over it — a

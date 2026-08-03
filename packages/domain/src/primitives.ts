@@ -12,6 +12,9 @@ export const seasonIdSchema = id("SeasonId");
 export const membershipIdSchema = id("MembershipId");
 export const roleIdSchema = id("RoleId");
 export const auditEventIdSchema = id("AuditEventId");
+export const eventSeriesIdSchema = id("EventSeriesId");
+export const eventOccurrenceIdSchema = id("EventOccurrenceId");
+export const attendanceRecordIdSchema = id("AttendanceRecordId");
 
 export type PersonId = z.infer<typeof personIdSchema>;
 export type AccountId = z.infer<typeof accountIdSchema>;
@@ -23,6 +26,9 @@ export type SeasonId = z.infer<typeof seasonIdSchema>;
 export type MembershipId = z.infer<typeof membershipIdSchema>;
 export type RoleId = z.infer<typeof roleIdSchema>;
 export type AuditEventId = z.infer<typeof auditEventIdSchema>;
+export type EventSeriesId = z.infer<typeof eventSeriesIdSchema>;
+export type EventOccurrenceId = z.infer<typeof eventOccurrenceIdSchema>;
+export type AttendanceRecordId = z.infer<typeof attendanceRecordIdSchema>;
 
 export const isoTimestampSchema = z.iso.datetime({ offset: true });
 export const localDateSchema = z.iso.date();

@@ -41,6 +41,11 @@ const CREDENTIAL_ROUTES: readonly (readonly string[])[] = [
   // mints `/invite#<token>`, which never reaches a server, but a path-shaped
   // hit from an old link must still not be logged verbatim.
   ["invite", CREDENTIAL],
+  // `/calendar/feed/<token>` — the LIVE calendar feed credential. Calendar
+  // clients can only poll a plain GET URL, so this is the one Snackday bearer
+  // credential that travels in a request line BY DESIGN (calendar-feeds.ts,
+  // ADR 0009) — which makes this entry the primary defence, not the backstop.
+  ["calendar", "feed", CREDENTIAL],
 ];
 
 function matchesRoute(template: readonly string[], segments: readonly string[]): boolean {

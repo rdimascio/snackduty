@@ -10,9 +10,13 @@
  * (and leaks no identifiers) → verify the signed-out /app page shows none of
  * it → drive the whole INVITATION journey (invite a second adult, preview the
  * link while signed out, accept, read the team back at the right access level,
- * resend, revoke) with the bearer token in the URL fragment throughout. Finally
- * it runs the env-gated iOS live round trip (SnackdayDomainTests) against the
- * SAME running server and refuses to accept a skipped run.
+ * resend, revoke) with the bearer token in the URL fragment throughout → drive
+ * the EVENTS journey (a weekly practice series materialized across a real DST
+ * boundary, per-occurrence cancellation that stays visible, guardian-scoped
+ * attendance, and the child-free calendar feed with rotation, single-event ICS
+ * export, and revocation). Finally it runs the env-gated iOS live round trip
+ * (SnackdayDomainTests) against the SAME running server and refuses to accept
+ * a skipped run.
  *
  * The server is torn down and the scratch database removed even on failure;
  * any assertion failure exits nonzero naming the failing step.
@@ -938,6 +942,398 @@ async function verifyInvitationJourney(
   await verifyResendAndRevoke(base, ownerCookie, ids.teamId, hidden);
 }
 
+// The events leg: a weekly practice whose range CROSSES the 2026-03-08
+// America/Los_Angeles spring-forward, so wall-time correctness is observable
+// as two different UTC instants for the same 17:00.
+const EVENT_SERIES = {
+  title: "Tuesday Practice",
+  kind: "practice",
+  location: "Riverside Park, Field 2",
+  notes: "Bring water and shin guards",
+  schedule: {
+    timeZone: "America/Los_Angeles",
+    localTime: "17:00",
+    durationMinutes: 60,
+    frequency: "weekly",
+    byWeekday: ["tuesday"],
+    startDate: "2026-03-03",
+    untilDate: "2026-03-17",
+  },
+} as const;
+const EXPECTED_EVENT_INSTANTS = [
+  "2026-03-04T01:00:00.000Z",
+  "2026-03-11T00:00:00.000Z",
+  "2026-03-18T00:00:00.000Z",
+] as const;
+const CANCEL_REASON = "Field flooded";
+// Names and vocabulary that must NEVER appear in a pollable calendar feed: a
+// leaked feed URL exposes a practice schedule, not a roster of minors.
+const FORBIDDEN_FEED = [
+  CHILD.displayName.split(" ")[0] ?? "",
+  IMPORTED_CHILD.displayName.split(" ")[0] ?? "",
+  GUARDIAN_ONE.displayName.split(" ")[0] ?? "",
+  CHILD.birthDate,
+  "participant",
+  "guardian",
+  "attendance",
+  "person_",
+] as const;
+
+interface EventOccurrenceView {
+  id?: string;
+  localDate?: string;
+  startsAt?: string;
+  status?: string;
+  cancelledReason?: string;
+}
+
+async function createEventSeries(
+  base: string,
+  cookie: string,
+  ids: JourneyIds,
+): Promise<readonly string[]> {
+  const step = "create-event-series";
+  const created = await requestJson(
+    step,
+    `${base}/api/teams/${ids.teamId}/seasons/${ids.seasonId}/events`,
+    { method: "POST", headers: mutationHeaders(cookie), body: JSON.stringify(EVENT_SERIES) },
+    201,
+  );
+  const occurrences = created["occurrences"] as readonly EventOccurrenceView[];
+  ensure(
+    step,
+    Array.isArray(occurrences) && occurrences.length === 3,
+    `expected three materialized occurrences: ${JSON.stringify(created)}`,
+  );
+  // Timezone correctness, observable: 17:00 PST is 01:00Z, 17:00 PDT is
+  // 00:00Z — one series, one wall time, DST-correct instants either side.
+  ensure(
+    step,
+    JSON.stringify(occurrences.map((occurrence) => occurrence.startsAt)) ===
+      JSON.stringify(EXPECTED_EVENT_INSTANTS),
+    `occurrence instants are not wall-time-correct: ${JSON.stringify(occurrences)}`,
+  );
+  const occurrenceIds = occurrences.map((occurrence) => occurrence.id ?? "");
+  ensure(
+    step,
+    occurrenceIds.every((id) => id.startsWith("event_occurrence_")),
+    "occurrence ids missing",
+  );
+  return occurrenceIds;
+}
+
+async function verifyCancelOccurrence(
+  base: string,
+  cookie: string,
+  teamId: string,
+  occurrenceId: string,
+): Promise<void> {
+  const step = "cancel-occurrence";
+  const cancelled = await requestJson(
+    step,
+    `${base}/api/teams/${teamId}/occurrences/${occurrenceId}/cancel`,
+    {
+      method: "POST",
+      headers: mutationHeaders(cookie),
+      body: JSON.stringify({ reason: CANCEL_REASON }),
+    },
+    200,
+  );
+  const occurrence = cancelled["occurrence"] as EventOccurrenceView;
+  ensure(
+    step,
+    occurrence?.status === "cancelled" && occurrence.cancelledReason === CANCEL_REASON,
+    `cancellation state mismatch: ${JSON.stringify(cancelled)}`,
+  );
+
+  // Cancellation is a STATE, not a delete: the team events list still carries
+  // the occurrence, visibly cancelled, with its reason.
+  const listed = await requestJson(
+    step,
+    `${base}/api/teams/${teamId}/events`,
+    { headers: { Cookie: cookie } },
+    200,
+  );
+  const events = listed["events"] as readonly { occurrences?: readonly EventOccurrenceView[] }[];
+  const all = events.flatMap((entry) => entry.occurrences ?? []);
+  ensure(step, all.length === 3, `cancelled occurrence disappeared from the list: ${all.length}`);
+  const stillThere = all.find((occurrence) => occurrence.id === occurrenceId);
+  ensure(
+    step,
+    stillThere?.status === "cancelled" && stillThere.cancelledReason === CANCEL_REASON,
+    "the cancelled occurrence is not listed with its reason",
+  );
+}
+
+async function recordAttendance(
+  base: string,
+  cookie: string,
+  teamId: string,
+  occurrenceId: string,
+  participantId: string,
+  status: string,
+): Promise<Response> {
+  return fetch(`${base}/api/teams/${teamId}/occurrences/${occurrenceId}/attendance`, {
+    method: "POST",
+    headers: mutationHeaders(cookie),
+    body: JSON.stringify({ participantId, status }),
+  });
+}
+
+/**
+ * Attendance under the guardian rule, over real HTTP: the second adult (who
+ * accepted the invitation naming the child, so they hold a REAL guardian edge)
+ * answers for their own child; the manager answers for anyone; the guardian's
+ * reach into another family's child is the same hiding 404 an unknown child
+ * gets — byte-identical, never a 403.
+ */
+async function verifyAttendance(
+  base: string,
+  ownerCookie: string,
+  guardianCookie: string,
+  ids: JourneyIds,
+  occurrenceId: string,
+): Promise<void> {
+  const step = "record-attendance";
+  const own = await recordAttendance(
+    base,
+    guardianCookie,
+    ids.teamId,
+    occurrenceId,
+    ids.participantId,
+    "yes",
+  );
+  ensure(step, own.status === 200, `guardian RSVP for own child answered ${own.status}`);
+
+  const roster = await readRoster(step, base, ownerCookie, ids);
+  const importedChild = roster.find((entry) => entry.displayName === IMPORTED_CHILD.displayName);
+  const importedId = importedChild?.participantId;
+  ensure(step, typeof importedId === "string", "imported child missing from roster");
+
+  const asManager = await recordAttendance(
+    base,
+    ownerCookie,
+    ids.teamId,
+    occurrenceId,
+    importedId,
+    "maybe",
+  );
+  ensure(step, asManager.status === 200, `manager attendance answered ${asManager.status}`);
+
+  const foreign = await recordAttendance(
+    base,
+    guardianCookie,
+    ids.teamId,
+    occurrenceId,
+    importedId,
+    "yes",
+  );
+  const unknown = await recordAttendance(
+    base,
+    guardianCookie,
+    ids.teamId,
+    occurrenceId,
+    "participant_missing",
+    "yes",
+  );
+  ensure(
+    step,
+    foreign.status === 404 && unknown.status === 404,
+    `guardian reach beyond their child answered ${foreign.status}/${unknown.status} (expected 404s)`,
+  );
+  ensure(
+    step,
+    (await foreign.text()) === (await unknown.text()),
+    "another family's child is distinguishable from an unknown child",
+  );
+
+  const readStep = "read-attendance";
+  const asGuardian = await requestJson(
+    readStep,
+    `${base}/api/teams/${ids.teamId}/occurrences/${occurrenceId}/attendance`,
+    { headers: { Cookie: guardianCookie } },
+    200,
+  );
+  const guardianView = asGuardian["attendance"] as {
+    counts?: Record<string, number>;
+    entries?: readonly { participantId?: string; status?: string }[];
+  };
+  ensure(
+    readStep,
+    JSON.stringify(guardianView.counts) === JSON.stringify({ yes: 1, no: 0, maybe: 1 }),
+    `attendance counts mismatch: ${JSON.stringify(guardianView.counts)}`,
+  );
+  // The guardian sees THEIR child's entry and only that; the other child is a
+  // number in the counts, not a name.
+  ensure(
+    readStep,
+    guardianView.entries?.length === 1 &&
+      guardianView.entries[0]?.participantId === ids.participantId &&
+      guardianView.entries[0].status === "yes",
+    `guardian attendance view is not scoped to their own child: ${JSON.stringify(guardianView.entries)}`,
+  );
+
+  const asOwner = await requestJson(
+    readStep,
+    `${base}/api/teams/${ids.teamId}/occurrences/${occurrenceId}/attendance`,
+    { headers: { Cookie: ownerCookie } },
+    200,
+  );
+  const ownerView = asOwner["attendance"] as { entries?: readonly unknown[] };
+  ensure(
+    readStep,
+    ownerView.entries?.length === 2,
+    `manager attendance view should carry both children: ${JSON.stringify(ownerView.entries)}`,
+  );
+}
+
+/**
+ * The calendar feed: minted per adult, polled with NO session exactly like
+ * Apple/Google will, child-free by construction, rotated by re-minting, and
+ * exported per event as an authenticated download.
+ */
+async function verifyCalendarFeed(
+  base: string,
+  ownerCookie: string,
+  ids: JourneyIds,
+  cancelledOccurrenceId: string,
+): Promise<void> {
+  const step = "mint-calendar-feed";
+  const minted = await requestJson(
+    step,
+    `${base}/api/teams/${ids.teamId}/calendar-feed`,
+    { method: "POST", headers: mutationHeaders(ownerCookie) },
+    201,
+  );
+  const feedUrl = (minted["feed"] as { url?: string }).url ?? "";
+  ensure(
+    step,
+    /^\/calendar\/feed\/[0-9a-f]{64}$/u.test(feedUrl),
+    "feed URL is not the random-token shape",
+  );
+  ensure(step, !feedUrl.includes(ids.teamId), "feed URL derives from the team id");
+
+  const feedStep = "poll-calendar-feed";
+  // A calendar client's poll: plain GET, no cookie, no fetch metadata.
+  const polled = await fetch(`${base}${feedUrl}`);
+  ensure(step, polled.status === 200, `feed poll answered ${polled.status}`);
+  ensure(
+    feedStep,
+    (polled.headers.get("content-type") ?? "") === "text/calendar; charset=utf-8",
+    `feed content type: ${String(polled.headers.get("content-type"))}`,
+  );
+  ensure(
+    feedStep,
+    (polled.headers.get("x-robots-tag") ?? "").includes("noindex"),
+    "feed response is not noindex",
+  );
+  const body = await polled.text();
+  ensure(
+    feedStep,
+    body.includes(`X-WR-CALNAME:${TEAM_NAME} (Snackday)`),
+    "feed lacks the calendar name",
+  );
+  ensure(feedStep, body.includes(`SUMMARY:${EVENT_SERIES.title}`), "feed lacks the event title");
+  ensure(
+    feedStep,
+    body.includes("DTSTART:20260304T010000Z") && body.includes("DTSTART:20260311T000000Z"),
+    "feed instants are not DST-correct",
+  );
+  ensure(
+    feedStep,
+    (body.match(/STATUS:CANCELLED/gu) ?? []).length === 1 && !body.includes(CANCEL_REASON),
+    "the cancelled occurrence is not represented as exactly one STATUS:CANCELLED without its reason",
+  );
+  const scanned = body.toLowerCase();
+  for (const forbidden of FORBIDDEN_FEED) {
+    ensure(feedStep, !scanned.includes(forbidden.toLowerCase()), `feed leaks "${forbidden}"`);
+  }
+
+  const rotateStep = "rotate-calendar-feed";
+  const rotated = await requestJson(
+    rotateStep,
+    `${base}/api/teams/${ids.teamId}/calendar-feed`,
+    { method: "POST", headers: mutationHeaders(ownerCookie) },
+    200,
+  );
+  const rotatedUrl = (rotated["feed"] as { url?: string }).url ?? "";
+  ensure(rotateStep, rotatedUrl !== feedUrl, "re-minting did not rotate the feed URL");
+  const dead = await fetch(`${base}${feedUrl}`);
+  const bogus = await fetch(`${base}/calendar/feed/${"0".repeat(64)}`);
+  ensure(rotateStep, dead.status === 404, `the rotated-away feed answered ${dead.status}`);
+  ensure(
+    rotateStep,
+    (await dead.text()) === (await bogus.text()),
+    "a rotated-away feed is distinguishable from an unknown one",
+  );
+  ensure(
+    rotateStep,
+    (await fetch(`${base}${rotatedUrl}`)).status === 200,
+    "the rotated feed does not serve",
+  );
+
+  const exportStep = "export-occurrence-ics";
+  const exported = await fetch(
+    `${base}/api/teams/${ids.teamId}/occurrences/${cancelledOccurrenceId}/export`,
+    { headers: { Cookie: ownerCookie } },
+  );
+  ensure(exportStep, exported.status === 200, `ICS export answered ${exported.status}`);
+  ensure(
+    exportStep,
+    (exported.headers.get("content-disposition") ?? "").includes("attachment"),
+    "ICS export is not an attachment download",
+  );
+  const exportBody = await exported.text();
+  ensure(
+    exportStep,
+    (exportBody.match(/BEGIN:VEVENT/gu) ?? []).length === 1 &&
+      exportBody.includes("STATUS:CANCELLED"),
+    "single-event export does not carry exactly the cancelled event",
+  );
+  const signedOutExport = await fetch(
+    `${base}/api/teams/${ids.teamId}/occurrences/${cancelledOccurrenceId}/export`,
+  );
+  ensure(exportStep, signedOutExport.status === 401, "ICS export is reachable signed out");
+
+  const revokeStep = "revoke-calendar-feed";
+  await requestJson(
+    revokeStep,
+    `${base}/api/teams/${ids.teamId}/calendar-feed/revoke`,
+    { method: "POST", headers: mutationHeaders(ownerCookie) },
+    200,
+  );
+  const afterRevoke = await fetch(`${base}${rotatedUrl}`);
+  ensure(revokeStep, afterRevoke.status === 404, `a revoked feed answered ${afterRevoke.status}`);
+  const freshUnknown = await fetch(`${base}/calendar/feed/${"f".repeat(64)}`);
+  ensure(
+    revokeStep,
+    (await afterRevoke.text()) === (await freshUnknown.text()),
+    "a revoked feed is distinguishable from an unknown one",
+  );
+}
+
+/**
+ * The events journey: the manager creates the DST-crossing weekly practice,
+ * cancels one occurrence with a reason, both adults record attendance under
+ * the guardian rule, and the schedule leaves the building only through the
+ * child-free calendar feed and the authenticated ICS export.
+ */
+async function verifyEventsJourney(
+  base: string,
+  ownerCookie: string,
+  ids: JourneyIds,
+): Promise<void> {
+  const occurrenceIds = await createEventSeries(base, ownerCookie, ids);
+  const cancelTarget = occurrenceIds[1] ?? "";
+  await verifyCancelOccurrence(base, ownerCookie, ids.teamId, cancelTarget);
+
+  // A fresh session for the second adult — already a member AND the child's
+  // guardian from the invitation journey above.
+  const guardianCookie = await signInAsSecondAdult(base);
+  await verifyAttendance(base, ownerCookie, guardianCookie, ids, occurrenceIds[0] ?? "");
+  await verifyCalendarFeed(base, ownerCookie, ids, cancelTarget);
+}
+
 async function runIosLiveCheck(port: number, scratchDir: string): Promise<void> {
   const step = "ios-live-round-trip";
   // localhost inside the simulator IS the host loopback, and http://localhost
@@ -993,6 +1389,7 @@ async function main(): Promise<void> {
     await verifySignedOutAppPage(base);
     await verifyRosterImport(base, cookie, ids);
     await verifyInvitationJourney(base, cookie, ids);
+    await verifyEventsJourney(base, cookie, ids);
     await runIosLiveCheck(port, scratchDir);
   } catch (error) {
     await dumpServerLogs(server);
@@ -1011,6 +1408,10 @@ async function main(): Promise<void> {
       "as counts only, signed-out preview by POSTed fragment " +
       "token with no label/child/id leaks, second-adult sign-in, accept, member team list with " +
       "matching access level, accepted preview hidden from everyone else, resend rotates, revoke), " +
+      "events journey (weekly series materialized with DST-correct instants, cancellation stays " +
+      "visible with its reason, guardian-scoped attendance with hiding 404s, child-free calendar " +
+      "feed polled unauthenticated with noindex, re-mint rotates the feed URL, authenticated " +
+      "single-event ICS export, revoke), " +
       "iOS live round trip.",
   );
 }

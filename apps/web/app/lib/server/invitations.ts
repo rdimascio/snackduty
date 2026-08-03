@@ -6,6 +6,7 @@ import type { Context, Lesto } from "@lesto/web";
 import { guardianRelationshipSchema } from "@snackday/domain";
 import { z } from "zod";
 
+import { generateBearerToken, hashBearerToken } from "./bearer-tokens";
 import { authenticatedAdult, people } from "./identity";
 import type { AdultIdentity } from "./identity";
 import type { InvitedRole, InviteDeliverer } from "./invite-delivery";
@@ -110,16 +111,10 @@ const invitationAlreadyPending = { error: "invitation already pending" } as cons
 const invitationNotPending = { error: "invitation is not pending" } as const;
 const invitationAlreadyAccepted = { error: "invitation already accepted" } as const;
 
-function generateInviteToken(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-export async function hashInviteToken(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
+// Minting and hashing live in bearer-tokens.ts, shared with the calendar feed
+// credential; the invite-named alias keeps this module's vocabulary.
+const generateInviteToken = generateBearerToken;
+export const hashInviteToken = hashBearerToken;
 
 /**
  * The link shape — the bearer credential lives in the URL FRAGMENT.

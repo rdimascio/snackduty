@@ -1,5 +1,6 @@
 export * from "./aggregate";
 export * from "./audit-events";
+export * from "./events";
 export * from "./people";
 export * from "./policies";
 export * from "./primitives";
