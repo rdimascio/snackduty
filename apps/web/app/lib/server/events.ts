@@ -283,8 +283,6 @@ export function materializableDates(
     };
   }
 
-  // One over the bound: enough to tell "exactly at the cap" from "over it",
-  // and the reason enumeration can never be turned into a denial of service.
   const dates = scheduleDates(schedule, MAX_SERIES_OCCURRENCES + 1);
   if (dates.length === 0) {
     return {
@@ -422,14 +420,19 @@ async function createSeries(
 /**
  * Whether a kept date's existing row comes back from a cancel. Only OUR
  * machine cancel is reversible, and only while the occurrence is still ahead
- * of us — the same instant comparison the drop branch makes, so a human "field
- * flooded" and everything already past survive an edit untouched.
+ * of us, so a human "field flooded" and everything already past survive an edit
+ * untouched.
+ *
+ * The instant the row is moving TO decides, not the one it is moving from: the
+ * same edit may change `localTime` or the zone, and reinstating on the stale
+ * value would either mark a now-past occurrence `scheduled` or strand a
+ * now-future one cancelled with a reason that is no longer true.
  */
-function reinstatesOnReturn(row: OccurrenceRow, now: string): boolean {
+function reinstatesOnReturn(row: OccurrenceRow, startsAtUtc: string, now: string): boolean {
   return (
     row.status === "cancelled" &&
     row.cancelledReason === RESCHEDULE_CANCEL_REASON &&
-    row.startsAtUtc > now
+    startsAtUtc > now
   );
 }
 
@@ -461,11 +464,12 @@ async function reconcileOccurrences(
       await insertOccurrence(tx, series, schedule, localDate, now);
       continue;
     }
-    const reinstate = reinstatesOnReturn(row, now);
+    const startsAtUtc = instantFromWallTime(localDate, schedule.localTime, schedule.timeZone);
+    const reinstate = reinstatesOnReturn(row, startsAtUtc, now);
     await tx
       .update(eventOccurrences)
       .set({
-        startsAtUtc: instantFromWallTime(localDate, schedule.localTime, schedule.timeZone),
+        startsAtUtc,
         durationMinutes: schedule.durationMinutes,
         ...(reinstate ? { status: "scheduled", cancelledReason: null, cancelledAt: null } : {}),
         updatedAt: now,
@@ -577,9 +581,14 @@ async function cancelOccurrence(
       .get();
     if (row === undefined) return "no-occurrence" as const;
     // Cancelling an already-cancelled occurrence is an idempotent no-op that
-    // PRESERVES the original reason: the caller's intent ("this must not
-    // happen") already holds, and history is not rewritten.
-    if (row.status === "cancelled") return { row };
+    // PRESERVES a human's original reason: the caller's intent ("this must not
+    // happen") already holds, and history is not rewritten. OUR marker is the
+    // exception — it is a machine annotation, not history, and leaving it in
+    // place would let the next schedule edit reinstate an occurrence a human
+    // has now explicitly cancelled.
+    if (row.status === "cancelled" && row.cancelledReason !== RESCHEDULE_CANCEL_REASON) {
+      return { row };
+    }
 
     const now = new Date().toISOString();
     await tx

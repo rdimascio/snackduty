@@ -123,9 +123,9 @@ function createdOccurrences(response: { body: string }): OccurrenceProjection[] 
   return (json(response) as { occurrences: OccurrenceProjection[] }).occurrences;
 }
 
-// Reconcile compares stored instants against the wall clock, so "past" and
-// "future" have to be real — every schedule-edit fixture is dated relative to
-// today, and the suite never goes stale.
+// Reconcile compares instants against the wall clock, so "past" and "future"
+// have to be real — every schedule-edit fixture is dated relative to today, and
+// the suite never goes stale.
 const dayMs = 24 * 60 * 60 * 1_000;
 function isoDaysFromNow(days: number): string {
   return new Date(Date.now() + days * dayMs).toISOString().slice(0, 10);
@@ -465,8 +465,7 @@ describe("occurrence cancellation", () => {
     const { teamId, seasonId } = await createTeamAndSeason(cookie);
     const created = await createSeries(cookie, teamId, seasonId);
     const target = createdOccurrences(created)[1];
-    expect(target).toBeDefined();
-    if (target === undefined) return;
+    if (target === undefined) throw new Error("fixture: the series has no second occurrence.");
 
     const cancelled = await cancelOccurrence(cookie, teamId, target.id, "Field flooded");
     expect(cancelled.status).toBe(200);
@@ -499,7 +498,7 @@ describe("occurrence cancellation", () => {
     const { teamId, seasonId } = await createTeamAndSeason(cookie);
     const created = await createSeries(cookie, teamId, seasonId);
     const target = createdOccurrences(created)[0];
-    if (target === undefined) return;
+    if (target === undefined) throw new Error("fixture: the series materialized no occurrences.");
 
     // A human allowed to write the machine's reason would have their
     // cancellation reinstated by the next schedule edit naming this date.
@@ -527,7 +526,7 @@ describe("occurrence cancellation", () => {
     const { teamId, seasonId } = await createTeamAndSeason(ownerCookie);
     const created = await createSeries(ownerCookie, teamId, seasonId);
     const target = createdOccurrences(created)[0];
-    if (target === undefined) return;
+    if (target === undefined) throw new Error("fixture: the series materialized no occurrences.");
     const memberCookie = await joinReadOnlyMember(ownerCookie, teamId);
 
     const asMember = await cancelOccurrence(memberCookie, teamId, target.id, "Nope");
@@ -562,7 +561,9 @@ describe("series schedule edits", () => {
     const before = createdOccurrences(created);
     const second = before[1];
     const third = before[2];
-    if (second === undefined || third === undefined) return;
+    if (second === undefined || third === undefined) {
+      throw new Error("fixture: the series materialized fewer than three occurrences.");
+    }
 
     const recorded = await app.handle(
       "POST",
@@ -715,7 +716,9 @@ describe("series schedule edits", () => {
     const onDroppedDay = before.filter((occurrence) => weekdayOf(occurrence.localDate) === dropped);
     const attended = onDroppedDay[0];
     const humanCancelled = before.find((occurrence) => weekdayOf(occurrence.localDate) === kept);
-    if (attended === undefined || humanCancelled === undefined) return;
+    if (attended === undefined || humanCancelled === undefined) {
+      throw new Error("fixture: the schedule named no dropped and kept weekday pair.");
+    }
     expect(onDroppedDay).toHaveLength(4);
 
     const recorded = await app.handle(
@@ -792,6 +795,43 @@ describe("series schedule edits", () => {
   it("leaves a machine cancellation alone once its occurrence is in the past", async () => {
     const cookie = await signIn();
     const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    const start = isoDaysFromNow(-14);
+    const until = isoDaysFromNow(14);
+    const kept = weekdayOf(start);
+    const twoDays = { title: "Two-day Practice", kind: "practice" };
+
+    const created = await createSeries(cookie, teamId, seasonId, {
+      ...twoDays,
+      schedule: weeklyOn([kept], start, until),
+    });
+    expect(created.status).toBe(201);
+    const seriesId = (json(created) as { series: { id: string } }).series.id;
+    const past = createdOccurrences(created).find((occurrence) => occurrence.localDate === start);
+    if (past === undefined) throw new Error("fixture: the series has no occurrence on its start.");
+
+    // What time itself would have produced: the edit that cancelled this date
+    // ran while it was still ahead of us, and the date has since passed. The
+    // cancellation is fabricated; the date being past is real.
+    await config.db
+      .prepare(
+        "UPDATE event_occurrences SET status = 'cancelled', cancelled_reason = ?, cancelled_at = ? WHERE id = ?",
+      )
+      .run([RESCHEDULE_CANCEL_REASON, new Date().toISOString(), past.id]);
+
+    const edited = await updateSeries(cookie, teamId, seriesId, {
+      ...twoDays,
+      title: "Renamed Practice",
+      schedule: weeklyOn([kept], start, until),
+    });
+    expect(edited.status).toBe(200);
+    expect(
+      createdOccurrences(edited).find((occurrence) => occurrence.id === past.id),
+    ).toMatchObject({ status: "cancelled", cancelledReason: RESCHEDULE_CANCEL_REASON });
+  });
+
+  it("reinstates on the instant the date is moving TO, not the stale stored one", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
     const start = isoDaysFromNow(7);
     const until = isoDaysFromNow(21);
     const kept = weekdayOf(start);
@@ -802,11 +842,12 @@ describe("series schedule edits", () => {
       ...twoDays,
       schedule: weeklyOn([kept, dropped], start, until),
     });
+    expect(created.status).toBe(201);
+    const seriesId = (json(created) as { series: { id: string } }).series.id;
     const target = createdOccurrences(created).find(
       (occurrence) => weekdayOf(occurrence.localDate) === dropped,
     );
-    const seriesId = (json(created) as { series: { id: string } }).series.id;
-    if (target === undefined) return;
+    if (target === undefined) throw new Error("fixture: the schedule named no dropped weekday.");
 
     expect(
       (
@@ -817,9 +858,11 @@ describe("series schedule edits", () => {
       ).status,
     ).toBe(200);
 
-    // Move the clock past the cancelled occurrence the only way the reconcile
-    // reads it: the stored instant. History does not become editable again
-    // just because the schedule changed back.
+    // A stored instant that disagrees with the local date is what a same-edit
+    // `localTime` or zone change produces mid-reconcile. The kept-date branch
+    // recomputes the instant regardless, so deciding reinstatement on the stale
+    // value would strand a FUTURE occurrence cancelled under a reason that is
+    // no longer true — the exact trap the reinstatement exists to close.
     await config.db
       .prepare("UPDATE event_occurrences SET starts_at_utc = ? WHERE id = ?")
       .run(["2020-01-01T00:00:00.000Z", target.id]);
@@ -829,9 +872,67 @@ describe("series schedule edits", () => {
       schedule: weeklyOn([kept, dropped], start, until),
     });
     expect(afterRestore.status).toBe(200);
+    const restored = createdOccurrences(afterRestore).find(
+      (occurrence) => occurrence.id === target.id,
+    );
+    expect(restored).toMatchObject({ status: "scheduled" });
+    // The projection omits a null reason, so its ABSENCE is the cleared state.
+    expect(restored).not.toHaveProperty("cancelledReason");
+    expect(
+      await config.db
+        .prepare(
+          "SELECT status, cancelled_reason, cancelled_at FROM event_occurrences WHERE id = ?",
+        )
+        .all([target.id]),
+    ).toEqual([{ status: "scheduled", cancelled_reason: null, cancelled_at: null }]);
+  });
+
+  it("lets a human claim a machine-cancelled occurrence, which then survives a restore", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    const start = isoDaysFromNow(7);
+    const until = isoDaysFromNow(21);
+    const kept = weekdayOf(start);
+    const dropped = weekdayOf(isoDaysFromNow(8));
+    const twoDays = { title: "Two-day Practice", kind: "practice" };
+
+    const created = await createSeries(cookie, teamId, seasonId, {
+      ...twoDays,
+      schedule: weeklyOn([kept, dropped], start, until),
+    });
+    expect(created.status).toBe(201);
+    const seriesId = (json(created) as { series: { id: string } }).series.id;
+    const target = createdOccurrences(created).find(
+      (occurrence) => weekdayOf(occurrence.localDate) === dropped,
+    );
+    if (target === undefined) throw new Error("fixture: the schedule named no dropped weekday.");
+
+    expect(
+      (
+        await updateSeries(cookie, teamId, seriesId, {
+          ...twoDays,
+          schedule: weeklyOn([kept], start, until),
+        })
+      ).status,
+    ).toBe(200);
+
+    // The manager records the REAL reason over our marker. Treating that as an
+    // idempotent no-op would report success while silently leaving the
+    // cancellation reversible by the next edit.
+    const claimed = await cancelOccurrence(cookie, teamId, target.id, "Field flooded");
+    expect(claimed.status).toBe(200);
+    expect(json(claimed)).toMatchObject({
+      occurrence: { status: "cancelled", cancelledReason: "Field flooded" },
+    });
+
+    const afterRestore = await updateSeries(cookie, teamId, seriesId, {
+      ...twoDays,
+      schedule: weeklyOn([kept, dropped], start, until),
+    });
+    expect(afterRestore.status).toBe(200);
     expect(
       createdOccurrences(afterRestore).find((occurrence) => occurrence.id === target.id),
-    ).toMatchObject({ status: "cancelled", cancelledReason: RESCHEDULE_CANCEL_REASON });
+    ).toMatchObject({ status: "cancelled", cancelledReason: "Field flooded" });
   });
 
   it("hides edits from non-managers and unknown series", async () => {

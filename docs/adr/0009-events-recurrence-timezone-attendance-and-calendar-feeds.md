@@ -37,7 +37,15 @@ deterministically, keyed by `local_date`:
   the date is back in the schedule, so the machine-made cancellation that removed it is undone.
   Only FUTURE rows are reinstated, and only machine cancellations: a manager's own cancellation
   (any other reason) and every past occurrence stay exactly as they are, so an edit can never
-  quietly un-cancel a practice a human called off.
+  quietly un-cancel a practice a human called off. "Future" is judged on the instant the row is
+  moving TO, not the one it is moving from — the same edit may change the time of day or the zone,
+  and deciding on the stale value would either mark a now-past occurrence `scheduled` or strand a
+  now-future one cancelled under a reason that is no longer true.
+- Cancelling an ALREADY-cancelled occurrence is an idempotent no-op that preserves a human's
+  reason. The reserved marker is the one exception: a manager cancelling over it takes ownership
+  and their reason replaces it, because leaving the marker in place would let the next edit
+  reinstate an occurrence they explicitly called off. The reserved reason is itself refused at the
+  cancel endpoint (coded 422), so a human can never write the marker directly.
 
 An edit therefore cannot orphan (removed dates become visibly cancelled rows, still attached to the
 series) and cannot duplicate (the `local_date` key plus a unique index make re-generation converge
