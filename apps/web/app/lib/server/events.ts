@@ -15,12 +15,17 @@
  * dates keep their occurrence row (same id — attendance and cancellation
  * survive, instants recomputed), new dates gain one, and a FUTURE date the new
  * schedule dropped is CANCELLED with the reserved reason below — never
- * deleted. Past occurrences are never touched by a removed date. An edit can
- * therefore neither orphan nor duplicate what already exists.
+ * deleted. Past occurrences are never touched by a removed date. A future date
+ * that COMES BACK is reinstated when — and only when — it carries that
+ * reserved reason: the machine cancel said "this date left the schedule", and
+ * the date returning makes that false. An edit can therefore neither orphan
+ * nor duplicate what already exists, and edit-then-undo is a round trip.
  *
  * Cancelling an occurrence is a STATE with a required reason; the row stays
  * visible and re-cancelling is an idempotent no-op that keeps the original
- * reason. Nothing here deletes history.
+ * reason. A human cancellation is never reversed by a schedule edit, which is
+ * why the cancel endpoint refuses the reserved reason. Nothing here deletes
+ * history.
  */
 
 import type { Sessions } from "@lesto/auth";
@@ -148,7 +153,13 @@ export const createEvents: MigrationEntry = {
  */
 export const MAX_SERIES_OCCURRENCES = 200;
 
-/** The reason a schedule edit writes onto a future occurrence it dropped. */
+/**
+ * The reason a schedule edit writes onto a future occurrence it dropped, and
+ * the marker that lets a later edit reinstate that occurrence when the date
+ * returns. It must therefore mean "the machine did this" and nothing else — a
+ * human who typed it would have their cancellation silently undone, so the
+ * cancel endpoint refuses it.
+ */
 export const RESCHEDULE_CANCEL_REASON = "Removed by schedule change";
 
 export const eventSeriesInputSchema = z.strictObject({
@@ -171,6 +182,11 @@ export const recordAttendanceInputSchema = z.strictObject({
 const unauthorized = { error: "authentication required" } as const;
 const teamNotFound = { error: "team not found" } as const;
 const eventNotFound = { error: "event not found" } as const;
+const reservedCancelReason = {
+  error:
+    "That cancellation reason is reserved for schedule changes. Describe this cancellation in your own words.",
+  code: "reserved_cancellation_reason",
+} as const;
 
 interface SeriesRow {
   id: string;
@@ -267,7 +283,9 @@ export function materializableDates(
     };
   }
 
-  const dates = scheduleDates(schedule);
+  // One over the bound: enough to tell "exactly at the cap" from "over it",
+  // and the reason enumeration can never be turned into a denial of service.
+  const dates = scheduleDates(schedule, MAX_SERIES_OCCURRENCES + 1);
   if (dates.length === 0) {
     return {
       ok: false,
@@ -402,11 +420,29 @@ async function createSeries(
 }
 
 /**
+ * Whether a kept date's existing row comes back from a cancel. Only OUR
+ * machine cancel is reversible, and only while the occurrence is still ahead
+ * of us — the same instant comparison the drop branch makes, so a human "field
+ * flooded" and everything already past survive an edit untouched.
+ */
+function reinstatesOnReturn(row: OccurrenceRow, now: string): boolean {
+  return (
+    row.status === "cancelled" &&
+    row.cancelledReason === RESCHEDULE_CANCEL_REASON &&
+    row.startsAtUtc > now
+  );
+}
+
+/**
  * The schedule-edit reconcile, keyed by local date (ADR 0009): kept dates keep
  * their row (attendance and cancellation state included) with time fields
  * recomputed; new dates gain a row; a FUTURE date the new schedule dropped is
  * cancelled with the reserved reason; past occurrences of dropped dates are
  * left exactly as history recorded them.
+ *
+ * A kept date whose row was cancelled BY A PREVIOUS EDIT is reinstated, so
+ * drop-then-restore returns the series to where it started instead of stranding
+ * cancelled rows the unique `(series_id, local_date)` index forbids replacing.
  */
 async function reconcileOccurrences(
   tx: Db,
@@ -425,11 +461,13 @@ async function reconcileOccurrences(
       await insertOccurrence(tx, series, schedule, localDate, now);
       continue;
     }
+    const reinstate = reinstatesOnReturn(row, now);
     await tx
       .update(eventOccurrences)
       .set({
         startsAtUtc: instantFromWallTime(localDate, schedule.localTime, schedule.timeZone),
         durationMinutes: schedule.durationMinutes,
+        ...(reinstate ? { status: "scheduled", cancelledReason: null, cancelledAt: null } : {}),
         updatedAt: now,
       })
       .where(eq(eventOccurrences.id, row.id))
@@ -522,6 +560,10 @@ async function cancelOccurrence(
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const input = c.valid(cancelOccurrenceInputSchema);
+  // A human who typed the reconcile's machine-cancel marker would have their
+  // cancellation undone by the next edit; the marker is not theirs to write.
+  if (input.reason === RESCHEDULE_CANCEL_REASON) return c.json(reservedCancelReason, 422);
+
   const outcome = await db.transaction(async (tx) => {
     const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;

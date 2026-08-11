@@ -94,6 +94,10 @@ describe("civil date arithmetic", () => {
     expect(weekdayOf("2026-03-08")).toBe("sunday");
     expect(weekdayOf("2026-03-03")).toBe("tuesday");
     expect(weekdayOf("2026-08-03")).toBe("monday");
+    // Proleptic Gregorian at both ends of what the date schema accepts —
+    // years under 100 are the ones a bare `Date.UTC` folds into the 1900s.
+    expect(weekdayOf("0050-01-01")).toBe("saturday");
+    expect(weekdayOf("9999-12-31")).toBe("friday");
   });
 
   it("adds days across month and year boundaries", () => {
@@ -101,32 +105,111 @@ describe("civil date arithmetic", () => {
     expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
     expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
   });
+
+  it("refuses to step off the end of the calendar", () => {
+    // The day after 9999-12-31 is the expanded-year "+010000-01-01", which
+    // sliced to ten characters sorts BEFORE every date it came from. Returning
+    // it is how a date cursor used to walk past its own bound.
+    expect(() => addDays("9999-12-31", 1)).toThrow(
+      "Civil date arithmetic left the four-digit year range.",
+    );
+  });
 });
 
 describe("schedule date enumeration", () => {
+  const cap = 201;
+
   it("a once schedule is exactly its start date", () => {
-    expect(scheduleDates({ frequency: "once", startDate: "2026-05-01" })).toEqual(["2026-05-01"]);
+    expect(scheduleDates({ frequency: "once", startDate: "2026-05-01" }, cap)).toEqual([
+      "2026-05-01",
+    ]);
   });
 
   it("a weekly schedule hits each selected weekday, inclusive on both ends", () => {
     expect(
-      scheduleDates({
-        frequency: "weekly",
-        byWeekday: ["tuesday", "thursday"],
-        startDate: "2026-03-03",
-        untilDate: "2026-03-12",
-      }),
+      scheduleDates(
+        {
+          frequency: "weekly",
+          byWeekday: ["tuesday", "thursday"],
+          startDate: "2026-03-03",
+          untilDate: "2026-03-12",
+        },
+        cap,
+      ),
     ).toEqual(["2026-03-03", "2026-03-05", "2026-03-10", "2026-03-12"]);
   });
 
   it("a weekly schedule whose range misses every selected weekday is empty", () => {
     expect(
-      scheduleDates({
+      scheduleDates(
+        {
+          frequency: "weekly",
+          byWeekday: ["monday"],
+          startDate: "2026-03-03",
+          untilDate: "2026-03-06",
+        },
+        cap,
+      ),
+    ).toEqual([]);
+  });
+
+  it("stops at the emit cap instead of finishing the range", () => {
+    expect(
+      scheduleDates(
+        {
+          frequency: "weekly",
+          byWeekday: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+          startDate: "2026-03-03",
+          untilDate: "2026-12-31",
+        },
+        4,
+      ),
+    ).toEqual(["2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06"]);
+  });
+
+  it("bounds the widest schema-valid range instead of enumerating it", () => {
+    // Uncapped this walks 3.6 million civil days synchronously — event-loop
+    // blocking every other request can neither preempt nor outwait.
+    const started = performance.now();
+    const dates = scheduleDates(
+      {
         frequency: "weekly",
         byWeekday: ["monday"],
-        startDate: "2026-03-03",
-        untilDate: "2026-03-06",
-      }),
-    ).toEqual([]);
+        startDate: "0100-01-01",
+        untilDate: "9998-12-31",
+      },
+      cap,
+    );
+    expect(dates).toHaveLength(cap);
+    // The capped walk stops after ~1,400 iterations and costs well under a
+    // millisecond; the uncapped one is three orders of magnitude slower.
+    expect(performance.now() - started).toBeLessThan(25);
+  });
+
+  it("walks the last representable civil date without leaving the calendar", () => {
+    expect(
+      scheduleDates(
+        {
+          frequency: "weekly",
+          byWeekday: ["friday"],
+          startDate: "9999-12-31",
+          untilDate: "9999-12-31",
+        },
+        cap,
+      ),
+    ).toEqual(["9999-12-31"]);
+    // The cursor has to step PAST 9999-12-31 to end this walk, which is the
+    // step that used to throw and answer a 500 from a schema-valid schedule.
+    expect(
+      scheduleDates(
+        {
+          frequency: "weekly",
+          byWeekday: ["monday"],
+          startDate: "9999-12-20",
+          untilDate: "9999-12-31",
+        },
+        cap,
+      ),
+    ).toEqual(["9999-12-20", "9999-12-27"]);
   });
 });
