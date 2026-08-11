@@ -82,6 +82,14 @@ describe("wall time to instant", () => {
     );
   });
 
+  it("keeps a year under 100 in its own century, matching the schedule walk", () => {
+    // The walk and the instant read the SAME civil date off one occurrence row.
+    // A bare `Date.UTC` folds years 0-99 into the 1900s, so letting the two
+    // disagree stores a local date and an instant a century apart.
+    expect(instantFromWallTime("0050-01-01", "09:30", "UTC")).toBe("0050-01-01T09:30:00.000Z");
+    expect(instantFromWallTime("0050-01-01", "00:00", "UTC").slice(0, 10)).toBe("0050-01-01");
+  });
+
   it("refuses malformed dates and times", () => {
     expect(() => instantFromWallTime("2026-3-3", "17:00", "UTC")).toThrow();
     expect(() => instantFromWallTime("2026-03-03", "25:00", "UTC")).toThrow();

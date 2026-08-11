@@ -19,6 +19,15 @@
 const ISO_LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const ISO_LOCAL_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/u;
 
+const MS_PER_DAY = 86_400_000;
+
+/** Midnight UTC of a civil date. `Date.UTC` alone folds years 0–99 into the 1900s. */
+function utcMsOfCivilDate(year: number, month: number, day: number): number {
+  const midnight = new Date(Date.UTC(year, month - 1, day));
+  if (year >= 0 && year <= 99) midnight.setUTCFullYear(year);
+  return midnight.getTime();
+}
+
 /** Whether `zone` names a real IANA time zone on this runtime. */
 export function isValidTimeZone(zone: string): boolean {
   try {
@@ -57,13 +66,15 @@ function wallClockAsUtcMs(zone: string, utcMs: number): number {
     return Number(part.value);
   };
 
-  return Date.UTC(
-    read("year"),
-    read("month") - 1,
-    read("day"),
-    read("hour"),
-    read("minute"),
-    read("second"),
+  // Same civil-date arithmetic as everywhere else here: a bare `Date.UTC` would
+  // fold a year 0–99 read back off the formatter into the 1900s, and this value
+  // is subtracted from the caller's instant, so the fold lands as a ~1900-year
+  // correction rather than a visibly wrong year.
+  return (
+    utcMsOfCivilDate(read("year"), read("month"), read("day")) +
+    read("hour") * 3_600_000 +
+    read("minute") * 60_000 +
+    read("second") * 1_000
   );
 }
 
@@ -80,7 +91,10 @@ export function instantFromWallTime(date: string, time: string, zone: string): s
 
   const [year = 0, month = 1, day = 1] = date.split("-").map(Number);
   const [hour = 0, minute = 0] = time.split(":").map(Number);
-  const wallAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  // Shares the schedule walk's civil-date arithmetic on purpose: `Date.UTC`
+  // alone folds a year 0–99 into the 1900s, which would store an instant a
+  // century away from the local date sitting on the same occurrence row.
+  const wallAsUtc = utcMsOfCivilDate(year, month, day) + hour * 3_600_000 + minute * 60_000;
 
   let candidate = wallAsUtc - (wallClockAsUtcMs(zone, wallAsUtc) - wallAsUtc);
   const remainder = wallAsUtc - wallClockAsUtcMs(zone, candidate);
@@ -99,15 +113,6 @@ const WEEKDAYS = [
   "saturday",
 ] as const;
 export type WeekdayName = (typeof WEEKDAYS)[number];
-
-const MS_PER_DAY = 86_400_000;
-
-/** Midnight UTC of a civil date. `Date.UTC` alone folds years 0–99 into the 1900s. */
-function utcMsOfCivilDate(year: number, month: number, day: number): number {
-  const midnight = new Date(Date.UTC(year, month - 1, day));
-  if (year >= 0 && year <= 99) midnight.setUTCFullYear(year);
-  return midnight.getTime();
-}
 
 /**
  * A civil date as a whole-day count from 1970-01-01. Day NUMBERS are the only
