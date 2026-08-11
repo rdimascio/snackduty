@@ -342,6 +342,74 @@ describe("the feed body", () => {
     expect(unfoldIcs(body).toLowerCase()).toContain("casey kid");
   });
 
+  it("keeps a CR-injected title inside ONE VEVENT in the SERVED body", async () => {
+    const cookie = await signIn();
+    const fixture = await buildFixture(cookie);
+
+    // Manager free text is only `trim()`ed, so an interior bare CR reaches the
+    // serializer intact. Escaping lives in `ics.ts` and is unit-tested there —
+    // this pins it at the layer an attacker actually reaches, the polled feed,
+    // because an escaper can pass its own unit test while the served bytes
+    // still carry the injection.
+    const bell = String.fromCodePoint(7);
+    const escapeChar = String.fromCodePoint(27);
+    const injected = await app.handle(
+      "POST",
+      `/api/teams/${fixture.teamId}/seasons/${fixture.seasonId}/events`,
+      {
+        headers: { ...sameOrigin, cookie },
+        body: {
+          title: "Skills Session\rBEGIN:VEVENT\rUID:injected@evil\rSUMMARY:INJECTED\rEND:VEVENT",
+          kind: "practice",
+          // Controls a TEXT value cannot represent: raw ESC in a `text/calendar`
+          // body is an ANSI payload for anyone who curls the feed.
+          location: `Field ${bell}${escapeChar}[31m2`,
+          notes: "Bring water\rBEGIN:VALARM\rACTION:AUDIO\rEND:VALARM",
+          schedule: {
+            timeZone: "America/Los_Angeles",
+            localTime: "09:00",
+            durationMinutes: 60,
+            frequency: "once",
+            startDate: "2026-03-05",
+          },
+        },
+      },
+    );
+    expect(injected.status).toBe(201);
+
+    const body = (await fetchFeed(feedUrlOf(await mintFeed(cookie, fixture.teamId)))).body;
+
+    // The parse an injection is aimed at: unfold, then split on ANY line
+    // ending. The hostile series adds exactly one event to the fixture's three.
+    const lines = unfoldIcs(body).split(/\r\n|\r|\n/u);
+    expect(lines.filter((line) => line === "BEGIN:VEVENT")).toHaveLength(4);
+    expect(lines.filter((line) => line === "END:VEVENT")).toHaveLength(4);
+    expect(lines.some((line) => line.startsWith("BEGIN:VALARM"))).toBe(false);
+
+    // The attacker's UID may appear as escaped TEXT inside SUMMARY; what it
+    // must never be is a UID property, which is what overwrites an event
+    // already sitting in a subscriber's calendar.
+    const uidLines = lines.filter((line) => line.startsWith("UID:"));
+    expect(uidLines).toHaveLength(4);
+    expect(uidLines.some((line) => line.includes("injected@evil"))).toBe(false);
+
+    // The CR must be ESCAPED, not merely gone. `withoutControls` runs after the
+    // escapes, so a broken escaper strips the CR and silently mangles the text
+    // into one glued word — no injection, and no failing assertion above.
+    // Pinning the escaped form is what separates "safe" from "lossy".
+    expect(lines).toContain(
+      "SUMMARY:Skills Session\\nBEGIN:VEVENT\\nUID:injected@evil\\nSUMMARY:INJECTED\\nEND:VEVENT",
+    );
+    expect(lines).toContain("DESCRIPTION:Bring water\\nBEGIN:VALARM\\nACTION:AUDIO\\nEND:VALARM");
+
+    // Every CR in the body belongs to a CRLF pair, and no forbidden control
+    // reaches a content line.
+    expect(body.replaceAll("\r\n", "")).not.toContain("\r");
+    expect(body).not.toContain(bell);
+    expect(body).not.toContain(escapeChar);
+    expect(body).toContain("LOCATION:Field [31m2");
+  });
+
   it("keeps cancelled occurrences visible as STATUS:CANCELLED", async () => {
     const cookie = await signIn();
     const fixture = await buildFixture(cookie);
