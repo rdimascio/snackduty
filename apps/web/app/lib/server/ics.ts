@@ -27,13 +27,44 @@ const FOLD_LIMIT_OCTETS = 75;
 
 const encoder = new TextEncoder();
 
-/** A TEXT property value, escaped per RFC 5545 §3.3.11. */
+/**
+ * Drop every character RFC 5545 §3.1 forbids inside a content line: the C0
+ * controls except HTAB, plus DEL. TEXT has no escape for them, so rendering
+ * them is not an option — and a raw control in a served feed is also a
+ * terminal-escape payload for anyone who `curl`s it. Expressed as a code-point
+ * test so no source file has to carry raw control characters.
+ */
+function withoutControls(value: string): string {
+  let kept = "";
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (character === "\t" || (code >= 0x20 && code !== 0x7f)) kept += character;
+  }
+  return kept;
+}
+
+/**
+ * A TEXT property value, escaped per RFC 5545 §3.3.11.
+ *
+ * Order is load-bearing: backslash first (escaping it after `;`/`,`/newline
+ * would double-escape the escapes just written), newline last.
+ *
+ * Title, location, and notes are manager-typed free text whose validation only
+ * trims the edges, so this is the boundary that keeps typed text INSIDE its
+ * content line. A content line ends at ANY line break — CRLF, a lone LF, or a
+ * lone CR — so all three collapse to the `\n` escape. A bare CR left raw lets a
+ * title close the VEVENT and open attacker-chosen properties (a second
+ * BEGIN:VEVENT, a UID that overwrites a real event already in a subscriber's
+ * calendar, a VALARM) in every subscribed calendar.
+ */
 export function escapeIcsText(value: string): string {
-  return value
-    .replaceAll("\\", "\\\\")
-    .replaceAll(";", "\\;")
-    .replaceAll(",", "\\,")
-    .replaceAll(/\r?\n/gu, "\\n");
+  return withoutControls(
+    value
+      .replaceAll("\\", "\\\\")
+      .replaceAll(";", "\\;")
+      .replaceAll(",", "\\,")
+      .replaceAll(/\r\n|\r|\n/gu, "\\n"),
+  );
 }
 
 /**
