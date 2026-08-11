@@ -1,7 +1,13 @@
 /**
- * The app: a `posts` table, its migration, and a code-first `lesto()` app,
- * wired into the LestoAppConfig that `lesto dev` boots. This is the whole
- * application — grow it by adding tables, migrations, routes, and pages.
+ * The app: the LestoAppConfig that `lesto dev` boots — the migration chain, the
+ * composed route surface, and the security posture, in one place.
+ *
+ * Every domain surface (identity, teams, roster, invitations, events,
+ * attendance, calendar feeds) is registered by its OWN module under
+ * `app/lib/server/`, each owning its table, migration, and authorization.
+ * Nothing is registered inline here, which is the property worth keeping: the
+ * create-lesto starter's unauthenticated `/posts` API lived in this file and
+ * would have shipped an anonymous write endpoint on the first public deploy.
  *
  * Routes read top-to-bottom like Hono/Express: one `lesto()` surface for both
  * API routes (`.get`/`.post`/…) and pages (`.page`), each handler a
@@ -11,8 +17,7 @@
  * auto-registered by Lesto's file-based routing (ADR 0023): drop a `page.tsx`
  * under `app/routes/` and its directory's URL becomes a route, no `.page()` call.
  * `lesto dev`/`build` scan that directory and compose every page onto THIS app.
- * Code-first routes (the `/posts` API below) and file routes live side by side on
- * the same router. Add a page by adding a file; add an API route by chaining `.get`.
+ * Code-first routes and file routes live side by side on the same router.
  *
  * Two conventions worth seeing on day one:
  *   - Validation at the boundary (ADR 0005): the team handlers in
@@ -25,16 +30,11 @@
  */
 
 import type { Sessions } from "@lesto/auth";
-import { createTableSql, defineTable, dropTableSql, integer, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
-
-import type { MigrationEntry } from "@lesto/migrate";
 
 import { lesto } from "@lesto/web";
 import { openSqlite } from "@lesto/runtime";
 import type { LestoAppConfig } from "@lesto/kernel";
-
-import { z } from "zod";
 
 import { env } from "./env";
 import { provideAppServices } from "./app/lib/server/app-services";
@@ -58,84 +58,16 @@ import { createRoster, registerRosterRoutes } from "./app/lib/server/roster";
 import { registerTeamReadRoutes } from "./app/lib/server/team-reads";
 import { createTeamsAndSeasons, registerTeamRoutes } from "./app/lib/server/teams";
 
-// The `posts` table — schema as a value backs both the migration's DDL
-// and the inferred row type every query returns.
-export const posts = defineTable("posts", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  title: text("title").notNull(),
-  body: text("body").notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
-
-// The schema, version-stamped and idempotent — run on boot by the kernel.
-const createPosts: MigrationEntry = {
-  version: "001_create_posts",
-  migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(posts));
-    },
-
-    down: (schema) => {
-      schema.execute(dropTableSql(posts));
-    },
-  },
-};
-
-// A migration's up() can carry DATA, not just schema — it runs arbitrary SQL.
-// This seeds a few starter posts so `GET /posts` returns content on first run
-// (instead of an empty list that reads as broken). Delete this migration, and
-// drop these rows, once you have your own data.
-const seedPosts: MigrationEntry = {
-  version: "002_seed_posts",
-  migration: {
-    up: (schema) => {
-      schema.execute(
-        "INSERT INTO posts (title, body, created_at, updated_at) VALUES" +
-          " ('Hello, Lesto', 'Your first post — edit or delete it in lesto.app.ts.', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')," +
-          " ('Batteries included', 'Queue, cache, auth, and mail all live on the database — no Redis.', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')," +
-          " ('Agent-native', 'Drive this app from Claude over MCP, the CLI, or code.', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')",
-      );
-    },
-
-    down: (schema) => {
-      schema.execute("DELETE FROM posts WHERE created_at = '2026-01-01T00:00:00.000Z'");
-    },
-  },
-};
-
-const NewPost = z.object({
-  title: z.string().trim().min(1, "Title is required."),
-  body: z.string().trim().min(1, "Body is required."),
-});
-
-// The app — built through a factory so its handlers close over the typed
-// `Db`. No `this`, no global database connection, no inheritance for domain
-// types. One `lesto()` surface for the whole app; grow it by chaining more
-// `.get`/`.post` calls (and drop `app/routes/*/page.tsx` files for pages). The
-// Cloudflare `worker.ts` builds its own minimal edge twin of this (the island
-// home page, no SQLite `/posts`) — see its header for why and how to light the
-// data routes on the edge over D1.
-function buildBaseApp(db: Db) {
-  return lesto()
-    .client("/client.js")
-    .styles("/styles.css")
-    .get("/posts", async (c) => {
-      const rows = await db.select().from(posts).orderBy(posts.id, "asc").all();
-
-      return c.json({ posts: rows });
-    })
-    .post("/posts", async (c) => {
-      const input = c.valid(NewPost);
-      const now = new Date().toISOString();
-      const post = await db
-        .insert(posts)
-        .values({ title: input.title, body: input.body, createdAt: now, updatedAt: now })
-        .returning()
-        .get();
-
-      return c.json({ post }, 201);
-    });
+// The client/styles surface every route composes onto. Domain routes are
+// registered by their own modules below — each owns its schema, migration, and
+// authorization, so nothing unauthenticated is reachable from here.
+//
+// Migration versions start at 003: 001/002 were the create-lesto starter's
+// `posts` table and its seed rows, deleted before first deploy. The migrator
+// keys off a `schema_migrations` version LEDGER, not array position, so the gap
+// is inert — a database that already applied them keeps a harmless orphan row.
+function buildBaseApp() {
+  return lesto().client("/client.js").styles("/styles.css");
 }
 
 export function buildApp(
@@ -150,11 +82,7 @@ export function buildApp(
         registerInvitationRoutes(
           registerTeamReadRoutes(
             registerRosterImportRoutes(
-              registerRosterRoutes(
-                registerTeamRoutes(buildBaseApp(db), db, sessions),
-                db,
-                sessions,
-              ),
+              registerRosterRoutes(registerTeamRoutes(buildBaseApp(), db, sessions), db, sessions),
               db,
               sessions,
             ),
@@ -235,8 +163,6 @@ const config: LestoAppConfig = {
   db: handle,
   app: buildApp(db, sessions, env.SNACKDAY_DEV_SIGN_IN, devInviteDelivery),
   migrations: [
-    createPosts,
-    seedPosts,
     createIdentity,
     createTeamsAndSeasons,
     createRoster,
