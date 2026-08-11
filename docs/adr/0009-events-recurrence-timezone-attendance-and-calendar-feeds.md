@@ -33,6 +33,11 @@ deterministically, keyed by `local_date`:
 - A FUTURE occurrence whose date left the schedule is CANCELLED with the reserved reason
   `Removed by schedule change` — never deleted, so recorded attendance and the visible history
   survive. Past occurrences are left untouched whatever the new schedule says.
+- A kept date whose row a PRIOR edit already cancelled with that reserved reason is REINSTATED —
+  the date is back in the schedule, so the machine-made cancellation that removed it is undone.
+  Only FUTURE rows are reinstated, and only machine cancellations: a manager's own cancellation
+  (any other reason) and every past occurrence stay exactly as they are, so an edit can never
+  quietly un-cancel a practice a human called off.
 
 An edit therefore cannot orphan (removed dates become visibly cancelled rows, still attached to the
 series) and cannot duplicate (the `local_date` key plus a unique index make re-generation converge
@@ -71,18 +76,60 @@ and explicitly:
   Minting again ROTATES (the old URL dies); revoke kills the feed outright. A feed whose adult has
   lost team access answers the hiding 404 — byte-identical for unknown, revoked, rotated-away, and
   no-longer-authorized tokens.
-- `/calendar/feed/:token` is registered in the access-log redaction seam, so our own logs never
-  hold a live feed credential; responses carry `X-Robots-Tag: noindex, nofollow` and are not
-  guessable from any team or person id.
+- Responses carry `X-Robots-Tag: noindex, nofollow` and `Cache-Control: private, no-store`, and
+  the URL is not guessable from any team or person id. The path shape `/calendar/feed/:token` is
+  registered in the access-log redaction rules — but that seam is NOT installed on the tier that
+  serves the feed; see the known gap below.
 - The feed body is DELIBERATELY child-free: team name, event title/kind, time, location, notes,
   and cancellation state (`STATUS:CANCELLED`) — never a child's name, never attendance, never
-  guardian data. A leaked feed URL exposes a practice schedule, not a roster of minors.
+  guardian data. A leaked feed URL exposes a practice schedule, not a roster of minors. The tests
+  and the acceptance leg that assert this UNFOLD the served body before scanning it, because ICS
+  folds content lines mid-word and a name straddling a fold would otherwise walk past the scan.
 - Single-event ICS export is an AUTHENTICATED download (session cookie, readable team), not a
   pollable URL, and is equally child-free.
 
 ICS output is RFC 5545-shaped: CRLF lines folded at 75 octets, escaped text values, stable
 per-occurrence UIDs, UTC instants (each occurrence carries its own derived instant, so zone
-correctness never depends on a client honoring VTIMEZONE).
+correctness never depends on a client honoring VTIMEZONE). TEXT escaping covers ALL THREE
+line-ending forms — CRLF, a bare LF, and a bare CR — because a manager types notes in a browser
+textarea and a lone CR left raw would end the content line, letting the rest of the note be read
+as forged iCalendar properties.
+
+### Known gap: the node tier logs the feed token verbatim
+
+The redaction seam in `access-log.ts` is installed in exactly ONE place: `worker.ts`, the
+Cloudflare edge handler, because `@lesto/cloudflare`'s `toFetchHandler` accepts a `logRequest`
+option. That edge app registers four PAGE routes and no database — it never serves
+`/calendar/feed/:token` at all. The tier that does serve the feed (`lesto dev` and `lesto serve`)
+is booted by the Lesto CLI from `LestoAppConfig` — `db`, `app`, `migrations`, `dialect`, `ui`,
+`durable`, `schemas`, `secure` — which exposes no logging seam, so it keeps `@lesto/runtime`'s
+`defaultLogRequest` and writes the pathname verbatim:
+
+```
+{"level":"info","event":"http.access","method":"GET","path":"/calendar/feed/<live 64-hex token>",…}
+```
+
+So, plainly:
+
+- The redaction rule for the feed is INERT today. There is no in-repo fix: installing it on the
+  node tier means calling `@lesto/runtime`'s `serve()` ourselves and re-implementing health, serve
+  limits, tracing, and graceful shutdown — not warranted while no node deployment exists. The fix
+  belongs upstream, as a `logRequest` seam on `LestoAppConfig`.
+- Realized exposure is therefore limited to developer terminals and the acceptance harness's
+  captured server log. It becomes live exposure the moment Snackday is served from the node tier;
+  that is the trigger to block on the framework seam (or to accept the credential in the logs
+  deliberately, as an operator decision).
+- A `logRequest` seam would not close the whole path anyway: with OTLP tracing enabled BOTH tiers
+  put the raw pathname in the `http.path` span attribute, which no access-log sink can reach. Any
+  credential that travels in a request line must be assumed to reach the trace backend too.
+- This is a RECURRING class in this codebase, not a one-off. The same defect was found and fixed
+  for invitation tokens by moving the credential into the URL fragment (`/invite#<token>`), which
+  no client ever transmits. A calendar client cannot use a fragment — it polls exactly the URL it
+  was handed — so the feed cannot take that escape, and rotation plus revocation remain its only
+  containment.
+
+A documented control that does not run is worse than a known gap, because it buys confidence
+nothing earned. Until the seam exists, this section IS the control.
 
 ## Non-goals
 

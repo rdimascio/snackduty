@@ -28,6 +28,19 @@ function header(response: { headers: Record<string, string | string[]> }, name: 
 
 const sameOrigin = { "sec-fetch-site": "same-origin" };
 const FEED_URL_SHAPE = /^\/calendar\/feed\/[0-9a-f]{64}$/u;
+/** RFC 5545's fold width, in octets — the boundary the leak scan must survive. */
+const ICS_FOLD_OCTETS = 75;
+
+/**
+ * The served body with folds removed. ICS breaks a content line at 75 OCTETS
+ * by inserting CRLF plus one space — mid-word, mid-name — so `"Casey"` can
+ * reach a subscriber as `"Ca\r\n sey"` and walk straight past a substring
+ * scan. Every leak assertion below runs on the unfolded text: the "no child
+ * data in a pollable feed" tripwire must not be defeatable by formatting.
+ */
+function unfoldIcs(body: string): string {
+  return body.replaceAll("\r\n ", "");
+}
 
 async function signIn(persona?: "second-adult"): Promise<string> {
   const response = await app.handle("POST", "/api/dev/sign-in", {
@@ -116,6 +129,30 @@ async function mintFeed(cookie: string, teamId: string) {
   return app.handle("POST", `/api/teams/${teamId}/calendar-feed`, {
     headers: { ...sameOrigin, cookie },
   });
+}
+
+/**
+ * The second adult joins as a READ-ONLY member through the real invite flow —
+ * no guardian edge, no management. The everyday persona for a parent who was
+ * handed a link, and the one most likely to be broken by over-hardening.
+ */
+async function joinAsReadOnlyMember(ownerCookie: string, teamId: string): Promise<string> {
+  const invited = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
+    headers: { ...sameOrigin, cookie: ownerCookie },
+    body: { invitedRole: "adult", inviteeLabel: "the second adult" },
+  });
+  expect(invited.status).toBe(201);
+  const token =
+    (json(invited) as { invitation: { inviteUrl: string } }).invitation.inviteUrl.split("#")[1] ??
+    "";
+
+  const memberCookie = await signIn("second-adult");
+  const accepted = await app.handle("POST", "/api/invitations/accept", {
+    headers: { ...sameOrigin, cookie: memberCookie },
+    body: { token },
+  });
+  expect(accepted.status).toBe(200);
+  return memberCookie;
 }
 
 function feedUrlOf(response: { body: string }): string {
@@ -250,7 +287,7 @@ describe("the feed body", () => {
 
     // THE point of the design: a leaked feed exposes a schedule, not a roster
     // of minors. No child name, no attendance, no guardian, no person id.
-    const scanned = body.toLowerCase();
+    const scanned = unfoldIcs(body).toLowerCase();
     for (const forbidden of [
       "casey",
       "kid",
@@ -262,6 +299,47 @@ describe("the feed body", () => {
     ]) {
       expect(scanned).not.toContain(forbidden);
     }
+  });
+
+  it("catches a leaked child name that folding split across two lines", async () => {
+    const cookie = await signIn();
+    const fixture = await buildFixture(cookie);
+
+    // A second series whose notes place a child's first name exactly on the
+    // fold boundary: `DESCRIPTION:` plus the pad fills the line to 75 octets
+    // two characters into "Casey", so the served bytes read "Ca\r\n sey". This
+    // is what a regression that let roster text into the feed would look like
+    // at its most evasive — no scan of the raw body would see it.
+    const pad = "Practice notes ".padEnd(
+      ICS_FOLD_OCTETS - "DESCRIPTION:".length - "Ca".length,
+      ".",
+    );
+    const leaky = await app.handle(
+      "POST",
+      `/api/teams/${fixture.teamId}/seasons/${fixture.seasonId}/events`,
+      {
+        headers: { ...sameOrigin, cookie },
+        body: {
+          title: "Skills Session",
+          kind: "practice",
+          notes: `${pad}Casey Kid`,
+          schedule: {
+            timeZone: "America/Los_Angeles",
+            localTime: "09:00",
+            durationMinutes: 60,
+            frequency: "once",
+            startDate: "2026-03-05",
+          },
+        },
+      },
+    );
+    expect(leaky.status).toBe(201);
+
+    const body = (await fetchFeed(feedUrlOf(await mintFeed(cookie, fixture.teamId)))).body;
+    expect(body).toContain("Ca\r\n sey");
+    // The scan the reviewers could defeat, and the scan that bites.
+    expect(body.toLowerCase()).not.toContain("casey");
+    expect(unfoldIcs(body).toLowerCase()).toContain("casey kid");
   });
 
   it("keeps cancelled occurrences visible as STATUS:CANCELLED", async () => {
@@ -287,21 +365,7 @@ describe("the feed body", () => {
   it("dies with the adult's team access", async () => {
     const ownerCookie = await signIn();
     const fixture = await buildFixture(ownerCookie);
-
-    // A read-only member mints their own feed through the real invite flow.
-    const invited = await app.handle("POST", `/api/teams/${fixture.teamId}/invitations`, {
-      headers: { ...sameOrigin, cookie: ownerCookie },
-      body: { invitedRole: "adult", inviteeLabel: "the second adult" },
-    });
-    const token = (
-      json(invited) as { invitation: { inviteUrl: string } }
-    ).invitation.inviteUrl.split("#")[1];
-    const memberCookie = await signIn("second-adult");
-    const accepted = await app.handle("POST", "/api/invitations/accept", {
-      headers: { ...sameOrigin, cookie: memberCookie },
-      body: { token },
-    });
-    expect(accepted.status).toBe(200);
+    const memberCookie = await joinAsReadOnlyMember(ownerCookie, fixture.teamId);
 
     const minted = await mintFeed(memberCookie, fixture.teamId);
     expect(minted.status).toBe(201);
@@ -312,6 +376,25 @@ describe("the feed body", () => {
     await config.db
       .prepare("UPDATE adult_memberships SET status = 'revoked' WHERE person_id = ?")
       .run(["person_dev_second_adult"]);
+
+    const dead = await fetchFeed(url);
+    const unknown = await fetchFeed(`/calendar/feed/${"0".repeat(64)}`);
+    expect(dead.status).toBe(404);
+    expect(dead.body).toBe(unknown.body);
+  });
+
+  it("dies when the TEAM is archived, not only when a membership is revoked", async () => {
+    const cookie = await signIn();
+    const fixture = await buildFixture(cookie);
+    const url = feedUrlOf(await mintFeed(cookie, fixture.teamId));
+    expect((await fetchFeed(url)).status).toBe(200);
+
+    // Nothing about the adult changes here — the TEAM goes away. The feed
+    // resolves through `teamAccess`, which only ever answers for an ACTIVE
+    // team, so an archived team's URL must fall to the same hiding 404.
+    await config.db
+      .prepare("UPDATE teams SET status = 'archived' WHERE id = ?")
+      .run([fixture.teamId]);
 
     const dead = await fetchFeed(url);
     const unknown = await fetchFeed(`/calendar/feed/${"0".repeat(64)}`);
@@ -338,9 +421,28 @@ describe("single-event export", () => {
     expect(exported.body.match(/BEGIN:VEVENT/gu)).toHaveLength(1);
     expect(exported.body).toContain("SUMMARY:Tuesday Practice");
     expect(exported.body).toContain("DTSTART:20260304T010000Z");
+    const scanned = unfoldIcs(exported.body).toLowerCase();
     for (const forbidden of ["casey", "participant", "person_", "guardian"]) {
-      expect(exported.body.toLowerCase()).not.toContain(forbidden);
+      expect(scanned).not.toContain(forbidden);
     }
+  });
+
+  it("answers a read-only member, who is exactly who exports an event", async () => {
+    const ownerCookie = await signIn();
+    const fixture = await buildFixture(ownerCookie);
+    const memberCookie = await joinAsReadOnlyMember(ownerCookie, fixture.teamId);
+
+    // Export authorizes on READABLE access on purpose (ADR 0009): hardening it
+    // to `manageableActiveTeam` would 404 every guardian's export button while
+    // the owner-only test above stayed green.
+    const exported = await app.handle(
+      "GET",
+      `/api/teams/${fixture.teamId}/occurrences/${fixture.occurrenceIds[0]}/export`,
+      { headers: { cookie: memberCookie } },
+    );
+    expect(exported.status).toBe(200);
+    expect(exported.body).toContain("SUMMARY:Tuesday Practice");
+    expect(exported.body.match(/BEGIN:VEVENT/gu)).toHaveLength(1);
   });
 
   it("requires a session and hides foreign or unknown targets", async () => {

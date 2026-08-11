@@ -979,6 +979,17 @@ const FORBIDDEN_FEED = [
   "person_",
 ] as const;
 
+/**
+ * The served calendar with its folds removed. ICS breaks a content line at 75
+ * OCTETS by inserting CRLF plus one space — mid-word, mid-name — so a leaked
+ * "Rowan" can reach a subscriber as "Row\r\n an" and walk straight past a
+ * substring scan. The child-free feed is the crown-jewel tripwire; it must not
+ * be defeatable by formatting, so the scan runs on the unfolded text.
+ */
+function unfoldIcs(body: string): string {
+  return body.replaceAll("\r\n ", "");
+}
+
 interface EventOccurrenceView {
   id?: string;
   localDate?: string;
@@ -1216,7 +1227,7 @@ async function verifyCalendarFeed(
   const feedStep = "poll-calendar-feed";
   // A calendar client's poll: plain GET, no cookie, no fetch metadata.
   const polled = await fetch(`${base}${feedUrl}`);
-  ensure(step, polled.status === 200, `feed poll answered ${polled.status}`);
+  ensure(feedStep, polled.status === 200, `feed poll answered ${polled.status}`);
   ensure(
     feedStep,
     (polled.headers.get("content-type") ?? "") === "text/calendar; charset=utf-8",
@@ -1244,7 +1255,7 @@ async function verifyCalendarFeed(
     (body.match(/STATUS:CANCELLED/gu) ?? []).length === 1 && !body.includes(CANCEL_REASON),
     "the cancelled occurrence is not represented as exactly one STATUS:CANCELLED without its reason",
   );
-  const scanned = body.toLowerCase();
+  const scanned = unfoldIcs(body).toLowerCase();
   for (const forbidden of FORBIDDEN_FEED) {
     ensure(feedStep, !scanned.includes(forbidden.toLowerCase()), `feed leaks "${forbidden}"`);
   }

@@ -2,11 +2,21 @@
  * The access log's REDACTION seam: a credential that travels in a URL path
  * must never be written to a log line.
  *
- * Both Lesto tiers log one access line per ADMITTED request — the node server
- * (`@lesto/runtime`'s `serve`) and the edge handler (`@lesto/cloudflare`'s
- * `toFetchHandler`) each default to a structured JSON line carrying the
- * request's PATHNAME verbatim, and both fire in a `finally` — so a 404, a 429,
- * and a 200 are logged alike, whether or not a route matched.
+ * WHERE THIS RUNS — ONE TIER, not both. Both Lesto tiers log one access line
+ * per ADMITTED request (a structured JSON line carrying the request's PATHNAME
+ * verbatim, fired in a `finally`, so a 404, a 429, and a 200 are logged alike
+ * whether or not a route matched) — but only the edge handler lets us replace
+ * that sink. `@lesto/cloudflare`'s `toFetchHandler` takes a `logRequest`
+ * option, and `worker.ts` passes `redactingLogRequest` to it; the node tier
+ * (`lesto dev`, `lesto serve`) is booted by the Lesto CLI from
+ * `LestoAppConfig`, which exposes no logging seam, so it keeps
+ * `@lesto/runtime`'s `defaultLogRequest` and writes the path UNREDACTED. Only
+ * routes served at the edge are covered here. ADR 0009 records what that
+ * currently does and does not expose.
+ *
+ * Redaction also stops at the log line: with OTLP tracing enabled BOTH tiers
+ * set the raw pathname as the `http.path` span attribute, which no
+ * `logRequest` sink can reach.
  *
  * The PRIMARY defence is upstream, in the link shape: `inviteUrlFor` puts the
  * invitation token in the URL FRAGMENT (`/invite#<token>`), which no browser
@@ -44,7 +54,10 @@ const CREDENTIAL_ROUTES: readonly (readonly string[])[] = [
   // `/calendar/feed/<token>` — the LIVE calendar feed credential. Calendar
   // clients can only poll a plain GET URL, so this is the one Snackday bearer
   // credential that travels in a request line BY DESIGN (calendar-feeds.ts,
-  // ADR 0009) — which makes this entry the primary defence, not the backstop.
+  // ADR 0009). This entry does NOT protect it today: the feed route exists
+  // only on the node tier, which this seam cannot reach. It is here so the
+  // rule is right the day the feed is served at the edge or the framework
+  // grows a node-tier seam — not so anyone can claim the token is redacted.
   ["calendar", "feed", CREDENTIAL],
 ];
 

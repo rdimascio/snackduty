@@ -11,8 +11,15 @@
  *   - Per-adult, per-team, random 256 bits, stored HASH-ONLY (bearer-tokens
  *     .ts). Minting again ROTATES — the old URL dies; revoke kills the feed
  *     outright. A feed whose adult has lost team access stops answering.
- *   - `/calendar/feed/:token` is a redacted shape in access-log.ts, so our own
- *     logs never hold a live feed credential.
+ *   - `/calendar/feed/:token` is a registered redaction shape in access-log.ts
+ *     — but that seam is INERT for this route today, so our own logs DO hold
+ *     live feed credentials. It is installed only in worker.ts (the edge
+ *     handler), which serves four pages and no database and therefore never
+ *     sees this route; the node tier that does serve it has no logging seam to
+ *     install it in, so `lesto dev` and `lesto serve` write the whole path,
+ *     token included. Exposure today is developer terminals and the acceptance
+ *     harness; it becomes live the moment Snackday is served from the node
+ *     tier. ADR 0009 carries the full record and the trigger.
  *   - The body is DELIBERATELY CHILD-FREE: team name, event title, time,
  *     location, notes, cancellation state. Never a child's name, never
  *     attendance, never guardian data — a leaked feed URL exposes a practice
@@ -75,7 +82,8 @@ export const createCalendarFeeds: MigrationEntry = {
  * The feed link shape — the ONE sanctioned request-line credential, because
  * calendar clients can carry it nowhere else. Its path shape is registered in
  * access-log.ts; a new secret-bearing route must never copy this without
- * copying that.
+ * copying that AND checking the seam actually runs on the tier that serves it
+ * (for this route, today, it does not — see the header).
  */
 export function calendarFeedPath(token: string): string {
   return `/calendar/feed/${token}`;

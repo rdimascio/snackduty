@@ -131,6 +131,33 @@ async function joinAsGuardianOfChildA(ownerCookie: string, fixture: Fixture): Pr
   return guardianCookie;
 }
 
+/**
+ * The second adult joins as a plain team member holding NO guardian edge — the
+ * treasurer, the assistant coach, the parent whose own child left. They may
+ * READ the team; they guard nobody, so no child's attendance is theirs.
+ */
+async function joinAsMemberWithoutGuardianEdge(
+  ownerCookie: string,
+  fixture: Fixture,
+): Promise<string> {
+  const invited = await app.handle("POST", `/api/teams/${fixture.teamId}/invitations`, {
+    headers: { ...sameOrigin, cookie: ownerCookie },
+    body: { invitedRole: "adult", inviteeLabel: "the team treasurer" },
+  });
+  expect(invited.status).toBe(201);
+  const token =
+    (json(invited) as { invitation: { inviteUrl: string } }).invitation.inviteUrl.split("#")[1] ??
+    "";
+
+  const memberCookie = await signIn("second-adult");
+  const accepted = await app.handle("POST", "/api/invitations/accept", {
+    headers: { ...sameOrigin, cookie: memberCookie },
+    body: { token },
+  });
+  expect(accepted.status).toBe(200);
+  return memberCookie;
+}
+
 function record(cookie: string, fixture: Fixture, participantId: string, status: string) {
   return app.handle(
     "POST",
@@ -284,6 +311,29 @@ describe("reading attendance", () => {
       for (const forbidden of ["recorded", "person_", "account", "token", "email"]) {
         expect(serialized).not.toContain(forbidden);
       }
+    }
+  });
+
+  it("gives a member who guards nobody the counts and NO entries", async () => {
+    const ownerCookie = await signIn();
+    const fixture = await buildFixture(ownerCookie);
+    const memberCookie = await joinAsMemberWithoutGuardianEdge(ownerCookie, fixture);
+
+    expect((await record(ownerCookie, fixture, fixture.childA, "yes")).status).toBe(200);
+    expect((await record(ownerCookie, fixture, fixture.childB, "maybe")).status).toBe(200);
+
+    // An EMPTY guarded set must filter everything, never degrade to "no
+    // filter". Without this reader, a regression that treats "guards nobody"
+    // as "unrestricted" would hand every child's name and answer to any team
+    // member — and the guardian test above would still pass.
+    const asMember = await read(memberCookie, fixture);
+    expect(asMember.status).toBe(200);
+    expect(json(asMember)).toEqual({
+      attendance: { counts: { yes: 1, no: 0, maybe: 1 }, entries: [] },
+    });
+    const serialized = asMember.body.toLowerCase();
+    for (const forbidden of ["casey", "robin", "participant_"]) {
+      expect(serialized).not.toContain(forbidden);
     }
   });
 
