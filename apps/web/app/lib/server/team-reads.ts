@@ -2,7 +2,7 @@ import type { Sessions } from "@lesto/auth";
 import { and, eq, inList } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { Context, Lesto } from "@lesto/web";
-import { seasonSchema } from "@snackday/domain";
+import { guardianRelationshipSchema, seasonSchema } from "@snackday/domain";
 
 import { authenticatedAdult, people } from "./identity";
 import { invitations, projectedInvitationStatus } from "./invitations";
@@ -12,14 +12,7 @@ import {
   projectGuardian,
   projectParticipant,
 } from "./roster";
-import {
-  adultMemberships,
-  grantedAccess,
-  projectTeam,
-  readableActiveTeam,
-  seasons,
-  teams,
-} from "./teams";
+import { adultMemberships, grantedAccess, projectTeam, seasons, teamAccess, teams } from "./teams";
 import type { TeamAccessLevel } from "./teams";
 
 const unauthorized = { error: "authentication required" } as const;
@@ -121,7 +114,7 @@ async function listTeams(c: Context<"/api/teams">, db: Db, sessions: Sessions) {
   return c.json({ teams: await listAccessibleTeams(db, identity.person.id) });
 }
 
-function activeGuardianEdges(db: Db, participantIds: string[]) {
+function activeGuardianEdges(db: Db, participantIds: string[], guardianPersonId?: string) {
   return db
     .select()
     .from(guardianRelationships)
@@ -129,6 +122,9 @@ function activeGuardianEdges(db: Db, participantIds: string[]) {
       and(
         inList(guardianRelationships.participantId, participantIds),
         eq(guardianRelationships.status, "active"),
+        ...(guardianPersonId === undefined
+          ? []
+          : [eq(guardianRelationships.guardianPersonId, guardianPersonId)]),
       ),
     )
     .all();
@@ -188,17 +184,58 @@ async function guardianInvitationCounts(
   return counts;
 }
 
-// The one roster projection: the roster API and the /app page loader both read
-// through here. Callers MUST have verified the caller may READ `teamId` (and
-// that `seasonId` belongs to it) — this helper does no authorization of its own.
-export async function loadRoster(db: Db, teamId: string, seasonId: string) {
+export interface RosterViewer {
+  readonly personId: string;
+  readonly access: TeamAccessLevel;
+}
+
+type ParticipantProjection = ReturnType<typeof projectParticipant>;
+
+/** The stable roster DTO. Empty guardians keep existing mobile decoders valid. */
+export type RosterEntry = Omit<ParticipantProjection, "birthDate"> & {
+  readonly birthDate?: ParticipantProjection["birthDate"];
+  readonly guardians: readonly ReturnType<typeof projectGuardian>[];
+  readonly guardianInvitations?: GuardianInvitationCounts;
+};
+
+function canReadParticipant(edge: { permissions: string }): boolean {
+  return guardianRelationshipSchema.shape.permissions
+    .parse(JSON.parse(edge.permissions) as unknown)
+    .includes("participant.read");
+}
+
+/**
+ * The one privacy-aware roster projection: the roster API and /app page loader
+ * both read through here after deriving `viewer` on the server. Managers may
+ * inspect every child's private fields. A read-only adult gets the minimal
+ * player list, except that an ACTIVE guardian edge carrying participant.read
+ * restores the private fields for that guardian's own child.
+ *
+ * The narrower reader path also limits the guardian and invitation queries to
+ * those authorized participant ids, so another child's private rows are never
+ * loaded merely to remove them from the response later.
+ */
+export async function loadRoster(
+  db: Db,
+  teamId: string,
+  seasonId: string,
+  viewer: RosterViewer,
+): Promise<RosterEntry[]> {
   const participantRows = await activeSeasonParticipantRows(db, teamId, seasonId);
   if (participantRows.length === 0) return [];
 
-  const guardianRows = await activeGuardianEdges(
-    db,
-    participantRows.map((participant) => participant.id),
-  );
+  const participantIds = participantRows.map((participant) => participant.id);
+  const readableParticipantIds =
+    viewer.access === "manage"
+      ? new Set(participantIds)
+      : new Set(
+          (await activeGuardianEdges(db, participantIds, viewer.personId))
+            .filter((edge) => canReadParticipant(edge))
+            .map((edge) => edge.participantId),
+        );
+  const privateParticipantIds = [...readableParticipantIds];
+  const guardianRows =
+    privateParticipantIds.length === 0 ? [] : await activeGuardianEdges(db, privateParticipantIds);
   const personRows = await db
     .select()
     .from(people)
@@ -210,13 +247,21 @@ export async function loadRoster(db: Db, teamId: string, seasonId: string) {
     )
     .all();
   const peopleById = new Map(personRows.map((person) => [person.id, person] as const));
-  const invitationCounts = await guardianInvitationCounts(
-    db,
-    teamId,
-    participantRows.map((participant) => participant.id),
-  );
+  const invitationCounts =
+    privateParticipantIds.length === 0
+      ? new Map<string, GuardianInvitationCounts>()
+      : await guardianInvitationCounts(db, teamId, privateParticipantIds);
 
-  const roster = participantRows.map((participant) => {
+  const roster = participantRows.map((participant): RosterEntry => {
+    const projected = projectParticipant(
+      participant,
+      requirePerson(peopleById, participant.personId),
+    );
+    if (!readableParticipantIds.has(participant.id)) {
+      const { birthDate: _privateBirthDate, ...minimal } = projected;
+      return { ...minimal, guardians: [] };
+    }
+
     const guardians = guardianRows
       .filter((guardian) => guardian.participantId === participant.id)
       .map((guardian) =>
@@ -229,7 +274,7 @@ export async function loadRoster(db: Db, teamId: string, seasonId: string) {
     );
 
     return {
-      ...projectParticipant(participant, requirePerson(peopleById, participant.personId)),
+      ...projected,
       guardians,
       guardianInvitations:
         invitationCounts.get(participant.id) ??
@@ -245,9 +290,6 @@ export async function loadRoster(db: Db, teamId: string, seasonId: string) {
   return roster;
 }
 
-/** One roster child with their guardians, as the roster read projects it. */
-export type RosterEntry = Awaited<ReturnType<typeof loadRoster>>[number];
-
 async function readRoster(
   c: Context<"/api/teams/:teamId/seasons/:seasonId/roster">,
   db: Db,
@@ -256,17 +298,22 @@ async function readRoster(
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const team = await readableActiveTeam(db, c.param("teamId"), identity.person.id);
-  if (team === undefined) return c.json(teamNotFound, 404);
+  const access = await teamAccess(db, c.param("teamId"), identity.person.id);
+  if (access === undefined) return c.json(teamNotFound, 404);
 
   const season = await db
     .select()
     .from(seasons)
-    .where(and(eq(seasons.id, c.param("seasonId")), eq(seasons.teamId, team.id)))
+    .where(and(eq(seasons.id, c.param("seasonId")), eq(seasons.teamId, access.team.id)))
     .get();
   if (season === undefined) return c.json(teamNotFound, 404);
 
-  return c.json({ roster: await loadRoster(db, team.id, season.id) });
+  return c.json({
+    roster: await loadRoster(db, access.team.id, season.id, {
+      personId: identity.person.id,
+      access: access.level,
+    }),
+  });
 }
 
 export function registerTeamReadRoutes(app: Lesto, db: Db, sessions: Sessions) {
