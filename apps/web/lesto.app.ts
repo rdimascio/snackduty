@@ -3,7 +3,7 @@
  * composed route surface, and the security posture, in one place.
  *
  * Every domain surface (identity, teams, roster, invitations, events,
- * attendance, calendar feeds) is registered by its OWN module under
+ * attendance, duties, calendar feeds) is registered by its OWN module under
  * `app/lib/server/`, each owning its table, migration, and authorization.
  * Nothing is registered inline here, which is the property worth keeping: the
  * create-lesto starter's unauthenticated `/posts` API lived in this file and
@@ -49,6 +49,7 @@ import {
 import { devPersonaProvider } from "./app/lib/server/identity-providers";
 import { registerAttendanceRoutes } from "./app/lib/server/attendance";
 import { createCalendarFeeds, registerCalendarFeedRoutes } from "./app/lib/server/calendar-feeds";
+import { createDuties, registerDutyRoutes } from "./app/lib/server/duties";
 import { createEvents, registerEventRoutes } from "./app/lib/server/events";
 import { devInviteDeliverer } from "./app/lib/server/invite-delivery";
 import type { InviteDeliverer } from "./app/lib/server/invite-delivery";
@@ -77,21 +78,29 @@ export function buildApp(
   inviteDelivery: InviteDeliverer = devInviteDeliverer(),
 ) {
   const app = registerCalendarFeedRoutes(
-    registerAttendanceRoutes(
-      registerEventRoutes(
-        registerInvitationRoutes(
-          registerTeamReadRoutes(
-            registerRosterImportRoutes(
-              registerRosterRoutes(registerTeamRoutes(buildBaseApp(), db, sessions), db, sessions),
+    registerDutyRoutes(
+      registerAttendanceRoutes(
+        registerEventRoutes(
+          registerInvitationRoutes(
+            registerTeamReadRoutes(
+              registerRosterImportRoutes(
+                registerRosterRoutes(
+                  registerTeamRoutes(buildBaseApp(), db, sessions),
+                  db,
+                  sessions,
+                ),
+                db,
+                sessions,
+              ),
               db,
               sessions,
             ),
             db,
             sessions,
+            inviteDelivery,
           ),
           db,
           sessions,
-          inviteDelivery,
         ),
         db,
         sessions,
@@ -169,6 +178,7 @@ const config: LestoAppConfig = {
     createInvitations,
     createEvents,
     createCalendarFeeds,
+    createDuties,
   ],
   // Security, declared in one place (ADR 0016). Per-client rate-limiting is ALREADY
   // on by the kernel default; `originCheck` layers zero-token CSRF over it — a
