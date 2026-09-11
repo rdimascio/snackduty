@@ -209,17 +209,17 @@ The companion `launch-backlog.json` contains dependency-linked tasks and complet
 
 Initial planning allowance: R0 roughly 1–2 weeks and R1 another 2–4 with focused backend/native work and prompt account setup. These are not Sol throughput predictions or delivery commitments. Re-estimate from completed slices and the first production/native proof. Apple review/provider verification have independent lead times. R2 comes ahead of league work: start with a small practice loop rather than a video marketplace.
 
-### Work starting now
+### First implementation completed locally
 
-- Roster privacy: narrow JSON and rendered roster responses for ordinary parents, preserve manager and authorized own-child access, and add regression tests.
-- Snack-duty service: persist event-linked single-capacity slots, manager assignments, parent claim/release and conflict handling. Native UI, swaps, rotation and reminders remain separate work.
+- Roster privacy: narrowed JSON and rendered roster responses for ordinary parents, preserved manager and authorized own-child access, and added regression tests including one adult managing a team while parenting on another.
+- Snack-duty service: added event-linked single-capacity slots, manager assignments, parent claim/release and conflict handling. Native UI, swaps, rotation and reminders remain separate work.
 - Roadmap/tenancy: make coach-plus-parent identity and co-coaches explicit; bring practice participation forward and reserve branded distribution for last.
 
-These slices can start on the local API while production auth/runtime work is prepared. They do not satisfy missing auth, delivery or native release requirements.
+Sol implemented both slices; the orchestrator reviewed and combined them locally. The combined web suite passes 224 tests, workspace typechecks and web build pass, and lint exits successfully with warnings. These are local results, not production/native evidence. GitHub branch creation returns 403; no PR, remote merge or TestFlight upload has occurred. See `implementation-status.md` in the delivery package for commit and verification details. These slices do not satisfy missing auth, delivery or native release requirements.
 
 ### Next implementation order
 
-1. Finish roster/privacy and snack-duty persistence; add explicit co-coach permissions rather than treating every team adult as a manager.
+1. Publish the reviewed roster/privacy and snack-duty API slices when GitHub write access is restored; add explicit co-coach permissions and unify runtime authorization.
 2. Prove production runtime and real adult authentication, secure invitations and native session/team selection. Follow the required sibling Lesto infrastructure guides before infrastructure changes. Unrelated platform-governance projects do not block the team beta.
 3. Add durable jobs/outbox/audit, real invitation/reminder delivery, native schedule/duty flows, channels/threads and settings/moderation. Mutations must handle retries and concurrent parents.
 4. Complete the coach/co-coach/parent journey on two devices; archive the completed R1 commit and submit that exact build for external beta review.

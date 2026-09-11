@@ -37,7 +37,7 @@
       "depends_on": ["SD-002"],
       "acceptance": "Use one policy for owner/coach/guardian/member; ordinary members cannot read other children's birth dates or private guardian data. Test cross-team, cross-season, revoked membership and own-child boundaries at API and HTML read paths.",
       "code_areas": "packages/domain/src/policies.ts; apps/web/app/lib/server/teams.ts; apps/web/app/lib/server/team-reads.ts",
-      "note": "Field-level roster response slice underway on codex/roster-privacy. Unified runtime capability policy and co-coach delegation remain separately planned."
+      "note": "Field-level roster response slice implemented and tested locally on codex/roster-privacy (40ddb487, 7f72703d), integrated as 594aa29 and 2d0ed0b. Not published or merged remotely. Unified runtime capability policy and co-coach delegation remain planned; full task is incomplete."
     },
     {
       "id": "SD-004",
@@ -126,7 +126,7 @@
       "depends_on": ["SD-003", "SD-007", "SD-010"],
       "acceptance": "Persist event-linked slots, assignment/claim/release/swap states and due reminders. Concurrent claims cannot overfill capacity; event cancellation/reschedule invalidates stale reminders; parent confirms own responsibility.",
       "code_areas": "new duty domain/service/UI",
-      "note": "Initial server-side slot/claim/release/assignment slice underway on codex/snack-duty-api. Native UI, swap, rotation and reminders remain planned; do not mark full task complete from API alone."
+      "note": "Initial server-side slot/claim/release/assignment slice implemented and tested locally on codex/snack-duty-api (43fedeae), integrated as 41def6a. Not published or merged remotely. Native UI, swap, rotation, durable retry keys and reminders remain planned; full task is incomplete."
     },
     {
       "id": "SD-012",
