@@ -208,7 +208,7 @@ describe("generalized authentication", () => {
 });
 
 describe("privacy-aware roster reads", () => {
-  it("shows an ordinary adult private fields for their readable child only", async () => {
+  it("keeps a manager's own roster full while limiting another team to their readable child", async () => {
     const ownerCookie = await signIn();
     const { teamId, seasonId } = await createTeamAndSeason(ownerCookie);
     const ownChildId = await addChild(ownerCookie, teamId, seasonId);
@@ -235,6 +235,22 @@ describe("privacy-aware roster reads", () => {
       }),
     );
     expect((await accept(memberCookie, tokenOf(guardianInvite))).status).toBe(200);
+
+    const managed = await createTeamAndSeason(memberCookie);
+    const managedChildId = await addChild(memberCookie, managed.teamId, managed.seasonId, {
+      displayName: "Managed Team Child",
+      birthDate: "2017-06-12",
+    });
+    expect(rosterOf(await readRoster(memberCookie, managed.teamId, managed.seasonId))).toEqual([
+      {
+        participantId: managedChildId,
+        displayName: "Managed Team Child",
+        birthDate: "2017-06-12",
+        status: "active",
+        guardians: [],
+        guardianInvitations: { pending: 0, expired: 0, accepted: 0 },
+      },
+    ]);
 
     const managerRoster = rosterOf(await readRoster(ownerCookie, teamId, seasonId));
     expect(managerRoster.every((entry) => entry.birthDate !== undefined)).toBe(true);
