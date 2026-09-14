@@ -3,7 +3,7 @@
   "as_of": "2026-09-14",
   "repository": "rdimascio/snackduty",
   "audited_commit": "38dab8b227e8da51b123f45382b82ebb1dd6aeec",
-  "note": "Revised per owner direction. Sol implements bounded branches; orchestrator reviews/tests. Local GitHub CLI authentication works on the restored Mac, and the full local gate including native tests and live acceptance passed September 14. See implementation-status.md for publishing evidence. Planned/local work is not a merged or released feature.",
+  "note": "Revised per owner direction. Sol implements bounded branches; orchestrator reviews/tests. PR #1 merged September 14 after local and hosted macOS gates including native tests and live acceptance passed. See implementation-status.md for publishing evidence and remaining release requirements. A merged foundation is not a released beta.",
   "tasks": [
     {
       "id": "SD-001",
@@ -33,11 +33,11 @@
       "priority": "P0",
       "owner_role": "Backend",
       "title": "Unify scoped permissions and private roster responses",
-      "status": "planned",
+      "status": "in_progress",
       "depends_on": ["SD-002"],
       "acceptance": "Use one policy for owner/coach/guardian/member; ordinary members cannot read other children's birth dates or private guardian data. Test cross-team, cross-season, revoked membership and own-child boundaries at API and HTML read paths.",
       "code_areas": "packages/domain/src/policies.ts; apps/web/app/lib/server/teams.ts; apps/web/app/lib/server/team-reads.ts",
-      "note": "Field-level roster response slice implemented and tested locally on codex/roster-privacy (40ddb487, 7f72703d), integrated as 594aa29 and 2d0ed0b. Not published or merged remotely. Unified runtime capability policy and co-coach delegation remain planned; full task is incomplete."
+      "note": "Field-level roster response slice merged in PR #1 with native decoding/display coverage. Full runtime policy unification remains incomplete; see implementation-status.md for co-coach progress."
     },
     {
       "id": "SD-004",
@@ -67,10 +67,11 @@
       "priority": "P0",
       "owner_role": "Release",
       "title": "Establish macOS tests, signing and internal archive",
-      "status": "planned",
+      "status": "in_progress",
       "depends_on": ["SD-001", "SD-005"],
       "acceptance": "Verify Apple app/team/bundle identifiers through authorized account setup, provide icon and capabilities, run Swift/live tests with nonzero test counts on Xcode 26+, archive a signed Release build and install internally with synthetic data. Preserve dSYMs and commit/build evidence.",
-      "code_areas": "apps/ios/Snackday.xcodeproj; scripts/ios-*.sh; .github/workflows"
+      "code_areas": "apps/ios/Snackday.xcodeproj; scripts/ios-*.sh; .github/workflows",
+      "note": "Local and hosted macOS full gates now pass with nonzero Swift tests and live native/API acceptance (PR #1). Signing, Xcode 26+ release tooling, app registration, icon, archive and physical-device distribution evidence remain open."
     },
     {
       "id": "SD-007",
@@ -122,11 +123,11 @@
       "priority": "P0",
       "owner_role": "Backend + iOS",
       "title": "Implement snack duties and swaps",
-      "status": "planned",
+      "status": "in_progress",
       "depends_on": ["SD-003", "SD-007", "SD-010"],
       "acceptance": "Persist event-linked slots, assignment/claim/release/swap states and due reminders. Concurrent claims cannot overfill capacity; event cancellation/reschedule invalidates stale reminders; parent confirms own responsibility.",
       "code_areas": "new duty domain/service/UI",
-      "note": "Initial server-side slot/claim/release/assignment slice implemented and tested locally on codex/snack-duty-api (43fedeae), integrated as 41def6a. Not published or merged remotely. Native UI, swap, rotation, durable retry keys and reminders remain planned; full task is incomplete."
+      "note": "Server-side slot/claim/release/assignment slice merged in PR #1, including protection against clearing past/cancelled duty history. Native UI, swaps, rotation, durable retry keys and reminders remain planned; full task is incomplete."
     },
     {
       "id": "SD-012",
@@ -309,10 +310,11 @@
       "priority": "P0",
       "owner_role": "Backend + iOS",
       "title": "Support coach and parent on one identity, plus co-coaches",
-      "status": "planned",
+      "status": "in_progress",
       "depends_on": ["SD-002", "SD-003", "SD-004"],
       "acceptance": "Introduce explicit team-scoped coach/co-coach capabilities and authorized delegation/revocation. An adult's guardian relationships remain usable alongside coaching powers, including on another team. Neither role switch nor possession of another team's ID escalates access. Test co-coach invitations and revoked access.",
-      "code_areas": "packages/domain/src/policies.ts; apps/web/app/lib/server/teams.ts; invitations.ts; native navigation"
+      "code_areas": "packages/domain/src/policies.ts; apps/web/app/lib/server/teams.ts; invitations.ts; native navigation",
+      "note": "Backend owner-controlled grant/revoke slice implemented with additive guardian rights, duplicate-role handling and tenant isolation. Verified co-coach invitations, audit/outbox and native role-management UI remain incomplete; see implementation-status.md for validation and PR evidence."
     },
     {
       "id": "SD-028",
