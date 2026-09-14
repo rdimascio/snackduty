@@ -1,0 +1,70 @@
+name: Product
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Full product gate
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DERIVED_DATA_PATH: ${{ github.workspace }}/DerivedData-CI
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+
+      - name: Select an available iPhone simulator
+        run: |
+          xcodebuild -version
+          runtime_version="$(xcrun --sdk iphonesimulator --show-sdk-version)"
+          runtime_key="com.apple.CoreSimulator.SimRuntime.iOS-${runtime_version//./-}"
+          simulator_id="$(
+            xcrun simctl list devices available --json | jq -r --arg runtime "$runtime_key" '
+              [.devices[$runtime][]? | select((.isAvailable != false) and (.name | startswith("iPhone")))] as $phones
+              | (($phones | map(select(.name == "iPhone 16")) | first) // ($phones | first))
+              | .udid // empty
+            '
+          )"
+          if [[ -z "$simulator_id" ]]; then
+            echo "error: no available iPhone simulator for iOS $runtime_version" >&2
+            xcrun simctl list devices available >&2
+            exit 1
+          fi
+          echo "IOS_DESTINATION=platform=iOS Simulator,id=$simulator_id" >> "$GITHUB_ENV"
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run full product gate
+        shell: bash
+        run: bun run gate 2>&1 | tee "$RUNNER_TEMP/product-gate.log"
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-gate-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/product-gate.log
+            ${{ github.workspace }}/DerivedData-CI/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

@@ -2,8 +2,8 @@ import Foundation
 import SnackdayDomain
 import Testing
 
-// Inline fixtures byte-match the server payload shapes produced by
-// `apps/web/app/lib/server/team-reads.ts` and the dev sign-in route.
+// Fixtures cover the server transport contract and older payload compatibility.
+// `privacyScopedRosterFixture` mirrors the current privacy projection.
 
 let teamsFixture = """
 {
@@ -34,6 +34,8 @@ let teamsFixture = """
 }
 """
 
+// Legacy payload without invitation counts: visible guardian names remain
+// readable, while an empty guardian array is conservatively treated as private.
 let rosterFixture = """
 {
   "roster": [
@@ -62,6 +64,38 @@ let rosterFixture = """
     {
       "participantId": "participant_55555555-5555-4555-8555-555555555555",
       "displayName": "Riley Fixture",
+      "status": "active",
+      "guardians": []
+    }
+  ]
+}
+"""
+
+// A read-only team adult sees private fields for their own child and a
+// deliberately minimal entry for every other player. Managers receive the
+// same full shape as the first entry for every player.
+let privacyScopedRosterFixture = """
+{
+  "roster": [
+    {
+      "participantId": "participant_own_child",
+      "displayName": "Avery Own Child",
+      "birthDate": "2019-04-12",
+      "status": "active",
+      "guardians": [
+        {
+          "guardianId": "guardian_relationship_own",
+          "displayName": "Jordan Parent",
+          "relationship": "parent",
+          "permissions": ["participant.read", "participant.manage"],
+          "status": "active"
+        }
+      ],
+      "guardianInvitations": { "pending": 0, "expired": 0, "accepted": 1 }
+    },
+    {
+      "participantId": "participant_teammate",
+      "displayName": "Riley Teammate",
       "status": "active",
       "guardians": []
     }
@@ -113,11 +147,32 @@ func decodeFixture<Payload: Decodable>(_ payload: Payload.Type, _ json: String) 
     #expect(withBirthDate.guardians[0].relationship == "parent")
     #expect(withBirthDate.guardians[0].permissions == ["participant.read", "participant.manage"])
     #expect(withBirthDate.guardians[1].relationship == "caregiver")
+    #expect(withBirthDate.guardianInvitations == nil)
 
     let withoutBirthDate = try #require(response.roster.last)
     #expect(withoutBirthDate.displayName == "Riley Fixture")
     #expect(withoutBirthDate.birthDate == nil)
     #expect(withoutBirthDate.guardians.isEmpty)
+    #expect(withoutBirthDate.guardianInvitations == nil)
+}
+
+@Test func privacyScopedRosterDecodesFullOwnChildAndRedactedTeammate() throws {
+    let response = try decodeFixture(RosterResponse.self, privacyScopedRosterFixture)
+
+    #expect(response.roster.count == 2)
+
+    let ownChild = try #require(response.roster.first)
+    #expect(ownChild.participantId == "participant_own_child")
+    #expect(ownChild.birthDate == "2019-04-12")
+    #expect(ownChild.guardians.map(\.displayName) == ["Jordan Parent"])
+    #expect(ownChild.guardianInvitations == GuardianInvitationCountsDTO(pending: 0, expired: 0, accepted: 1))
+
+    let teammate = try #require(response.roster.last)
+    #expect(teammate.participantId == "participant_teammate")
+    #expect(teammate.displayName == "Riley Teammate")
+    #expect(teammate.birthDate == nil)
+    #expect(teammate.guardians.isEmpty)
+    #expect(teammate.guardianInvitations == nil)
 }
 
 @Test func devIdentityDecodesAccountAndPerson() throws {

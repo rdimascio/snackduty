@@ -43,7 +43,13 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
     state: "team",
     teamName: first.team.name,
     seasonLabel: season?.label,
-    roster: season === undefined ? [] : await loadRoster(services.db, first.team.id, season.id),
+    roster:
+      season === undefined
+        ? []
+        : await loadRoster(services.db, first.team.id, season.id, {
+            personId: identity.person.id,
+            access: first.access,
+          }),
   };
 };
 
@@ -113,7 +119,7 @@ function GuardianList({ guardians }: { guardians: RosterEntry["guardians"] }): R
 function InvitationStatus({
   invitations,
 }: {
-  invitations: RosterEntry["guardianInvitations"];
+  invitations: NonNullable<RosterEntry["guardianInvitations"]>;
 }): ReactNode {
   const parts: string[] = [];
   if (invitations.pending > 0) parts.push(`${invitations.pending} invited`);
@@ -147,8 +153,12 @@ function RosterSection({ roster }: { roster: readonly RosterEntry[] }): ReactNod
           {entry.birthDate === undefined ? null : (
             <p className="mt-1 text-sm text-muted-foreground">Born {entry.birthDate}</p>
           )}
-          <GuardianList guardians={entry.guardians} />
-          <InvitationStatus invitations={entry.guardianInvitations} />
+          {entry.guardianInvitations === undefined ? null : (
+            <>
+              <GuardianList guardians={entry.guardians} />
+              <InvitationStatus invitations={entry.guardianInvitations} />
+            </>
+          )}
         </li>
       ))}
     </ul>

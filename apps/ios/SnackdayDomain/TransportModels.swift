@@ -96,25 +96,40 @@ public struct GuardianDTO: Codable, Equatable, Sendable {
     }
 }
 
+public struct GuardianInvitationCountsDTO: Codable, Equatable, Sendable {
+    public let pending: Int
+    public let expired: Int
+    public let accepted: Int
+
+    public init(pending: Int, expired: Int, accepted: Int) {
+        self.pending = pending
+        self.expired = expired
+        self.accepted = accepted
+    }
+}
+
 public struct RosterParticipantDTO: Codable, Equatable, Sendable {
     public let participantId: String
     public let displayName: String
     public let birthDate: String?
     public let status: String
     public let guardians: [GuardianDTO]
+    public let guardianInvitations: GuardianInvitationCountsDTO?
 
     public init(
         participantId: String,
         displayName: String,
         birthDate: String?,
         status: String,
-        guardians: [GuardianDTO]
+        guardians: [GuardianDTO],
+        guardianInvitations: GuardianInvitationCountsDTO? = nil
     ) {
         self.participantId = participantId
         self.displayName = displayName
         self.birthDate = birthDate
         self.status = status
         self.guardians = guardians
+        self.guardianInvitations = guardianInvitations
     }
 }
 
@@ -205,7 +220,8 @@ extension HomeSnapshot {
                             displayName: guardian.displayName,
                             relationship: guardian.relationship
                         )
-                    }
+                    },
+                    guardianDetailsVisible: participant.guardianInvitations != nil || !participant.guardians.isEmpty
                 )
             }
         )

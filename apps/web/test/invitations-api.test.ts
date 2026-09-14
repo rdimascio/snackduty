@@ -79,10 +79,15 @@ async function createTeamAndSeason(cookie: string): Promise<{ teamId: string; se
   return { teamId, seasonId: (json(createdSeason) as { season: { id: string } }).season.id };
 }
 
-async function addChild(cookie: string, teamId: string, seasonId: string): Promise<string> {
+async function addChild(
+  cookie: string,
+  teamId: string,
+  seasonId: string,
+  body?: { displayName: string; birthDate: string },
+): Promise<string> {
   const added = await app.handle("POST", `/api/teams/${teamId}/seasons/${seasonId}/participants`, {
     headers: { ...sameOrigin, cookie },
-    body: { displayName: "Rowan Child", birthDate: "2018-04-09" },
+    body: body ?? { displayName: "Rowan Child", birthDate: "2018-04-09" },
   });
   expect(added.status).toBe(201);
   return (json(added) as { participant: { participantId: string } }).participant.participantId;
@@ -111,6 +116,8 @@ function readRoster(cookie: string, teamId: string, seasonId: string) {
 interface RosterEntryBody {
   participantId: string;
   displayName: string;
+  birthDate?: string;
+  status: string;
   guardians: { guardianId: string; displayName: string; relationship: string }[];
   guardianInvitations: { pending: number; expired: number; accepted: number };
 }
@@ -197,6 +204,190 @@ describe("generalized authentication", () => {
     });
     expect(foreignInvite.status).toBe(404);
     expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual([]);
+  });
+});
+
+describe("privacy-aware roster reads", () => {
+  it("keeps a manager's own roster full while limiting another team to their readable child", async () => {
+    const ownerCookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(ownerCookie);
+    const ownChildId = await addChild(ownerCookie, teamId, seasonId);
+    const teammateId = await addChild(ownerCookie, teamId, seasonId, {
+      displayName: "Casey Teammate",
+      birthDate: "2019-05-14",
+    });
+    expect(
+      (
+        await attachGuardian(ownerCookie, teammateId, {
+          displayName: "Private Teammate Guardian",
+          relationship: "caregiver",
+        })
+      ).status,
+    ).toBe(201);
+
+    const memberCookie = await signIn("second-adult");
+    const guardianInvite = invitationOf(
+      await invite(ownerCookie, teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "Rowan's parent",
+        participantId: ownChildId,
+        relationship: "parent",
+      }),
+    );
+    expect((await accept(memberCookie, tokenOf(guardianInvite))).status).toBe(200);
+
+    const managed = await createTeamAndSeason(memberCookie);
+    const managedChildId = await addChild(memberCookie, managed.teamId, managed.seasonId, {
+      displayName: "Managed Team Child",
+      birthDate: "2017-06-12",
+    });
+    expect(rosterOf(await readRoster(memberCookie, managed.teamId, managed.seasonId))).toEqual([
+      {
+        participantId: managedChildId,
+        displayName: "Managed Team Child",
+        birthDate: "2017-06-12",
+        status: "active",
+        guardians: [],
+        guardianInvitations: { pending: 0, expired: 0, accepted: 0 },
+      },
+    ]);
+
+    const managerRoster = rosterOf(await readRoster(ownerCookie, teamId, seasonId));
+    expect(managerRoster.every((entry) => entry.birthDate !== undefined)).toBe(true);
+    expect(managerRoster.every((entry) => entry.guardians !== undefined)).toBe(true);
+    expect(managerRoster.every((entry) => entry.guardianInvitations !== undefined)).toBe(true);
+
+    const memberRead = await readRoster(memberCookie, teamId, seasonId);
+    expect(memberRead.status).toBe(200);
+    const memberRoster = (json(memberRead) as { roster: Record<string, unknown>[] }).roster;
+    const ownChild = memberRoster.find((entry) => entry.participantId === ownChildId);
+    const teammate = memberRoster.find((entry) => entry.participantId === teammateId);
+
+    expect(ownChild).toMatchObject({
+      participantId: ownChildId,
+      displayName: "Rowan Child",
+      birthDate: "2018-04-09",
+      status: "active",
+      guardianInvitations: { pending: 0, expired: 0, accepted: 1 },
+    });
+    expect(ownChild?.guardians).toEqual([
+      expect.objectContaining({
+        displayName: SECOND_ADULT_NAME,
+        relationship: "parent",
+        permissions: ["participant.read", "participant.manage"],
+        status: "active",
+      }),
+    ]);
+    expect(teammate).toEqual({
+      participantId: teammateId,
+      displayName: "Casey Teammate",
+      status: "active",
+      guardians: [],
+    });
+    expect(memberRead.body).not.toContain("2019-05-14");
+    expect(memberRead.body).not.toContain("Private Teammate Guardian");
+  });
+
+  it("requires an active guardian edge with participant.read", async () => {
+    const ownerCookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(ownerCookie);
+    const participantId = await addChild(ownerCookie, teamId, seasonId);
+    const memberCookie = await signIn("second-adult");
+    const guardianInvite = invitationOf(
+      await invite(ownerCookie, teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "Rowan's parent",
+        participantId,
+        relationship: "parent",
+      }),
+    );
+    expect((await accept(memberCookie, tokenOf(guardianInvite))).status).toBe(200);
+
+    const edge = (await config.db
+      .prepare(
+        "SELECT id FROM guardian_relationships WHERE participant_id = ? AND guardian_person_id = ?",
+      )
+      .get([participantId, SECOND_PERSON_ID])) as { id: string };
+    const minimal = {
+      participantId,
+      displayName: "Rowan Child",
+      status: "active",
+      guardians: [],
+    };
+
+    await config.db
+      .prepare("UPDATE guardian_relationships SET permissions = ? WHERE id = ?")
+      .run([JSON.stringify(["participant.manage"]), edge.id]);
+    expect(rosterOf(await readRoster(memberCookie, teamId, seasonId))).toEqual([minimal]);
+
+    await config.db
+      .prepare("UPDATE guardian_relationships SET permissions = ?, status = 'revoked' WHERE id = ?")
+      .run([JSON.stringify(["participant.read"]), edge.id]);
+    expect(rosterOf(await readRoster(memberCookie, teamId, seasonId))).toEqual([minimal]);
+  });
+
+  it("does not turn a cross-team guardian edge into roster access", async () => {
+    const ownerCookie = await signIn();
+    const first = await createTeamAndSeason(ownerCookie);
+    await addChild(ownerCookie, first.teamId, first.seasonId, {
+      displayName: "First Team Child",
+      birthDate: "2017-02-03",
+    });
+    const second = await createTeamAndSeason(ownerCookie);
+    const secondChildId = await addChild(ownerCookie, second.teamId, second.seasonId, {
+      displayName: "Other Team Child",
+      birthDate: "2016-01-02",
+    });
+    const memberCookie = await signIn("second-adult");
+
+    const firstTeamInvite = invitationOf(
+      await invite(ownerCookie, first.teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "first team adult",
+      }),
+    );
+    expect((await accept(memberCookie, tokenOf(firstTeamInvite))).status).toBe(200);
+    const secondTeamInvite = invitationOf(
+      await invite(ownerCookie, second.teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "other team's guardian",
+        participantId: secondChildId,
+        relationship: "parent",
+      }),
+    );
+    expect((await accept(memberCookie, tokenOf(secondTeamInvite))).status).toBe(200);
+
+    expect(rosterOf(await readRoster(memberCookie, first.teamId, first.seasonId))).toEqual([
+      {
+        participantId: expect.any(String) as string,
+        displayName: "First Team Child",
+        status: "active",
+        guardians: [],
+      },
+    ]);
+    expect(rosterOf(await readRoster(memberCookie, second.teamId, second.seasonId))).toEqual([
+      expect.objectContaining({
+        participantId: secondChildId,
+        displayName: "Other Team Child",
+        birthDate: "2016-01-02",
+        guardians: [expect.objectContaining({ displayName: SECOND_ADULT_NAME })],
+      }),
+    ]);
+
+    await config.db
+      .prepare(
+        "UPDATE adult_memberships SET status = 'inactive' WHERE team_id = ? AND person_id = ?",
+      )
+      .run([second.teamId, SECOND_PERSON_ID]);
+
+    const firstRead = await readRoster(memberCookie, first.teamId, first.seasonId);
+    expect(firstRead.status).toBe(200);
+    expect(firstRead.body).not.toContain("Other Team Child");
+    expect(firstRead.body).not.toContain("2016-01-02");
+
+    const inactiveTeamRead = await readRoster(memberCookie, second.teamId, second.seasonId);
+    expect(inactiveTeamRead.status).toBe(404);
+    expect(json(inactiveTeamRead)).toEqual({ error: "team not found" });
   });
 });
 

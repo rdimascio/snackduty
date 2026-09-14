@@ -26,11 +26,18 @@ public struct RosterMember: Equatable, Hashable, Sendable, Identifiable {
     public let id: String
     public let displayName: String
     public let guardians: [RosterGuardian]
+    public let guardianDetailsVisible: Bool
 
-    public init(id: String, displayName: String, guardians: [RosterGuardian]) {
+    public init(
+        id: String,
+        displayName: String,
+        guardians: [RosterGuardian],
+        guardianDetailsVisible: Bool = true
+    ) {
         self.id = id
         self.displayName = displayName
         self.guardians = guardians
+        self.guardianDetailsVisible = guardianDetailsVisible
     }
 }
 

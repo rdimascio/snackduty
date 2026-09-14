@@ -68,13 +68,18 @@ async function createSeason(cookie: string, teamId: string): Promise<string> {
   return (json(response) as { season: { id: string } }).season.id;
 }
 
-async function addChild(cookie: string, teamId: string, seasonId: string): Promise<string> {
+async function addChild(
+  cookie: string,
+  teamId: string,
+  seasonId: string,
+  body?: { displayName: string; birthDate: string },
+): Promise<string> {
   const response = await app.handle(
     "POST",
     `/api/teams/${teamId}/seasons/${seasonId}/participants`,
     {
       headers: { ...sameOrigin, cookie },
-      body: { displayName: "Casey Kid", birthDate: "2018-04-09" },
+      body: body ?? { displayName: "Casey Kid", birthDate: "2018-04-09" },
     },
   );
   expect(response.status).toBe(201);
@@ -106,11 +111,19 @@ async function seedFullTeam(cookie: string): Promise<string> {
 }
 
 /** Joins `teamId` as the second persona through a real invitation accept. */
-async function joinAsSecondAdult(ownerCookie: string, teamId: string): Promise<string> {
+async function joinAsSecondAdult(
+  ownerCookie: string,
+  teamId: string,
+  participantId?: string,
+): Promise<string> {
   const memberCookie = await signIn("second-adult");
   const created = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
     headers: { ...sameOrigin, cookie: ownerCookie },
-    body: { invitedRole: "adult", inviteeLabel: "joining adult" },
+    body: {
+      invitedRole: "adult",
+      inviteeLabel: "joining adult",
+      ...(participantId === undefined ? {} : { participantId, relationship: "parent" }),
+    },
   });
   expect(created.status).toBe(201);
   const inviteUrl =
@@ -175,7 +188,40 @@ describe("/app overview loader", () => {
     expect(html).toContain("T-Ball Tigers");
     expect(html).toContain("Spring 2026");
     expect(html).toContain("Casey Kid");
+    expect(html).not.toContain("Born 2018-04-09");
+    expect(html).not.toContain("Alex Guardian");
+    expect(html).not.toContain("Bailey Guardian");
+    expect(html).not.toContain("No guardians on file yet");
     expect(html).not.toContain("No team yet");
+  });
+
+  it("shows a guardian private fields for their own child only", async () => {
+    const ownerCookie = await signIn();
+    const teamId = await seedFullTeam(ownerCookie);
+    const seasonId = (
+      (await config.db.prepare("SELECT id FROM seasons WHERE team_id = ?").get([teamId])) as {
+        id: string;
+      }
+    ).id;
+    const caseyId = (
+      (await config.db
+        .prepare(
+          "SELECT member_participant_id AS id FROM memberships WHERE team_id = ? AND season_id = ?",
+        )
+        .get([teamId, seasonId])) as { id: string }
+    ).id;
+    await addChild(ownerCookie, teamId, seasonId, {
+      displayName: "Rowan Teammate",
+      birthDate: "2019-05-14",
+    });
+    const guardianCookie = await joinAsSecondAdult(ownerCookie, teamId, caseyId);
+
+    const html = render(<appPage.component {...await loadOverview(guardianCookie)} />);
+    expect(html).toContain("Casey Kid");
+    expect(html).toContain("Born 2018-04-09");
+    expect(html).toContain("Second Development Adult");
+    expect(html).toContain("Rowan Teammate");
+    expect(html).not.toContain("Born 2019-05-14");
   });
 
   it("shows a child's guardian invitation counts without the inviter's label", async () => {
