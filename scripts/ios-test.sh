@@ -33,4 +33,9 @@ xcodebuild test \
 XCODEBUILD_STATUS="${PIPESTATUS[0]}"
 set -e
 
-bun "$ROOT_DIR/scripts/lib/xcodebuild-verdict.ts" "$LOG_FILE" "$XCODEBUILD_STATUS"
+bun "$ROOT_DIR/scripts/lib/xcodebuild-verdict.ts" \
+  "$LOG_FILE" \
+  "$XCODEBUILD_STATUS" \
+  --named-test \
+  "the native UI smoke test" \
+  "SnackdayUISmokeTests[./ ]testHomeRosterPrivacyAndTabNavigation"

@@ -1,5 +1,7 @@
 # Local development
 
+For a seeded coach–parent scenario and the focused-to-full verification workflow, start with [Development and verification loop](./development-loop.md).
+
 ## Web and API
 
 From the repository root:
@@ -91,6 +93,8 @@ bun run ios:test
 The scripts automatically use Xcode from `/Applications/Xcode.app` when the command-line tools are selected globally. For a nonstandard installation, set `DEVELOPER_DIR` to that Xcode application's `Contents/Developer` directory.
 
 Alternatively, open `apps/ios/Snackday.xcodeproj`, select the shared Snackday scheme and an available iPhone simulator, then press Run.
+
+To launch the native app with the reusable two-team scenario, run `bun run dev:scenario --ios`. Pass an exact simulator name or UDID when needed, for example `bun run dev:scenario --ios="iPhone 17"`. The harness builds and installs the app, injects its temporary `localhost` API base URL, and cleans up the isolated database when you press Ctrl-C.
 
 ## Full product gate
 

@@ -205,6 +205,7 @@ private struct RosterMemberRow: View {
         .padding(SnackdaySpacing.standard)
         .background(Color.snackdaySurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(guardiansAccessibilityIdentifier)
     }
 
     private var guardiansLine: String {
@@ -217,6 +218,13 @@ private struct RosterMemberRow: View {
             : member.guardians
                 .map { "\($0.displayName) · \($0.relationship)" }
                 .joined(separator: ", ")
+    }
+
+    private var guardiansAccessibilityIdentifier: String {
+        if !member.guardianDetailsVisible {
+            return "roster-guardians-private"
+        }
+        return member.guardians.isEmpty ? "roster-guardians-empty" : "roster-guardians-visible"
     }
 }
 
