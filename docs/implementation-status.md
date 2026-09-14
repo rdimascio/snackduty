@@ -1,5 +1,21 @@
 # Team-first implementation status
 
+## Mac restoration verification — September 14, 2026
+
+Restored on `review/team-first`. Fetching with local GitHub CLI authentication confirmed that `origin/main` still points to `38dab8b227e8da51b123f45382b82ebb1dd6aeec`; there were no newer main changes to integrate. The earlier integration-token 403 does not apply to the local authenticated CLI. No branch protection or repository rulesets were configured at inspection; passing product checks remain our merge requirement.
+
+`bun install --frozen-lockfile` and the complete `bun run gate` passed on this Mac using Bun 1.4.2, Xcode 16.2 (16C5032a), and the iPhone 16 / iOS 18.3 simulator. After review corrections, the gate exercised formatting, lint (existing warnings), workspace typechecks, 226 web tests, 10 domain tests, 39 platform-manifest tests, 19 Swift tests, web/native builds, and the real HTTP acceptance journey including the explicitly executed native live round trip. Additional Swift regressions prove full own-child and redacted teammate roster responses decode and map successfully, including honest empty versus private guardian state. The standalone Swift run excludes the environment-gated live case; the acceptance step runs and verifies it separately.
+
+These are local synthetic-data checks, not production or distribution evidence. The installed Xcode is below the launch plan's Xcode 26+ upload requirement. Production runtime/authentication, secure recipient binding, delivery, native coordination screens, app registration/signing, a signed archive and physical-device/TestFlight verification remain outstanding. League operations remain R4; branded apps remain last at R5.
+
+Independent review found that hidden guardian arrays were described as missing by native UI, and that release/unassignment could irreversibly erase past or cancelled duty assignments. Both were corrected and passed the full gate. Native UI now distinguishes private guardian details from a full empty response; duty changes preserve assignments once the event is past or cancelled, while same-state retries remain successful. Duty concurrency tests issue competing requests against the serialized SQLite connection; they establish one winner for the current local adapter, not overlapping transactions across independent database connections. Conditional-update guards remain defense in depth and need additional driver-specific verification if the runtime changes.
+
+The new `Product / Full product gate` workflow runs the unchanged complete gate for PRs and main on macOS 15 with Bun 1.3.5, Xcode 16.4 and an available iPhone simulator. It preserves the gate exit code and uploads failure logs/test results. This is a simulator CI lane, not signing or release certification.
+
+The sections below preserve the September 11 handoff. Their GitHub and native-environment blockers describe that earlier environment; the verification above supersedes them for this Mac. PR and merge evidence will be recorded after checks complete.
+
+## Original restored handoff
+
 September 11, 2026. Base: `38dab8b227e8da51b123f45382b82ebb1dd6aeec` in `rdimascio/snackduty`.
 
 The owner authorized implementation, Sol delegation, PR creation and merging. Two Sol implementation agents completed bounded changes in separate worktrees. The orchestrator reviewed their diffs, requested compatibility and dual-role corrections, and combined the changes on local branch `codex/team-first-integration`.

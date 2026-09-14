@@ -335,6 +335,7 @@ async function releaseDutySlot(
       return "taken" as const;
     }
     if (slot.assigneePersonId === null) return { row: slot };
+    if (!occurrenceAcceptsNewAssignment(occurrence)) return "unavailable" as const;
 
     const now = new Date().toISOString();
     const released = await tx
@@ -357,6 +358,7 @@ async function releaseDutySlot(
   if (outcome === "no-occurrence") return c.json(eventNotFound, 404);
   if (outcome === "no-slot") return c.json(dutyNotFound, 404);
   if (outcome === "taken") return c.json(dutyTaken, 409);
+  if (outcome === "unavailable") return c.json(occurrenceUnavailable, 409);
   if (outcome === "changed") return c.json(dutyChanged, 409);
   return c.json({ dutySlot: await projectedDutySlot(db, outcome.row) });
 }
@@ -379,10 +381,10 @@ async function assignDutySlot(
     if (slot === undefined) return "no-slot" as const;
 
     if (slot.assigneePersonId === input.assigneePersonId) return { row: slot };
+    if (!occurrenceAcceptsNewAssignment(occurrence)) return "unavailable" as const;
 
     let assignee: { id: string } | undefined;
     if (input.assigneePersonId !== null) {
-      if (!occurrenceAcceptsNewAssignment(occurrence)) return "unavailable" as const;
       assignee = await activeTeamAdult(tx, team.id, input.assigneePersonId);
       if (assignee === undefined) return "no-adult" as const;
     }

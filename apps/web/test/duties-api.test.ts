@@ -279,6 +279,53 @@ describe("duty slot roles and privacy", () => {
 });
 
 describe("duty slot scope and availability", () => {
+  for (const unavailable of ["past", "cancelled"] as const) {
+    it(`preserves assigned duty history for ${unavailable} occurrences`, async () => {
+      const ownerCookie = await signIn();
+      const fixture = await createTeamWithOccurrence(ownerCookie, "History Falcons");
+      const parentCookie = await joinTeam(ownerCookie, fixture.teamId);
+      const slotId = await createSlot(ownerCookie, fixture);
+      const emptySlotId = await createSlot(ownerCookie, fixture, "Empty slot");
+      expect((await claim(parentCookie, fixture, slotId)).status).toBe(200);
+      const before = await config.db.prepare("SELECT * FROM duty_slots WHERE id = ?").get([slotId]);
+
+      if (unavailable === "past") {
+        await config.db
+          .prepare("UPDATE event_occurrences SET starts_at_utc = ? WHERE id = ?")
+          .run(["2000-01-01T00:00:00.000Z", fixture.occurrenceId]);
+      } else {
+        const cancelled = await app.handle(
+          "POST",
+          `/api/teams/${fixture.teamId}/occurrences/${fixture.occurrenceId}/cancel`,
+          { headers: { ...sameOrigin, cookie: ownerCookie }, body: { reason: "Field closed" } },
+        );
+        expect(cancelled.status).toBe(200);
+      }
+
+      for (const response of [
+        await release(parentCookie, fixture, slotId),
+        await assign(ownerCookie, fixture, slotId, null),
+      ]) {
+        expect(response.status).toBe(409);
+        expect(json(response)).toMatchObject({ code: "event_occurrence_unavailable" });
+      }
+      expect(
+        await config.db.prepare("SELECT * FROM duty_slots WHERE id = ?").get([slotId]),
+      ).toEqual(before);
+
+      // Same-state retries do not edit history and remain successful.
+      expect((await claim(parentCookie, fixture, slotId)).status).toBe(200);
+      expect(
+        (await assign(ownerCookie, fixture, slotId, DEV_PERSONAS["second-adult"].personId)).status,
+      ).toBe(200);
+      expect((await release(parentCookie, fixture, emptySlotId)).status).toBe(200);
+      expect((await assign(ownerCookie, fixture, emptySlotId, null)).status).toBe(200);
+      expect(
+        await config.db.prepare("SELECT * FROM duty_slots WHERE id = ?").get([slotId]),
+      ).toEqual(before);
+    });
+  }
+
   it("binds slots to both their team and occurrence and hides inaccessible teams", async () => {
     const ownerCookie = await signIn();
     const first = await createTeamWithOccurrence(ownerCookie, "First Falcons");

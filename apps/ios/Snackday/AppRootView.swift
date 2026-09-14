@@ -208,7 +208,11 @@ private struct RosterMemberRow: View {
     }
 
     private var guardiansLine: String {
-        member.guardians.isEmpty
+        if !member.guardianDetailsVisible {
+            return "Guardian details are private"
+        }
+
+        return member.guardians.isEmpty
             ? "No guardians on file"
             : member.guardians
                 .map { "\($0.displayName) · \($0.relationship)" }
@@ -247,7 +251,12 @@ private struct PlaceholderView: View {
                         RosterGuardian(id: "guardian_2", displayName: "Sam Preview", relationship: "caregiver"),
                     ]
                 ),
-                RosterMember(id: "participant_2", displayName: "Riley Preview", guardians: []),
+                RosterMember(
+                    id: "participant_2",
+                    displayName: "Riley Preview",
+                    guardians: [],
+                    guardianDetailsVisible: false
+                ),
             ]
         )
     )

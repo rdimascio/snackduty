@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "as_of": "2026-09-11",
+  "as_of": "2026-09-14",
   "repository": "rdimascio/snackduty",
   "audited_commit": "38dab8b227e8da51b123f45382b82ebb1dd6aeec",
-  "note": "Revised per owner direction. Sol implements bounded branches; orchestrator reviews/tests. User authorized PRs and merges, but GitHub branch writes currently return 403. Planned/local work is not a merged or released feature.",
+  "note": "Revised per owner direction. Sol implements bounded branches; orchestrator reviews/tests. Local GitHub CLI authentication works on the restored Mac, and the full local gate including native tests and live acceptance passed September 14. See implementation-status.md for publishing evidence. Planned/local work is not a merged or released feature.",
   "tasks": [
     {
       "id": "SD-001",

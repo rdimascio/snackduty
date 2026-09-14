@@ -4,6 +4,8 @@ Prepared September 11, 2026. Repository audited: `rdimascio/snackduty`, commit `
 
 Status: implementation proposal grounded in source inspection and the checks below. This is not a release certification. No production deployment, Apple account inspection, signed archive, or TestFlight upload occurred in this audit. Existing source still uses **Snackday**; this document uses the owner's **Snack Duty** name without changing bundle identifiers or source names.
 
+Restoration update, September 14: local GitHub CLI authentication works, current `origin/main` has no changes newer than the audited base, and the full local gate now passes on this Mac, including simulator tests/build and live native/API acceptance. Historical audit results below remain dated evidence. See [implementation-status.md](./implementation-status.md) for current verification and publishing status; production and TestFlight release requirements remain open.
+
 ## Decision
 
 **Build for one coach running one team, with the same adult also acting as a parent.** Serve coaches, co-coaches, players through their parents, and families first. League administration is an expansion; separate league-branded App Store releases are the final distribution phase.
