@@ -29,8 +29,8 @@ function requirePerson<T>(peopleById: Map<string, T>, personId: string): T {
 // The one team-list projection: `GET /api/teams` AND the /app page loader both
 // read through here, so the page and the API cannot drift. A team is listed
 // when the person CREATED it or holds an ACTIVE adult membership on it, and
-// each entry carries its access level — "manage" for creators and owner-role
-// members, "read" for adult-role members — so surfaces can render read-only
+// each entry carries its access level — "manage" for creators, owners, and
+// coaches, "read" for adult-role members — so surfaces can render read-only
 // versus management affordances without re-deriving authorization.
 export async function listAccessibleTeams(db: Db, personId: string) {
   const createdRows = await db
@@ -50,7 +50,7 @@ export async function listAccessibleTeams(db: Db, personId: string) {
     if (roles === undefined) rolesByTeamId.set(membership.teamId, [membership.role]);
     else roles.push(membership.role);
   }
-  // The SAME fold `teamAccess` authorizes with — owner outranks adult, unknown
+  // The SAME fold `teamAccess` authorizes with — owner outranks coach and adult, unknown
   // roles grant nothing — so this list and the authorization seam agree by
   // construction rather than by two copies of the rule staying in sync.
   const accessByTeamId = new Map<string, TeamAccessLevel>();
@@ -151,7 +151,7 @@ function emptyInvitationCounts(): GuardianInvitationCounts {
  * routinely quotes a child — "Maya's dad") and the token that reaches the
  * invitation list. A manager gets what they need here ("this child still has
  * nobody accepted") and reads the labelled list through the owner-scoped
- * invitations endpoint, which authorizes with `manageableActiveTeam`.
+ * invitations endpoint, which authorizes with `ownedActiveTeam`.
  *
  * Revoked invitations are deliberately not counted: a withdrawn invitation is
  * not a state of the child's roster entry.

@@ -1,12 +1,12 @@
 import type { Sessions } from "@lesto/auth";
-import { and, createTableSql, defineTable, dropTableSql, eq, text } from "@lesto/db";
+import { and, createTableSql, defineTable, dropTableSql, eq, inList, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
 import { seasonSchema, teamSchema } from "@snackday/domain";
 import { z } from "zod";
 
-import { authenticatedAdult, people } from "./identity";
+import { accounts, authenticatedAdult, people } from "./identity";
 
 export const teams = defineTable("teams", {
   id: text("id").primaryKey(),
@@ -71,48 +71,49 @@ export const adultMemberships = defineTable("adult_memberships", {
 
 export type TeamAccessLevel = "manage" | "read";
 
+export type TeamRole = "owner" | "coach" | "adult";
+
 /**
- * THE role → access rule, in exactly ONE place: an `owner` role manages with
- * full creator parity, an `adult` role may READ (team, seasons, roster), and
- * any other value — an unknown or future role — grants nothing. `teamAccess`
- * below, `listAccessibleTeams` in team-reads.ts, and invitation acceptance all
- * derive from this function, so they cannot drift into disagreeing about what
- * a role means.
+ * THE role → access rule, in exactly ONE place: owners and coaches manage team
+ * operations, an adult may read, and an unknown role grants nothing. Ownership
+ * is checked separately by `ownedActiveTeam`, so operational management never
+ * implies permission to delegate another person's access.
  */
 export function accessLevelForRole(role: string): TeamAccessLevel | undefined {
-  if (role === "owner") return "manage";
+  if (role === "owner" || role === "coach") return "manage";
   return role === "adult" ? "read" : undefined;
 }
 
-const ACCESS_RANK: Record<TeamAccessLevel, number> = { read: 1, manage: 2 };
+const ROLE_RANK: Record<TeamRole, number> = { adult: 1, coach: 2, owner: 3 };
+
+function isTeamRole(role: string): role is TeamRole {
+  return role === "owner" || role === "coach" || role === "adult";
+}
 
 /**
- * Whether `role` grants strictly MORE than `held` (`undefined` = holds nothing
- * yet) — the owner-outranks-adult precedence, derived from the one rule above.
- * Invitation acceptance upgrades a membership only when this holds, so
- * accepting can never REDUCE a role someone already has.
+ * Whether `role` grants strictly MORE than `held` (`undefined` = holds
+ * nothing). The independent role rank preserves owner > coach > adult even
+ * though owners and coaches both manage operational records.
  */
 export function roleOutranks(role: string, held: string | undefined): boolean {
-  const candidate = accessLevelForRole(role);
-  if (candidate === undefined) return false;
-
-  const current = held === undefined ? undefined : accessLevelForRole(held);
-  return current === undefined || ACCESS_RANK[candidate] > ACCESS_RANK[current];
+  if (!isTeamRole(role)) return false;
+  if (held === undefined || !isTeamRole(held)) return true;
+  return ROLE_RANK[role] > ROLE_RANK[held];
 }
 
 /**
  * Fold ACTIVE membership roles into the single grant they add up to: the
- * strongest role (owner outranks adult) and the level it grants, or undefined
+ * strongest role (owner outranks coach, which outranks adult) and its level, or undefined
  * when none of them grants anything. Every reader folds duplicate rows the same
  * way, so the authorization seam, the team list, and the role acceptance
  * reports can never disagree about one person's standing on one team.
  */
 export function grantedAccess(
   roles: readonly string[],
-): { role: string; level: TeamAccessLevel } | undefined {
-  let held: string | undefined;
+): { role: TeamRole; level: TeamAccessLevel } | undefined {
+  let held: TeamRole | undefined;
   for (const role of roles) {
-    if (roleOutranks(role, held)) held = role;
+    if (isTeamRole(role) && roleOutranks(role, held)) held = role;
   }
   if (held === undefined) return undefined;
 
@@ -127,9 +128,8 @@ export function grantedAccess(
  *
  * - The CREATOR (`teams.created_by_person_id`) manages implicitly — creators
  *   may predate `adult_memberships` and never need a row.
- * - ACTIVE memberships are folded through `grantedAccess`: an `owner` role
- *   manages with full creator parity, an `adult` role may READ, and owner
- *   outranks adult should both somehow exist.
+ * - ACTIVE memberships are folded through `grantedAccess`: owners and coaches
+ *   manage operations, adults read, and the strongest role wins.
  * - Everyone else — strangers, revoked or otherwise inactive memberships,
  *   unknown roles — resolves to undefined, and callers answer the same 404 a
  *   missing team gets: existence itself is never disclosed, never a 403.
@@ -160,14 +160,43 @@ export async function teamAccess(tx: Db, teamId: string, personId: string) {
 }
 
 /**
- * The active team when `personId` may MANAGE it (creator or owner-member), or
- * undefined. Every team-scoped MUTATION and the invitation surface authorize
- * through this: a read-only adult member is hidden from management exactly
- * like a stranger (404-hiding).
+ * The active team when `personId` may manage team operations (creator, owner,
+ * or coach), or undefined. Roster, schedule, and duty mutations authorize
+ * here; delegation and invitations use the narrower `ownedActiveTeam` seam.
  */
 export async function manageableActiveTeam(tx: Db, teamId: string, personId: string) {
   const access = await teamAccess(tx, teamId, personId);
   return access?.level === "manage" ? access.team : undefined;
+}
+
+/**
+ * The active team when `personId` owns it, either as its creator or through an
+ * active owner membership. Delegation and invitations authorize here so a
+ * coach can manage team operations without escalating anybody's access.
+ */
+export async function ownedActiveTeam(tx: Db, teamId: string, personId: string) {
+  const team = await tx
+    .select()
+    .from(teams)
+    .where(and(eq(teams.id, teamId), eq(teams.status, "active")))
+    .get();
+  if (team === undefined) return undefined;
+  if (team.createdByPersonId === personId) return team;
+
+  const membershipRows = await tx
+    .select()
+    .from(adultMemberships)
+    .where(
+      and(
+        eq(adultMemberships.teamId, team.id),
+        eq(adultMemberships.personId, personId),
+        eq(adultMemberships.status, "active"),
+      ),
+    )
+    .all();
+  return grantedAccess(membershipRows.map((membership) => membership.role))?.role === "owner"
+    ? team
+    : undefined;
 }
 
 /** The active team when `personId` may at least READ it, or undefined. */
@@ -193,6 +222,8 @@ export const createSeasonInputSchema = z
 
 const unauthorized = { error: "authentication required" } as const;
 const notFound = { error: "team not found" } as const;
+const adultMemberNotFound = { error: "adult team member not found" } as const;
+const ownerRoleCannotChange = { error: "team owner role cannot change" } as const;
 
 export function projectTeam(row: {
   id: string;
@@ -288,9 +319,84 @@ async function readTeam(c: Context<"/api/teams/:teamId">, db: Db, sessions: Sess
   });
 }
 
+async function setCoCoachRole(
+  c: Context<
+    | "/api/teams/:teamId/adult-members/:personId/co-coach/grant"
+    | "/api/teams/:teamId/adult-members/:personId/co-coach/revoke"
+  >,
+  db: Db,
+  sessions: Sessions,
+  role: "coach" | "adult",
+) {
+  const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
+  if (identity === undefined) return c.json(unauthorized, 401);
+
+  const outcome = await db.transaction(async (tx) => {
+    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
+    if (team === undefined) return "no-team" as const;
+    if (team.createdByPersonId === c.param("personId")) return "owner" as const;
+
+    if (role === "coach") {
+      const targetPerson = await tx
+        .select()
+        .from(people)
+        .where(and(eq(people.id, c.param("personId")), eq(people.status, "active")))
+        .get();
+      const targetAccount = await tx
+        .select()
+        .from(accounts)
+        .where(and(eq(accounts.personId, c.param("personId")), eq(accounts.status, "active")))
+        .get();
+      if (targetPerson === undefined || targetAccount === undefined) return "no-member" as const;
+    }
+
+    const rows = await tx
+      .select()
+      .from(adultMemberships)
+      .where(
+        and(
+          eq(adultMemberships.teamId, team.id),
+          eq(adultMemberships.personId, c.param("personId")),
+          eq(adultMemberships.status, "active"),
+        ),
+      )
+      .all();
+    const held = grantedAccess(rows.map((membership) => membership.role));
+    if (held === undefined) return "no-member" as const;
+    if (held.role === "owner") return "owner" as const;
+
+    const now = new Date().toISOString();
+    await tx
+      .update(adultMemberships)
+      .set({ role, updatedAt: now })
+      .where(
+        and(
+          eq(adultMemberships.teamId, team.id),
+          eq(adultMemberships.personId, c.param("personId")),
+          eq(adultMemberships.status, "active"),
+          inList(adultMemberships.role, ["adult", "coach"]),
+        ),
+      )
+      .run();
+
+    return { personId: c.param("personId"), role };
+  });
+
+  if (outcome === "no-team") return c.json(notFound, 404);
+  if (outcome === "no-member") return c.json(adultMemberNotFound, 404);
+  if (outcome === "owner") return c.json(ownerRoleCannotChange, 409);
+  return c.json({ membership: { ...outcome, status: "active" as const } });
+}
+
 export function registerTeamRoutes(app: Lesto, db: Db, sessions: Sessions) {
   return app
     .post("/api/teams", (c) => createTeam(c, db, sessions))
     .post("/api/teams/:teamId/seasons", (c) => createSeason(c, db, sessions))
+    .post("/api/teams/:teamId/adult-members/:personId/co-coach/grant", (c) =>
+      setCoCoachRole(c, db, sessions, "coach"),
+    )
+    .post("/api/teams/:teamId/adult-members/:personId/co-coach/revoke", (c) =>
+      setCoCoachRole(c, db, sessions, "adult"),
+    )
     .get("/api/teams/:teamId", (c) => readTeam(c, db, sessions));
 }

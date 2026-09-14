@@ -20,11 +20,12 @@ import {
 import {
   adultMemberships,
   grantedAccess,
-  manageableActiveTeam,
+  ownedActiveTeam,
   projectTeam,
   roleOutranks,
   teams,
 } from "./teams";
+import type { TeamRole } from "./teams";
 
 export const invitations = defineTable("invitations", {
   id: text("id").primaryKey(),
@@ -205,7 +206,11 @@ function activeMemberships(tx: Db, teamId: string, personId: string) {
  * membership is in force. Every surface that reports a role reads it from here,
  * so nobody is ever told they hold something the row does not grant.
  */
-async function heldTeamRole(tx: Db, teamId: string, personId: string): Promise<string | undefined> {
+async function heldTeamRole(
+  tx: Db,
+  teamId: string,
+  personId: string,
+): Promise<TeamRole | undefined> {
   const rows = await activeMemberships(tx, teamId, personId);
   return grantedAccess(rows.map((membership) => membership.role))?.role;
 }
@@ -268,7 +273,7 @@ async function createInvitation(
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
   const outcome = await db.transaction(async (tx) => {
-    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
+    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
     if (input.participantId !== undefined) {
@@ -348,7 +353,7 @@ async function resendInvitation(
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
   const outcome = await db.transaction(async (tx) => {
-    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
+    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
 
     const row = await tx
@@ -395,7 +400,7 @@ async function revokeInvitation(
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const outcome = await db.transaction(async (tx) => {
-    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
+    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
 
     const row = await tx
@@ -442,7 +447,7 @@ async function listInvitations(
   // this list identically (pending invite links included). An adult-role
   // member's reads are team + roster only — for them, as for strangers, this
   // answers the hiding 404, so pending links never reach read-only adults.
-  const team = await manageableActiveTeam(db, c.param("teamId"), identity.person.id);
+  const team = await ownedActiveTeam(db, c.param("teamId"), identity.person.id);
   if (team === undefined) return c.json(teamNotFound, 404);
 
   const rows = await db.select().from(invitations).where(eq(invitations.teamId, team.id)).all();
@@ -742,7 +747,7 @@ export async function invitationAcceptedBy(
   db: Db,
   token: string,
   personId: string,
-): Promise<{ teamName: string; grantedRole: InvitedRole } | undefined> {
+): Promise<{ teamName: string; grantedRole: TeamRole } | undefined> {
   const tokenHash = await hashInviteToken(token);
   const row = await db.select().from(invitations).where(eq(invitations.tokenHash, tokenHash)).get();
   if (row === undefined || row.status !== "accepted" || row.acceptedByPersonId !== personId) {
@@ -759,7 +764,7 @@ export async function invitationAcceptedBy(
   const grantedRole = await heldTeamRole(db, team.id, personId);
   if (grantedRole === undefined) return undefined;
 
-  return { teamName: team.name, grantedRole: grantedRole as InvitedRole };
+  return { teamName: team.name, grantedRole };
 }
 
 /**

@@ -37,7 +37,8 @@ interface AcceptResponse {
 }
 
 function roleDescription(role: string): string {
-  return role === "owner" ? "an owner" : "an adult member";
+  if (role === "owner") return "an owner";
+  return role === "coach" ? "a co-coach" : "an adult member";
 }
 
 const jsonPost = {
