@@ -1,5 +1,19 @@
 # Team-first implementation status
 
+## Published foundation
+
+[PR #1](https://github.com/rdimascio/snackduty/pull/1) merged as `5146232ade232558e222badbde8a8d19a21f69ee` on September 14 after the [hosted macOS full product gate](https://github.com/rdimascio/snackduty/actions/runs/34897170161) and GitGuardian checks passed. This publishes the restored roadmap, roster privacy, duty API, native privacy correction, and product CI. Local and hosted gates both executed 226 web tests, 19 Swift tests, the domain/platform suites, builds and native live acceptance.
+
+## Co-coach capability slice
+
+The next isolated Sol implementation adds owner-controlled coaching grants to existing adult team memberships. Stored role precedence is owner → coach → adult. Coaches use the existing authorized roster, season, event, attendance and duty services; owners alone manage invitations and coaching grants. API `access: "manage"` describes operational access and is not permission to manage membership. Server guards remain authoritative.
+
+Integrated as `9de1226` on `feat/co-coach-beta` from Sol commit `a469f34`, based on merged main `5146232`. Independent review prompted explicit delegated-owner coverage, same-team guardian preservation, and accurate accepted-invitation role typing/display. The complete local Mac gate passed with 232 web tests, 10 domain tests, 39 platform-manifest tests, 19 Swift tests, builds, and live native/API acceptance. Hosted CI must pass before this branch is merged.
+
+`POST /api/teams/:teamId/adult-members/:personId/co-coach/grant` requires an active adult account and team membership. The matching `/revoke` endpoint downgrades all active coach rows to ordinary adult access, including when the target account is deactivated. Neither endpoint changes a creator/owner role or guardian edges; unknown roles remain inert. A parent retains own-child reads on the coached team and other teams after coaching is revoked. Accepted invitation pages report the current coach role accurately without adding a coach invitation type.
+
+This is a partial SD-027/SD-003 backend slice. Verified recipient-bound co-coach invitations, role-change audit/outbox, native role-management UI and real authentication remain open. The existing membership table stores the role; no new schema migration is required. League and branded-app work remain deferred.
+
 ## Mac restoration verification — September 14, 2026
 
 Restored on `review/team-first`. Fetching with local GitHub CLI authentication confirmed that `origin/main` still points to `38dab8b227e8da51b123f45382b82ebb1dd6aeec`; there were no newer main changes to integrate. The earlier integration-token 403 does not apply to the local authenticated CLI. No branch protection or repository rulesets were configured at inspection; passing product checks remain our merge requirement.
@@ -12,7 +26,7 @@ Independent review found that hidden guardian arrays were described as missing b
 
 The new `Product / Full product gate` workflow runs the unchanged complete gate for PRs and main on macOS 15 with Bun 1.3.5, Xcode 16.4 and an available iPhone simulator. It preserves the gate exit code and uploads failure logs/test results. This is a simulator CI lane, not signing or release certification.
 
-The sections below preserve the September 11 handoff. Their GitHub and native-environment blockers describe that earlier environment; the verification above supersedes them for this Mac. PR and merge evidence will be recorded after checks complete.
+The sections below preserve the September 11 handoff. Their GitHub and native-environment blockers describe that earlier environment; the verification and publishing evidence above supersede them for this Mac.
 
 ## Original restored handoff
 
