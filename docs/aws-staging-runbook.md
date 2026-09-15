@@ -55,19 +55,20 @@ guide](https://alchemy.run/aws/data/rds/).
    paste credentials into a shell history, repository file, task, or log.
 2. Run the locked checks and build the immutable application artifact. Record its SHA-256 digest
    and the exact 40-character Git commit.
-3. Preview the graph. Alchemy's `plan` and `deploy --dry-run` are read-only; `deploy`, `destroy`,
+3. Review the desired topology and existing state. Alchemy 0.93.12 has no diff preview; `--read`
+   only reads saved state. `deploy` and `destroy`,
    and `unsafe nuke` are not.
 
 ```sh
 aws sts get-caller-identity --profile <staging-profile>
-bun alchemy plan --stage staging --profile <staging-profile> --detailed
+bun infra/alchemy/plan.ts
 ```
 
-Review the plan for one VPC, the intended public/private subnets, narrowly scoped security groups,
+Review the topology for one VPC, the intended public/private subnets, narrowly scoped security groups,
 one load balancer, one EC2 instance, one private encrypted PostgreSQL RDS instance, and the required
 secret/IAM resources. Reject replacements of the VPC, database, database subnet group, or database
-secret unless the release explicitly calls for them. Alchemy shows and confirms a plan before
-applying it; do not use `--yes` for an attended staging deployment.
+secret unless the release explicitly calls for them. Alchemy 0.93.12 applies mutations without a
+confirmation prompt; serialize the deployment and retain the command receipt.
 
 ## Non-secret verification target
 

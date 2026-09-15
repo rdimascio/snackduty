@@ -233,6 +233,7 @@ const outputs = await alchemy.run(
       EnableCloudwatchLogsExports: ["postgresql", "upgrade"],
       Tags: resourceTags,
     });
+    const rds = rdsOutputs(database);
 
     const roleName = `${prefix}-api`;
     await AWS.IAM.Role("ApiRole", {
@@ -261,7 +262,7 @@ const outputs = await alchemy.run(
           {
             Effect: "Allow",
             Action: "secretsmanager:GetSecretValue",
-            Resource: [database["MasterUserSecret.SecretArn"], config.runtimeSecretArn],
+            Resource: [rds.secretArn, config.runtimeSecretArn],
           },
         ],
       },
@@ -291,9 +292,9 @@ const outputs = await alchemy.run(
         bootstrapEnvironment({
           publicBaseUrl: plan.publicBaseUrl,
           appleClientId: config.appleClientId,
-          databaseEndpoint: database["Endpoint.Address"],
-          databasePort: database["Endpoint.Port"],
-          databaseSecretArn: database["MasterUserSecret.SecretArn"],
+          databaseEndpoint: rds.endpoint,
+          databasePort: String(rds.port),
+          databaseSecretArn: rds.secretArn,
           runtimeSecretArn: config.runtimeSecretArn,
           artifactDigest: plan.api.artifactDigest,
         }),
@@ -370,11 +371,11 @@ const outputs = await alchemy.run(
       apiSecurityGroupId: apiSecurityGroup.GroupId,
       apiPort: plan.api.applicationPort,
       databaseInstanceId: databaseInstanceIdentifier,
-      databaseEndpoint: database["Endpoint.Address"],
-      databasePort: Number(database["Endpoint.Port"]),
+      databaseEndpoint: rds.endpoint,
+      databasePort: rds.port,
       databaseSubnetGroupName,
       databaseSecurityGroupId: databaseSecurityGroup.GroupId,
-      databaseSecretArn: database["MasterUserSecret.SecretArn"],
+      databaseSecretArn: rds.secretArn,
       loadBalancerArn: loadBalancer.LoadBalancerArn,
       loadBalancerDnsName: loadBalancer.DNSName,
       loadBalancerSecurityGroupId: loadBalancerSecurityGroup.GroupId,
@@ -388,6 +389,30 @@ await app.finalize();
 
 function tags(values: Readonly<Record<string, string>>): Array<{ Key: string; Value: string }> {
   return Object.entries(values).map(([Key, Value]) => ({ Key, Value }));
+}
+
+interface RdsOutputs {
+  readonly endpoint: string;
+  readonly port: number;
+  readonly secretArn: string;
+}
+
+function rdsOutputs(value: unknown): RdsOutputs {
+  const record = value as Record<string, unknown>;
+  const endpoint = record["Endpoint"] as Record<string, unknown> | undefined;
+  const secret = record["MasterUserSecret"] as Record<string, unknown> | undefined;
+  if (
+    typeof endpoint?.["Address"] !== "string" ||
+    typeof endpoint["Port"] !== "number" ||
+    typeof secret?.["SecretArn"] !== "string"
+  ) {
+    throw new Error("RDS provider did not return the required endpoint and secret outputs.");
+  }
+  return {
+    endpoint: endpoint["Address"],
+    port: endpoint["Port"],
+    secretArn: secret["SecretArn"],
+  };
 }
 
 interface BootstrapEnvironment {

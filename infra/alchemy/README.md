@@ -6,9 +6,8 @@ subnets, an HTTPS application load balancer, one EC2 API host, and one private
 RDS PostgreSQL instance. The API and primary database placement share an
 availability zone; traffic between them stays on the VPC network.
 
-No resource is ready to deploy yet. The checked-in application runtime still
-opens SQLite, so `alchemy.run.ts` refuses create and update phases unless
-`SNACKDAY_POSTGRES_RUNTIME_VERIFIED=1` is explicitly set. Set that flag only
+No resource is ready to deploy yet. `alchemy.run.ts` refuses create and update
+phases unless `SNACKDAY_POSTGRES_RUNTIME_VERIFIED=1` is explicitly set. Set that flag only
 after the application and its canonical migrations have passed against the
 selected PostgreSQL version. `--read` remains available for state inspection.
 
@@ -50,14 +49,12 @@ bun infra/alchemy/plan.ts
 bun test infra/alchemy/config.test.ts
 ```
 
-After the PostgreSQL runtime gate is satisfied, preview Alchemy's resource
-changes with its read-only mode before any deployment:
+After the PostgreSQL runtime gate is satisfied, inspect saved Alchemy state:
 
 ```sh
 bun infra/alchemy/alchemy.run.ts --read
 ```
 
-The root package owner must register the repository-pinned Alchemy dependency
-before this is runnable from a clean Snackday checkout. Until then, the stack is
-type-checked against the sibling Lesto repository's installed
-`alchemy@0.93.12`, the same version its accepted deployment convention uses.
+The repository pins `alchemy@0.93.12` and checks this infrastructure project in
+the root typecheck. `plan.ts` is the desired-topology summary; this Alchemy
+version applies mutations directly, so serialize deployments and retain receipts.
