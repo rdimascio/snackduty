@@ -6,32 +6,33 @@ This record separates behavior implemented in source from evidence gathered in a
 
 | Boundary                                                            | Source or command                                         | Implemented | Locally verified          | Staging verified | TestFlight released |
 | ------------------------------------------------------------------- | --------------------------------------------------------- | ----------- | ------------------------- | ---------------- | ------------------- |
-| Apple challenge and cryptographic identity-token verification       | `apps/web/test/beta-journey.test.ts`                      | Yes         | Pending integrated run    | No               | No                  |
-| Stable provider-subject identity and verified-email claim           | `apps/web/test/beta-journey.test.ts`                      | Yes         | Pending integrated run    | No               | No                  |
-| Session restore, server revocation, expiry, and logout              | `apps/web/test/beta-journey.test.ts`                      | Yes         | Pending integrated run    | No               | No                  |
-| One adult coaches one team and parents on another                   | `apps/web/test/beta-journey.test.ts`                      | Yes         | Pending integrated run    | No               | No                  |
-| Owner-only delegation and co-coach operational access               | `apps/web/test/beta-journey.test.ts`                      | Yes         | Pending integrated run    | No               | No                  |
-| Recipient-bound invitation forwarding, rotation, replay, and expiry | `apps/web/test/beta-journey.test.ts`                      | Yes         | Pending integrated run    | No               | No                  |
-| Cross-team, cross-season, and unrelated-child privacy boundaries    | `apps/web/test/beta-journey.test.ts`                      | Yes         | Pending integrated run    | No               | No                  |
+| Apple challenge and cryptographic identity-token verification       | `apps/web/test/beta-journey.test.ts`                      | Yes         | Yes — focused journey     | No               | No                  |
+| Stable provider-subject identity and verified-email claim           | `apps/web/test/beta-journey.test.ts`                      | Yes         | Yes — focused journey     | No               | No                  |
+| Session restore, cookie-mode isolation, revocation, expiry, logout  | `apps/web/test/beta-journey.test.ts`                      | Yes         | Yes — focused journey     | No               | No                  |
+| One adult coaches one team and parents on another                   | `apps/web/test/beta-journey.test.ts`                      | Yes         | Yes — focused journey     | No               | No                  |
+| Owner-only delegation and co-coach operational access               | `apps/web/test/beta-journey.test.ts`                      | Yes         | Yes — focused journey     | No               | No                  |
+| Recipient-bound invitation forwarding, rotation, replay, and expiry | `apps/web/test/beta-journey.test.ts`                      | Yes         | Yes — focused journey     | No               | No                  |
+| Cross-team, cross-season, and unrelated-child privacy boundaries    | `apps/web/test/beta-journey.test.ts`                      | Yes         | Yes — focused journey     | No               | No                  |
 | Durable runtime migrations and persistence                          | `bun run --filter web test apps/web/test/runtime.test.ts` | Yes         | See current check receipt | No               | No                  |
-| Invitation intent persisted before idempotent delivery              | invitation outbox focused tests                           | Yes         | See current check receipt | No               | No                  |
+| Invitation intent persisted before idempotent delivery              | outbox tests and `apps/web/test/beta-journey.test.ts`     | Yes         | Yes — focused journey     | No               | No                  |
 | Native contract decoding and session/selection state                | SnackdayDomain tests                                      | Yes         | See current check receipt | No               | No                  |
 | Native launch, Apple sheet, team switching, and failure recovery    | `bun run ios:test:ui`                                     | Yes         | See current check receipt | No               | No                  |
 
-“Pending integrated run” must be replaced by the exact reviewed commit and a passing command before release approval. “See current check receipt” means the integration ledger or CI receipt for the reviewed commit is authoritative; this document does not copy a stale pass claim forward.
+“Focused journey” records `bun test apps/web/test/beta-journey.test.ts`: 2 tests, 91 assertions, and 0 failures against foundation integration `9439d7c` plus the owned acceptance follow-up. The final integration ledger or CI receipt remains authoritative after cherry-pick; this document does not copy a stale pass claim forward. “See current check receipt” has the same meaning for checks run outside this lane.
 
 ## Required release receipts
 
 Record these against the same reviewed commit:
 
-| Check                              | Receipt |
-| ---------------------------------- | ------- |
-| `bun run check:fast`               | Pending |
-| `bun run check:scenario`           | Pending |
-| `bun run ios:test:ui`              | Pending |
-| `bun run accept`                   | Pending |
-| `bun run gate`                     | Pending |
-| Independent integrated-diff review | Pending |
+| Check                                         | Receipt                       |
+| --------------------------------------------- | ----------------------------- |
+| `bun test apps/web/test/beta-journey.test.ts` | Pass — 2 tests, 91 assertions |
+| `bun run check:fast`                          | Pending                       |
+| `bun run check:scenario`                      | Pending                       |
+| `bun run ios:test:ui`                         | Pending                       |
+| `bun run accept`                              | Pending                       |
+| `bun run gate`                                | Pending                       |
+| Independent integrated-diff review            | Pending                       |
 
 For native checks, record the discovered simulator destination and the nonzero named-test counts. Keep failure logs redacted and attach screenshots to the release record rather than embedding child-sensitive data here.
 
@@ -46,3 +47,12 @@ The following remain incomplete until they run with real external accounts and d
 - The build is uploaded, external/internal beta access is configured as intended, and the released build number is recorded.
 
 Never satisfy these rows with a development persona, a mocked identity verifier, an in-memory delivery recorder, or a preview fixture.
+
+## Native real-controller preparation
+
+Two integration regressions found while replacing the fixture shell have source corrections pending the full gate:
+
+- The Apple challenge preparation now leaves the sign-in form visible, so the view can present the system authorization sheet after receiving the server nonce. A late challenge failure is generation-guarded and cannot replace a session restored in the meantime.
+- The native transport test server now reads `URLRequest.httpBodyStream`, matching the body representation used by `URLSession` on the simulator. This turns Apple sign-in, restored-session logout, and the live development round trip into exercised requests instead of false 400 responses from a test-only body reader.
+
+These are implementation findings, not release evidence. Promote the native rows in the matrix only after the named domain, application, and UI tests pass through `bun run gate` on the reviewed commit with the Sign in with Apple entitlement configured.

@@ -6,8 +6,9 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createAppleIdentityVerifier } from "../app/lib/server/apple-identity";
-import { VERIFIED_SESSION_TTL_MS } from "../app/lib/server/identity";
+import { DEV_SESSION_COOKIE, VERIFIED_SESSION_TTL_MS } from "../app/lib/server/identity";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
+import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { INVITATION_TTL_MS } from "../app/lib/server/invitations";
 import { openRuntimeApplication } from "../runtime";
 import type { RuntimeApplication, RuntimeConfiguration } from "../runtime";
@@ -90,6 +91,7 @@ function runtimeConfiguration(databasePath: string): RuntimeConfiguration {
     host: "127.0.0.1",
     port: 1,
     publicBaseUrl: new URL("https://staging.snackduty.test"),
+    appleClientId: audience,
     upstreamCredentialPathLoggingSafe: false,
   };
 }
@@ -103,6 +105,7 @@ async function runtimeFixture(clock: MutableClock) {
     {
       clock: () => clock.now,
       inviteDelivery,
+      invitationCipher: aesGcmInvitationPayloadCipher(new Uint8Array(32).fill(7)),
       appleVerifier: createAppleIdentityVerifier({
         audience,
         issuer,
@@ -200,6 +203,24 @@ function deliveredToken(delivery: { readonly inviteUrl: string }): string {
   return delivery.inviteUrl.slice("/invite#".length);
 }
 
+async function expectPersistedDeliveries(
+  runtime: RuntimeApplication,
+  invitationId: string,
+  count: number,
+): Promise<void> {
+  const rows = await runtime.sql
+    .prepare("SELECT status, delivered_at FROM invitation_delivery_outbox WHERE invitation_id = ?")
+    .all([invitationId]);
+  expect(rows).toHaveLength(count);
+  expect(rows).toEqual(
+    expect.arrayContaining(
+      Array.from({ length: count }, () =>
+        expect.objectContaining({ status: "delivered", delivered_at: expect.any(String) }),
+      ),
+    ),
+  );
+}
+
 const ownerCoach: Adult = {
   subject: "apple-owner-coach",
   email: "owner.coach@example.com",
@@ -256,6 +277,7 @@ describe("coach-parent beta composed runtime", () => {
     );
     expect(coachInvite.status).toBe(201);
     const coachInvitationId = (json(coachInvite) as { invitation: { id: string } }).invitation.id;
+    await expectPersistedDeliveries(runtime, coachInvitationId, 1);
     const originalCoachToken = deliveredToken(inviteDelivery.deliveries.at(-1)!);
     const rotated = await post(
       app,
@@ -264,6 +286,7 @@ describe("coach-parent beta composed runtime", () => {
       {},
     );
     expect(rotated.status).toBe(200);
+    await expectPersistedDeliveries(runtime, coachInvitationId, 2);
     const rotatedCoachToken = deliveredToken(inviteDelivery.deliveries.at(-1)!);
     expect(rotatedCoachToken).not.toBe(originalCoachToken);
     expect(
@@ -313,6 +336,8 @@ describe("coach-parent beta composed runtime", () => {
       },
     );
     expect(familyInvite.status).toBe(201);
+    const familyInvitationId = (json(familyInvite) as { invitation: { id: string } }).invitation.id;
+    await expectPersistedDeliveries(runtime, familyInvitationId, 1);
     const familyToken = deliveredToken(inviteDelivery.deliveries.at(-1)!);
     expect(
       (await post(app, "/api/invitations/accept", forwarded.cookie, { token: familyToken })).status,
@@ -490,6 +515,9 @@ describe("coach-parent beta composed runtime", () => {
       },
     );
     expect(expiringInvite.status).toBe(201);
+    const expiringInvitationId = (json(expiringInvite) as { invitation: { id: string } }).invitation
+      .id;
+    await expectPersistedDeliveries(runtime, expiringInvitationId, 1);
     const expiringToken = deliveredToken(inviteDelivery.deliveries.at(-1)!);
     clock.now += INVITATION_TTL_MS;
     expect(
@@ -507,6 +535,20 @@ describe("coach-parent beta composed runtime", () => {
     expect(
       (await app.handle("GET", "/api/session", { headers: { cookie: first.cookie } })).status,
     ).toBe(200);
+    const developmentCookie = `${DEV_SESSION_COOKIE}=${sessionToken(first.cookie)}`;
+    expect(
+      (await app.handle("GET", "/api/session", { headers: { cookie: developmentCookie } })).status,
+    ).toBe(401);
+    expect(
+      (await app.handle("GET", "/api/teams", { headers: { cookie: developmentCookie } })).status,
+    ).toBe(401);
+    expect(
+      (
+        await post(app, "/api/teams", developmentCookie, {
+          name: "Development cookie must not authorize",
+        })
+      ).status,
+    ).toBe(401);
     expect(
       (
         await app.handle("POST", "/api/auth/apple/sign-in", {
@@ -531,6 +573,9 @@ describe("coach-parent beta composed runtime", () => {
     expect(header(logout, "set-cookie")).toContain("Max-Age=0");
     expect(
       (await app.handle("GET", "/api/session", { headers: { cookie: second.cookie } })).status,
+    ).toBe(401);
+    expect(
+      (await post(app, "/api/teams", second.cookie, { name: "Logged-out replay" })).status,
     ).toBe(401);
 
     const third = await signIn(app, dualRoleAdult, clock);
