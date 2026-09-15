@@ -1,0 +1,153 @@
+import Foundation
+import SnackdayDomain
+import Testing
+
+private actor SessionSelectionStore: TeamSelectionStoring {
+    var values: [String: TeamSeasonSelection] = [:]
+    func selection(for personID: String) -> TeamSeasonSelection? { values[personID] }
+    func saveSelection(_ selection: TeamSeasonSelection, for personID: String) { values[personID] = selection }
+    func clearSelection(for personID: String) { values.removeValue(forKey: personID) }
+}
+
+private actor SessionTransport: SnackdayTransport {
+    var currentIdentity: AdultIdentityDTO?
+    var currentError: SnackdayAPIError?
+    var signedOut = false
+    let teams: TeamsResponse
+    let roster: RosterResponse
+
+    init(
+        identity: AdultIdentityDTO? = sessionIdentity(),
+        error: SnackdayAPIError? = nil,
+        teams: TeamsResponse = sessionTeams(),
+        roster: RosterResponse = RosterResponse(roster: [])
+    ) {
+        currentIdentity = identity
+        currentError = error
+        self.teams = teams
+        self.roster = roster
+    }
+
+    func currentSession() throws -> AdultIdentityDTO {
+        if let currentError { throw currentError }
+        guard let currentIdentity else { throw SnackdayAPIError.unauthorized }
+        return currentIdentity
+    }
+    func beginAppleSignIn() -> AppleChallengeDTO {
+        AppleChallengeDTO(challengeId: "challenge", nonce: "nonce")
+    }
+    func completeAppleSignIn(_ input: AppleSignInRequestDTO) throws -> AdultIdentityDTO {
+        guard let currentIdentity else { throw SnackdayAPIError.unauthorized }
+        return currentIdentity
+    }
+    func signOut() { signedOut = true }
+    func listTeams() -> TeamsResponse { teams }
+    func loadRoster(teamId: String, seasonId: String) -> RosterResponse { roster }
+}
+
+private func sessionIdentity(
+    accountID: String = "account_adult",
+    personID: String = "person_adult"
+) -> AdultIdentityDTO {
+    AdultIdentityDTO(
+        account: DevAccountDTO(id: accountID),
+        person: DevPersonDTO(id: personID, displayName: "Adult")
+    )
+}
+
+private func sessionTeams() -> TeamsResponse {
+    let team = TeamDTO(
+        id: "team_one",
+        name: "Falcons",
+        status: "active",
+        createdAt: "2026-09-14T00:00:00.000Z",
+        updatedAt: "2026-09-14T00:00:00.000Z"
+    )
+    let season = SeasonDTO(
+        id: "season_one",
+        teamId: team.id,
+        label: "Fall 2026",
+        startDate: "2026-09-01",
+        endDate: "2026-12-01",
+        timeZone: "America/Los_Angeles",
+        status: "active",
+        createdAt: "2026-09-14T00:00:00.000Z",
+        updatedAt: "2026-09-14T00:00:00.000Z"
+    )
+    return TeamsResponse(teams: [TeamWithSeasonsDTO(team: team, seasons: [season])])
+}
+
+@MainActor @Test func restoreLoadsCurrentSessionAndDirectory() async {
+    let controller = SnackdayApplicationController(
+        transport: SessionTransport(),
+        selectionStore: SessionSelectionStore()
+    )
+
+    await controller.restore()
+
+    guard case .ready(let identity, let directory, let snapshot) = controller.state else {
+        Issue.record("Expected a ready restored session")
+        return
+    }
+    #expect(identity.person.id == "person_adult")
+    #expect(directory.selection == TeamSeasonSelection(teamID: "team_one", seasonID: "season_one"))
+    #expect(snapshot.team.name == "Falcons")
+}
+
+@MainActor @Test func expiredOrRevokedSessionReturnsToSignedOut() async {
+    let selections = SessionSelectionStore()
+    await selections.saveSelection(
+        TeamSeasonSelection(teamID: "team_one", seasonID: "season_one"),
+        for: "person_adult"
+    )
+    let controller = SnackdayApplicationController(
+        transport: SessionTransport(error: .unauthorized),
+        selectionStore: selections
+    )
+
+    await controller.restore()
+
+    #expect(controller.state == .signedOut)
+}
+
+@MainActor @Test func emptyTeamDirectoryIsAnHonestState() async {
+    let controller = SnackdayApplicationController(
+        transport: SessionTransport(teams: TeamsResponse(teams: [])),
+        selectionStore: SessionSelectionStore()
+    )
+
+    await controller.restore()
+
+    guard case .emptyTeams(let identity) = controller.state else {
+        Issue.record("Expected an empty-teams state")
+        return
+    }
+    #expect(identity.person.id == "person_adult")
+}
+
+@MainActor @Test func logoutClearsIdentityBoundSelection() async {
+    let transport = SessionTransport()
+    let selections = SessionSelectionStore()
+    let controller = SnackdayApplicationController(transport: transport, selectionStore: selections)
+    await controller.restore()
+
+    await controller.signOut()
+
+    #expect(controller.state == .signedOut)
+    #expect(await transport.signedOut)
+    #expect(await selections.selection(for: "person_adult") == nil)
+}
+
+@MainActor @Test func safeFailuresNeverCarryServerPayloads() async {
+    let controller = SnackdayApplicationController(
+        transport: SessionTransport(error: .requestFailed(statusCode: 503)),
+        selectionStore: SessionSelectionStore()
+    )
+
+    await controller.restore()
+
+    #expect(
+        controller.state
+            == .failed(identity: nil, directory: nil, failure: .requestFailed(statusCode: 503))
+    )
+}
