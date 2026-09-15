@@ -1,5 +1,5 @@
 import type { SessionService as Sessions } from "./application-contracts";
-import type { Db } from "@lesto/db";
+import type { Db, Dialect } from "@lesto/db";
 
 import { lesto } from "@lesto/web";
 import { installSchema as installQueueSchema } from "@lesto/queue";
@@ -131,6 +131,7 @@ export interface ApplicationOptions {
   readonly exposeCalendarFeeds?: boolean;
   readonly appleVerifier?: import("./application-contracts").AppleIdentityVerifier;
   readonly invitationCipher?: InvitationPayloadCipher;
+  readonly dialect?: Dialect;
 }
 export const applicationMigrations = [
   createIdentity,
@@ -158,6 +159,7 @@ export function createApplication(options: ApplicationOptions) {
       ? undefined
       : createInvitationOutboxOperations({
           sql: options.sql,
+          ...(options.dialect === undefined ? {} : { dialect: options.dialect }),
           deliverer: options.inviteDelivery,
           cipher: options.invitationCipher,
           clock: options.clock,
@@ -192,6 +194,7 @@ export function createApplication(options: ApplicationOptions) {
     ),
     migrations: applicationMigrations,
     schemas: [installQueueSchema],
+    ...(options.dialect === undefined ? {} : { dialect: options.dialect }),
     secure: { originCheck: {} },
     ui: { dialect: "preact", css: "app/styles/app.css" },
   };

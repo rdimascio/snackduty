@@ -1,6 +1,7 @@
 import type { SessionService as Sessions } from "../app/lib/server/application-contracts";
 import { createDb } from "@lesto/db";
 import type { Db, SqlDatabase } from "@lesto/db";
+import { openPostgres } from "@lesto/pg";
 import { createApp } from "@lesto/kernel";
 import type { App, LestoAppConfig } from "@lesto/kernel";
 
@@ -54,7 +55,16 @@ export async function openRuntimeApplication(
   adapters: RuntimeApplicationAdapters = {},
 ): Promise<RuntimeApplication> {
   const target = runtimeDatabaseTarget(configuration);
-  const database = await (adapters.openDatabase ?? openRuntimeDatabase)(target);
+  const openDatabase =
+    adapters.openDatabase ??
+    ((requested: RuntimeDatabaseTarget) =>
+      openRuntimeDatabase(
+        requested,
+        requested.dialect === "postgres"
+          ? { openPostgres: (configuration) => openPostgres(configuration) }
+          : {},
+      ));
+  const database = await openDatabase(target);
   if (database.dialect !== target.dialect) {
     await database.close();
     throw new Error("Runtime database opener returned a different SQL dialect than requested.");
@@ -78,6 +88,7 @@ export async function openRuntimeApplication(
       sessions,
       clock,
       mode: configuration.mode,
+      dialect: database.dialect,
       developmentSignIn: false,
       inviteDelivery,
       exposeCalendarFeeds: configuration.upstreamCredentialPathLoggingSafe,

@@ -1,5 +1,5 @@
 import { createDb, createTableSql, defineTable, dropTableSql, eq, text } from "@lesto/db";
-import type { Db, SqlDatabase } from "@lesto/db";
+import type { Db, Dialect, SqlDatabase } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import { isPermanentFailure, permanentFailure, Queue } from "@lesto/queue";
 import type { RunResult, Worker, WorkOptions } from "@lesto/queue";
@@ -140,6 +140,7 @@ export interface InvitationOutbox {
 
 export interface InvitationOutboxOptions {
   readonly sql: SqlDatabase;
+  readonly dialect?: Dialect;
   readonly deliverer: InviteDeliverer;
   readonly cipher: InvitationPayloadCipher;
   readonly clock?: () => number;
@@ -178,9 +179,13 @@ export function createInvitationOutboxOperations(
 ): InvitationOutbox {
   const clock = options.clock ?? Date.now;
   const queueClock = () => new Date(clock());
-  const db = createDb(options.sql);
+  const db = createDb(
+    options.sql,
+    options.dialect === undefined ? {} : { dialect: options.dialect },
+  );
   const queue = new Queue({
     db: options.sql,
+    ...(options.dialect === undefined ? {} : { dialect: options.dialect }),
     clock: queueClock,
     defaultQueue: QUEUE_NAME,
   });
