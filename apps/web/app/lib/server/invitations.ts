@@ -1,18 +1,34 @@
 import type { Sessions } from "@lesto/auth";
-import { and, createTableSql, defineTable, dropTableSql, eq, gt, text } from "@lesto/db";
+import {
+  and,
+  createTableSql,
+  defineTable,
+  dropTableSql,
+  eq,
+  gt,
+  text,
+} from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
-import { guardianRelationshipSchema } from "@snackday/domain";
+import {
+  guardianRelationshipSchema,
+  recipientBindingSchema,
+} from "@snackday/domain";
+import type { RecipientBinding } from "@snackday/domain";
 import { z } from "zod";
 
 import { generateBearerToken, hashBearerToken } from "./bearer-tokens";
-import { authenticatedAdult, people } from "./identity";
+import { verifiedRecipientEmails } from "./authentication";
+import { accounts, authenticatedAdult, people } from "./identity";
 import type { AdultIdentity } from "./identity";
 import type { InvitedRole, InviteDeliverer } from "./invite-delivery";
+import type {
+  InvitationDeliveryIntent,
+  InvitationOutbox,
+} from "./invitation-outbox";
 import {
   DEFAULT_GUARDIAN_PERMISSIONS,
-  findActiveGuardianByIdentity,
   guardianRelationships,
   memberships,
   participants,
@@ -27,7 +43,7 @@ import {
 } from "./teams";
 import type { TeamRole } from "./teams";
 
-export const invitations = defineTable("invitations", {
+const invitationsV006 = defineTable("invitations", {
   id: text("id").primaryKey(),
   teamId: text("team_id")
     .notNull()
@@ -55,6 +71,32 @@ export const invitations = defineTable("invitations", {
   expiresAt: text("expires_at").notNull(),
 });
 
+export const invitations = defineTable("invitations", {
+  id: text("id").primaryKey(),
+  teamId: text("team_id")
+    .notNull()
+    .references(() => teams.id),
+  invitedRole: text("invited_role").notNull(),
+  participantId: text("participant_id").references(() => participants.id),
+  relationship: text("relationship"),
+  inviteeLabel: text("invitee_label").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  status: text("status").notNull(),
+  createdByPersonId: text("created_by_person_id")
+    .notNull()
+    .references(() => people.id),
+  acceptedByPersonId: text("accepted_by_person_id").references(() => people.id),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  recipientKind: text("recipient_kind"),
+  recipientEmail: text("recipient_email"),
+  recipientPersonId: text("recipient_person_id").references(() => people.id),
+  replacesGuardianRelationshipId: text(
+    "replaces_guardian_relationship_id",
+  ).references(() => guardianRelationships.id),
+});
+
 // The `adult_memberships` table itself lives in teams.ts beside the
 // `teamAccess` seam that reads it; acceptance below writes it, and this
 // module keeps its migration.
@@ -62,9 +104,11 @@ export const createInvitations: MigrationEntry = {
   version: "006_create_invitations",
   migration: {
     up: (schema) => {
-      schema.execute(createTableSql(invitations));
+      schema.execute(createTableSql(invitationsV006));
       schema.execute(createTableSql(adultMemberships));
-      schema.execute("CREATE INDEX invitations_team_id_idx ON invitations (team_id)");
+      schema.execute(
+        "CREATE INDEX invitations_team_id_idx ON invitations (team_id)",
+      );
       schema.execute(
         "CREATE INDEX adult_memberships_team_id_person_id_idx ON adult_memberships (team_id, person_id)",
       );
@@ -76,12 +120,47 @@ export const createInvitations: MigrationEntry = {
   },
 };
 
+export const createInvitationRecipientBinding: MigrationEntry = {
+  version: "011_create_invitation_recipient_binding",
+  migration: {
+    up: (schema) => {
+      schema.execute("ALTER TABLE invitations ADD COLUMN recipient_kind TEXT");
+      schema.execute("ALTER TABLE invitations ADD COLUMN recipient_email TEXT");
+      schema.execute(
+        "ALTER TABLE invitations ADD COLUMN recipient_person_id TEXT",
+      );
+      schema.execute(
+        "ALTER TABLE invitations ADD COLUMN replaces_guardian_relationship_id TEXT",
+      );
+      schema.execute(
+        "CREATE INDEX invitations_recipient_person_id_idx ON invitations (recipient_person_id)",
+      );
+    },
+    down: (schema) => {
+      schema.execute("DROP INDEX invitations_recipient_person_id_idx");
+      schema.execute(
+        "ALTER TABLE invitations DROP COLUMN replaces_guardian_relationship_id",
+      );
+      schema.execute("ALTER TABLE invitations DROP COLUMN recipient_person_id");
+      schema.execute("ALTER TABLE invitations DROP COLUMN recipient_email");
+      schema.execute("ALTER TABLE invitations DROP COLUMN recipient_kind");
+    },
+  },
+};
+
 // Seven days. Parents accept within hours, and `resend` re-arms a fresh token
 // cheaply (it rotates the hash, killing the old link), so a short window costs
 // the product nothing and shrinks how long a mislaid link stays live.
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
-const invitedRoleSchema = z.enum(["owner", "adult"] as const satisfies readonly InvitedRole[]);
+const invitedRoleSchema = z.enum([
+  "owner",
+  "adult",
+] as const satisfies readonly InvitedRole[]);
+
+function isInvitedRole(role: string): role is InvitedRole {
+  return role === "owner" || role === "adult";
+}
 
 export const createInvitationInputSchema = z
   .strictObject({
@@ -89,11 +168,27 @@ export const createInvitationInputSchema = z
     inviteeLabel: z.string().trim().min(1, "Invitee label is required."),
     participantId: z.string().trim().min(1).optional(),
     relationship: guardianRelationshipSchema.shape.relationship.optional(),
+    recipientBinding: recipientBindingSchema,
+    replacesGuardianRelationshipId: z.string().trim().min(1).optional(),
   })
-  .refine((input) => (input.participantId === undefined) === (input.relationship === undefined), {
-    message: "participantId and relationship must be provided together",
-    path: ["relationship"],
-  });
+  .refine(
+    (input) =>
+      (input.participantId === undefined) ===
+      (input.relationship === undefined),
+    {
+      message: "participantId and relationship must be provided together",
+      path: ["relationship"],
+    },
+  )
+  .refine(
+    (input) =>
+      input.replacesGuardianRelationshipId === undefined ||
+      input.participantId !== undefined,
+    {
+      message: "replacesGuardianRelationshipId requires participantId",
+      path: ["replacesGuardianRelationshipId"],
+    },
+  );
 
 /**
  * The one body shape both token-bearing POSTs carry — preview and accept. The
@@ -104,13 +199,28 @@ export const invitationTokenInputSchema = z.strictObject({
   token: z.string().trim().min(1, "Invitation token is required."),
 });
 
+const resendInvitationInputSchema = z.strictObject({
+  recipientBinding: recipientBindingSchema.optional(),
+  replacesGuardianRelationshipId: z.string().trim().min(1).optional(),
+});
+
 const unauthorized = { error: "authentication required" } as const;
 const teamNotFound = { error: "team not found" } as const;
 const participantNotFound = { error: "participant not found" } as const;
 const invitationNotFound = { error: "invitation not found" } as const;
-const invitationAlreadyPending = { error: "invitation already pending" } as const;
+const invitationAlreadyPending = {
+  error: "invitation already pending",
+} as const;
 const invitationNotPending = { error: "invitation is not pending" } as const;
-const invitationAlreadyAccepted = { error: "invitation already accepted" } as const;
+const invitationAlreadyAccepted = {
+  error: "invitation already accepted",
+} as const;
+const invitationRecipientInvalid = {
+  error: "invitation recipient is not eligible",
+} as const;
+const invitationDeliveryUnavailable = {
+  error: "invitation delivery unavailable",
+} as const;
 
 // Minting and hashing live in bearer-tokens.ts, shared with the calendar feed
 // credential; the invite-named alias keeps this module's vocabulary.
@@ -149,6 +259,10 @@ interface InvitationRow {
   createdAt: string;
   updatedAt: string;
   expiresAt: string;
+  recipientKind: string | null;
+  recipientEmail: string | null;
+  recipientPersonId: string | null;
+  replacesGuardianRelationshipId: string | null;
 }
 
 /**
@@ -166,7 +280,9 @@ export function projectedInvitationStatus(
   row: { readonly status: string; readonly expiresAt: string },
   nowIso: string,
 ): string {
-  return row.status === "pending" && row.expiresAt <= nowIso ? "expired" : row.status;
+  return row.status === "pending" && row.expiresAt <= nowIso
+    ? "expired"
+    : row.status;
 }
 
 // Deliberately drops tokenHash and every person id (creator and acceptor).
@@ -220,7 +336,12 @@ async function teamParticipant(tx: Db, teamId: string, participantId: string) {
   const participant = await tx
     .select()
     .from(participants)
-    .where(and(eq(participants.id, participantId), eq(participants.status, "active")))
+    .where(
+      and(
+        eq(participants.id, participantId),
+        eq(participants.status, "active"),
+      ),
+    )
     .get();
   if (participant === undefined) return undefined;
 
@@ -240,24 +361,154 @@ async function teamParticipant(tx: Db, teamId: string, participantId: string) {
   return membership === undefined ? undefined : participant;
 }
 
+async function confirmedRecipient(tx: Db, personId: string): Promise<boolean> {
+  const person = await tx
+    .select()
+    .from(people)
+    .where(eq(people.id, personId))
+    .get();
+  if (person === undefined || person.status !== "active") return false;
+  const account = await tx
+    .select()
+    .from(accounts)
+    .where(eq(accounts.personId, personId))
+    .get();
+  return account?.status === "active";
+}
+
+async function replacementIsEligible(
+  tx: Db,
+  participantId: string,
+  relationshipId: string,
+): Promise<boolean> {
+  const edge = await tx
+    .select()
+    .from(guardianRelationships)
+    .where(
+      and(
+        eq(guardianRelationships.id, relationshipId),
+        eq(guardianRelationships.participantId, participantId),
+        eq(guardianRelationships.status, "active"),
+      ),
+    )
+    .get();
+  if (edge === undefined) return false;
+  const activeAccount = await tx
+    .select()
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.personId, edge.guardianPersonId),
+        eq(accounts.status, "active"),
+      ),
+    )
+    .get();
+  return activeAccount === undefined;
+}
+
+function bindingColumns(binding: RecipientBinding) {
+  return binding.kind === "verified_email"
+    ? {
+        recipientKind: binding.kind,
+        recipientEmail: binding.email,
+        recipientPersonId: null,
+      }
+    : {
+        recipientKind: binding.kind,
+        recipientEmail: null,
+        recipientPersonId: binding.personId,
+      };
+}
+
+function rowRecipient(row: InvitationRow): RecipientBinding | undefined {
+  if (row.recipientKind === "verified_email" && row.recipientEmail !== null) {
+    return { kind: "verified_email", email: row.recipientEmail };
+  }
+  if (
+    row.recipientKind === "confirmed_person" &&
+    row.recipientPersonId !== null
+  ) {
+    return { kind: "confirmed_person", personId: row.recipientPersonId };
+  }
+  return undefined;
+}
+
+export async function invitationRecipientMatches(
+  db: Db,
+  binding: RecipientBinding,
+  personId: string,
+  emailClaims: (db: Db, personId: string) => Promise<readonly string[]>,
+): Promise<boolean> {
+  if (binding.kind === "confirmed_person") return binding.personId === personId;
+  const verified = await emailClaims(db, personId);
+  return verified.some((email) => email.trim().toLowerCase() === binding.email);
+}
+
+async function recipientMatches(
+  db: Db,
+  row: InvitationRow,
+  personId: string,
+  emailClaims: (db: Db, personId: string) => Promise<readonly string[]>,
+): Promise<boolean> {
+  const binding = rowRecipient(row);
+  return binding === undefined
+    ? false
+    : invitationRecipientMatches(db, binding, personId, emailClaims);
+}
+
+export interface InvitationRouteOptions {
+  readonly clock?: () => number;
+  readonly outbox?: InvitationOutbox;
+  readonly verifiedEmails?: (
+    db: Db,
+    personId: string,
+  ) => Promise<readonly string[]>;
+}
+
+type PersistIntent = (intent: InvitationDeliveryIntent) => Promise<void>;
+
+function invitationTransaction<R>(
+  db: Db,
+  outbox: InvitationOutbox | undefined,
+  operation: (tx: Db, persist: PersistIntent) => Promise<R>,
+): Promise<R> {
+  return outbox === undefined
+    ? db.transaction((tx) => operation(tx, () => Promise.resolve()))
+    : outbox.transaction(operation);
+}
+
+function deliveryFor(
+  row: InvitationRow,
+  teamName: string,
+  inviter: AdultIdentity,
+  token: string,
+  recipient: RecipientBinding,
+) {
+  if (!isInvitedRole(row.invitedRole))
+    throw new Error("Invitation role is not deliverable.");
+  return {
+    invitationId: row.id,
+    teamName,
+    inviterDisplayName: inviter.person.displayName,
+    invitedRole: row.invitedRole,
+    recipient,
+    inviteUrl: inviteUrlFor(token),
+  };
+}
+
 async function deliverInvite(
   deliverer: InviteDeliverer,
   row: InvitationRow,
   teamName: string,
   inviter: AdultIdentity,
   token: string,
+  recipient: RecipientBinding,
 ): Promise<string> {
-  const link = inviteUrlFor(token);
-  // PRIVACY: team name + inviter display name + role + link ONLY — the
-  // invitee label and any participant data never enter the delivery channel.
-  await deliverer.deliver({
-    invitationId: row.id,
-    teamName,
-    inviterDisplayName: inviter.person.displayName,
-    invitedRole: row.invitedRole as InvitedRole,
-    inviteUrl: link,
-  });
-  return link;
+  const delivery = deliveryFor(row, teamName, inviter, token, recipient);
+  // The recipient, team, inviter, role, and link are the complete delivery
+  // contract. Invitee labels and participant data never enter the channel.
+  await deliverer.deliver(delivery);
+  return delivery.inviteUrl;
 }
 
 async function createInvitation(
@@ -265,78 +516,147 @@ async function createInvitation(
   db: Db,
   sessions: Sessions,
   deliverer: InviteDeliverer,
+  options: InvitationRouteOptions,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
+  if (options.outbox === undefined && deliverer.environment !== "development") {
+    return c.json(invitationDeliveryUnavailable, 503);
+  }
 
   const input = c.valid(createInvitationInputSchema);
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
-  const outcome = await db.transaction(async (tx) => {
-    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
-    if (team === undefined) return null;
+  const outcome = await invitationTransaction(
+    db,
+    options.outbox,
+    async (tx, persist) => {
+      const team = await ownedActiveTeam(
+        tx,
+        c.param("teamId"),
+        identity.person.id,
+      );
+      if (team === undefined) return null;
 
-    if (input.participantId !== undefined) {
-      const rostered = await teamParticipant(tx, team.id, input.participantId);
-      if (rostered === undefined) return "no-participant" as const;
-    }
+      if (input.participantId !== undefined) {
+        const rostered = await teamParticipant(
+          tx,
+          team.id,
+          input.participantId,
+        );
+        if (rostered === undefined) return "no-participant" as const;
+      }
+      if (
+        input.recipientBinding.kind === "confirmed_person" &&
+        !(await confirmedRecipient(tx, input.recipientBinding.personId))
+      ) {
+        return "invalid-recipient" as const;
+      }
+      if (
+        input.replacesGuardianRelationshipId !== undefined &&
+        input.participantId !== undefined &&
+        !(await replacementIsEligible(
+          tx,
+          input.participantId,
+          input.replacesGuardianRelationshipId,
+        ))
+      ) {
+        return "invalid-replacement" as const;
+      }
 
-    const now = new Date();
-    const nowIso = now.toISOString();
-    // LIVE pending only. Without the expiry predicate an invitation that had
-    // quietly aged out still blocked the label with a 409 — while its link was
-    // already dead everywhere else — so the owner could neither use the old
-    // invitation nor create a new one. `gt` here is the same boundary accept
-    // and `previewInvitation` apply (`expiresAt <= now` is dead).
-    const pending = await tx
-      .select()
-      .from(invitations)
-      .where(
-        and(
-          eq(invitations.teamId, team.id),
-          eq(invitations.inviteeLabel, input.inviteeLabel),
-          eq(invitations.status, "pending"),
-          gt(invitations.expiresAt, nowIso),
-        ),
-      )
-      .get();
-    if (pending !== undefined) return "duplicate" as const;
+      const now = new Date(options.clock?.() ?? Date.now());
+      const nowIso = now.toISOString();
+      // LIVE pending only. Without the expiry predicate an invitation that had
+      // quietly aged out still blocked the label with a 409 — while its link was
+      // already dead everywhere else — so the owner could neither use the old
+      // invitation nor create a new one. `gt` here is the same boundary accept
+      // and `previewInvitation` apply (`expiresAt <= now` is dead).
+      const pending = await tx
+        .select()
+        .from(invitations)
+        .where(
+          and(
+            eq(invitations.teamId, team.id),
+            eq(invitations.inviteeLabel, input.inviteeLabel),
+            eq(invitations.status, "pending"),
+            gt(invitations.expiresAt, nowIso),
+          ),
+        )
+        .get();
+      if (pending !== undefined) return "duplicate" as const;
 
-    const row = await tx
-      .insert(invitations)
-      .values({
-        id: `invitation_${crypto.randomUUID()}`,
-        teamId: team.id,
-        invitedRole: input.invitedRole,
-        participantId: input.participantId ?? null,
-        relationship: input.relationship ?? null,
-        inviteeLabel: input.inviteeLabel,
-        tokenHash,
-        status: "pending",
-        // The ACTUAL inviter — an owner-member's invitations record them, not
-        // the team creator.
-        createdByPersonId: identity.person.id,
-        acceptedByPersonId: null,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        expiresAt: new Date(now.getTime() + INVITATION_TTL_MS).toISOString(),
-      })
-      .returning()
-      .get();
+      const row = await tx
+        .insert(invitations)
+        .values({
+          id: `invitation_${crypto.randomUUID()}`,
+          teamId: team.id,
+          invitedRole: input.invitedRole,
+          participantId: input.participantId ?? null,
+          relationship: input.relationship ?? null,
+          inviteeLabel: input.inviteeLabel,
+          tokenHash,
+          status: "pending",
+          // The ACTUAL inviter — an owner-member's invitations record them, not
+          // the team creator.
+          createdByPersonId: identity.person.id,
+          acceptedByPersonId: null,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          expiresAt: new Date(now.getTime() + INVITATION_TTL_MS).toISOString(),
+          ...bindingColumns(input.recipientBinding),
+          replacesGuardianRelationshipId:
+            input.replacesGuardianRelationshipId ?? null,
+        })
+        .returning()
+        .get();
 
-    return { row, teamName: team.name };
-  });
+      const delivery = deliveryFor(
+        row,
+        team.name,
+        identity,
+        token,
+        input.recipientBinding,
+      );
+      await persist({ invitationId: row.id, tokenHash, delivery });
+      return { row, teamName: team.name, recipient: input.recipientBinding };
+    },
+  );
 
   if (outcome === null) return c.json(teamNotFound, 404);
   if (outcome === "no-participant") return c.json(participantNotFound, 404);
   if (outcome === "duplicate") return c.json(invitationAlreadyPending, 409);
+  if (outcome === "invalid-recipient" || outcome === "invalid-replacement") {
+    return c.json(invitationRecipientInvalid, 422);
+  }
+  await options.outbox?.requestSchedule();
+  if (options.outbox !== undefined && deliverer.environment === "development") {
+    await options.outbox.drain();
+  }
 
   // Delivery happens AFTER the transaction commits, so a rolled-back
   // invitation can never have leaked a live link.
-  const link = await deliverInvite(deliverer, outcome.row, outcome.teamName, identity, token);
+  const link =
+    options.outbox === undefined
+      ? await deliverInvite(
+          deliverer,
+          outcome.row,
+          outcome.teamName,
+          identity,
+          token,
+          outcome.recipient,
+        )
+      : deliverer.environment === "development"
+        ? inviteUrlFor(token)
+        : undefined;
 
   return c.json(
-    { invitation: projectInvitation(outcome.row, new Date().toISOString(), link) },
+    {
+      invitation: projectInvitation(
+        outcome.row,
+        new Date(options.clock?.() ?? Date.now()).toISOString(),
+        link,
+      ),
+    },
     201,
   );
 }
@@ -346,67 +666,166 @@ async function resendInvitation(
   db: Db,
   sessions: Sessions,
   deliverer: InviteDeliverer,
+  options: InvitationRouteOptions,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
+  if (options.outbox === undefined && deliverer.environment !== "development") {
+    return c.json(invitationDeliveryUnavailable, 503);
+  }
+  const parsedInput = resendInvitationInputSchema.safeParse(c.req.body ?? {});
+  if (!parsedInput.success)
+    return c.json({ error: "invalid invitation recipient" }, 400);
 
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
-  const outcome = await db.transaction(async (tx) => {
-    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
-    if (team === undefined) return "no-team" as const;
+  const outcome = await invitationTransaction(
+    db,
+    options.outbox,
+    async (tx, persist) => {
+      const team = await ownedActiveTeam(
+        tx,
+        c.param("teamId"),
+        identity.person.id,
+      );
+      if (team === undefined) return "no-team" as const;
 
-    const row = await tx
-      .select()
-      .from(invitations)
-      .where(and(eq(invitations.id, c.param("invitationId")), eq(invitations.teamId, team.id)))
-      .get();
-    if (row === undefined) return null;
-    if (row.status !== "pending") return "not-pending" as const;
+      const row = await tx
+        .select()
+        .from(invitations)
+        .where(
+          and(
+            eq(invitations.id, c.param("invitationId")),
+            eq(invitations.teamId, team.id),
+          ),
+        )
+        .get();
+      if (row === undefined) return null;
+      if (row.status !== "pending") return "not-pending" as const;
 
-    const now = new Date();
-    // Rotating the stored hash kills the previously delivered link: its hash
-    // no longer matches anything, so accept answers 404 for it.
-    await tx
-      .update(invitations)
-      .set({
-        tokenHash,
-        expiresAt: new Date(now.getTime() + INVITATION_TTL_MS).toISOString(),
-        updatedAt: now.toISOString(),
-      })
-      .where(eq(invitations.id, row.id))
-      .run();
-    const rotated = await tx.select().from(invitations).where(eq(invitations.id, row.id)).get();
-    if (rotated === undefined) throw new Error("Invitation disappeared during resend.");
+      const requestedBinding = parsedInput.data.recipientBinding;
+      if (
+        requestedBinding?.kind === "confirmed_person" &&
+        !(await confirmedRecipient(tx, requestedBinding.personId))
+      ) {
+        return "invalid-recipient" as const;
+      }
+      const participantId = row.participantId;
+      const requestedReplacement =
+        parsedInput.data.replacesGuardianRelationshipId;
+      if (requestedReplacement !== undefined) {
+        if (
+          participantId === null ||
+          !(await replacementIsEligible(
+            tx,
+            participantId,
+            requestedReplacement,
+          ))
+        ) {
+          return "invalid-recipient" as const;
+        }
+      }
+      const existingBinding = rowRecipient(row);
+      const recipient = requestedBinding ?? existingBinding;
+      if (recipient === undefined) return "invalid-recipient" as const;
 
-    return { row: rotated, teamName: team.name };
-  });
+      const now = new Date(options.clock?.() ?? Date.now());
+      // Rotating the stored hash kills the previously delivered link: its hash
+      // no longer matches anything, so accept answers 404 for it.
+      await tx
+        .update(invitations)
+        .set({
+          tokenHash,
+          expiresAt: new Date(now.getTime() + INVITATION_TTL_MS).toISOString(),
+          updatedAt: now.toISOString(),
+          ...(requestedBinding === undefined
+            ? {}
+            : bindingColumns(requestedBinding)),
+          ...(requestedReplacement === undefined
+            ? {}
+            : { replacesGuardianRelationshipId: requestedReplacement }),
+        })
+        .where(eq(invitations.id, row.id))
+        .run();
+      const rotated = await tx
+        .select()
+        .from(invitations)
+        .where(eq(invitations.id, row.id))
+        .get();
+      if (rotated === undefined)
+        throw new Error("Invitation disappeared during resend.");
+
+      const delivery = deliveryFor(
+        rotated,
+        team.name,
+        identity,
+        token,
+        recipient,
+      );
+      await persist({ invitationId: rotated.id, tokenHash, delivery });
+      return { row: rotated, teamName: team.name, recipient };
+    },
+  );
 
   if (outcome === "no-team") return c.json(teamNotFound, 404);
   if (outcome === null) return c.json(invitationNotFound, 404);
   if (outcome === "not-pending") return c.json(invitationNotPending, 409);
+  if (outcome === "invalid-recipient")
+    return c.json(invitationRecipientInvalid, 422);
+  await options.outbox?.requestSchedule();
+  if (options.outbox !== undefined && deliverer.environment === "development") {
+    await options.outbox.drain();
+  }
 
-  const link = await deliverInvite(deliverer, outcome.row, outcome.teamName, identity, token);
+  const link =
+    options.outbox === undefined
+      ? await deliverInvite(
+          deliverer,
+          outcome.row,
+          outcome.teamName,
+          identity,
+          token,
+          outcome.recipient,
+        )
+      : deliverer.environment === "development"
+        ? inviteUrlFor(token)
+        : undefined;
 
-  return c.json({ invitation: projectInvitation(outcome.row, new Date().toISOString(), link) });
+  return c.json({
+    invitation: projectInvitation(
+      outcome.row,
+      new Date(options.clock?.() ?? Date.now()).toISOString(),
+      link,
+    ),
+  });
 }
 
 async function revokeInvitation(
   c: Context<"/api/teams/:teamId/invitations/:invitationId/revoke">,
   db: Db,
   sessions: Sessions,
+  options: InvitationRouteOptions,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const outcome = await db.transaction(async (tx) => {
-    const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
+    const team = await ownedActiveTeam(
+      tx,
+      c.param("teamId"),
+      identity.person.id,
+    );
     if (team === undefined) return "no-team" as const;
 
     const row = await tx
       .select()
       .from(invitations)
-      .where(and(eq(invitations.id, c.param("invitationId")), eq(invitations.teamId, team.id)))
+      .where(
+        and(
+          eq(invitations.id, c.param("invitationId")),
+          eq(invitations.teamId, team.id),
+        ),
+      )
       .get();
     if (row === undefined) return null;
     // Accepted grants must be withdrawn deliberately (membership management),
@@ -418,11 +837,19 @@ async function revokeInvitation(
 
     await tx
       .update(invitations)
-      .set({ status: "revoked", updatedAt: new Date().toISOString() })
+      .set({
+        status: "revoked",
+        updatedAt: new Date(options.clock?.() ?? Date.now()).toISOString(),
+      })
       .where(eq(invitations.id, row.id))
       .run();
-    const revoked = await tx.select().from(invitations).where(eq(invitations.id, row.id)).get();
-    if (revoked === undefined) throw new Error("Invitation disappeared during revoke.");
+    const revoked = await tx
+      .select()
+      .from(invitations)
+      .where(eq(invitations.id, row.id))
+      .get();
+    if (revoked === undefined)
+      throw new Error("Invitation disappeared during revoke.");
 
     return { row: revoked };
   });
@@ -431,7 +858,12 @@ async function revokeInvitation(
   if (outcome === null) return c.json(invitationNotFound, 404);
   if (outcome === "accepted") return c.json(invitationAlreadyAccepted, 409);
 
-  return c.json({ invitation: projectInvitation(outcome.row, new Date().toISOString()) });
+  return c.json({
+    invitation: projectInvitation(
+      outcome.row,
+      new Date(options.clock?.() ?? Date.now()).toISOString(),
+    ),
+  });
 }
 
 async function listInvitations(
@@ -439,6 +871,7 @@ async function listInvitations(
   db: Db,
   sessions: Sessions,
   deliverer: InviteDeliverer,
+  options: InvitationRouteOptions,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -450,17 +883,22 @@ async function listInvitations(
   const team = await ownedActiveTeam(db, c.param("teamId"), identity.person.id);
   if (team === undefined) return c.json(teamNotFound, 404);
 
-  const rows = await db.select().from(invitations).where(eq(invitations.teamId, team.id)).all();
+  const rows = await db
+    .select()
+    .from(invitations)
+    .where(eq(invitations.teamId, team.id))
+    .all();
   rows.sort(
     (left, right) =>
-      left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.id.localeCompare(right.id),
   );
 
   // A link is offered for LIVE pending invitations only. An expired one projects
   // as `expired` and carries no link: handing the owner a copyable link that is
   // guaranteed to fail is worse than showing none, and `resend` is the affordance
   // that makes it live again.
-  const nowIso = new Date().toISOString();
+  const nowIso = new Date(options.clock?.() ?? Date.now()).toISOString();
 
   return c.json({
     invitations: rows.map((row) =>
@@ -476,31 +914,9 @@ async function listInvitations(
 }
 
 /**
- * Put the accepting adult on the child's roster as a guardian — ONCE.
- *
- * Three situations, and only the third writes a new edge:
- *
- *   1. This adult already holds an active edge on this child (an earlier accept,
- *      or a second invitation for the same child). Nothing to do — the existing
- *      edge, whatever its relationship label, already grants what this one would.
- *
- *   2. A manager typed this guardian onto the child BY HAND before inviting
- *      them. That edge points at a placeholder Person the manual path minted, so
- *      it can never match by `guardianPersonId` — which is exactly how accept
- *      used to leave two identically-named guardians on one child's roster
- *      (`loadRoster` then showed "Sam Rivera" twice to every reader). We
- *      recognize it through the SHARED person-identity rule (people-identity.ts,
- *      the same rule the manual path's duplicate check uses) and REBIND the
- *      existing edge to the real adult rather than inserting beside it.
- *
- *      Rebinding, not skipping: the placeholder has no Account, so skipping
- *      would leave the accepting parent with no guardian edge at all and hence
- *      no participant permissions — trading a duplicate row for a silent loss of
- *      access. Rebinding grants exactly what this invitation already authorizes
- *      (a manager named this participant and this relationship at invite time),
- *      so no privilege is created that accept did not already confer.
- *
- *   3. Neither — insert a fresh edge bound to the adult's own Person.
+ * Put the accepting adult on the child's roster as a guardian once. Placeholder
+ * replacement is allowed only when the owner named one exact relationship while
+ * creating or resending the invitation. Names are never identity evidence.
  */
 async function bindGuardianOnAccept(
   tx: Db,
@@ -509,6 +925,7 @@ async function bindGuardianOnAccept(
     relationship: string;
     guardian: { id: string; displayName: string };
     nowIso: string;
+    replacesGuardianRelationshipId: string | null;
   },
 ): Promise<void> {
   const heldEdge = await tx
@@ -522,17 +939,18 @@ async function bindGuardianOnAccept(
       ),
     )
     .get();
-  if (heldEdge !== undefined) return;
+  if (heldEdge !== undefined && input.replacesGuardianRelationshipId === null)
+    return;
 
-  const placeholderEdge = await findActiveGuardianByIdentity(tx, input.participantId, {
-    displayName: input.guardian.displayName,
-    relationship: input.relationship,
-  });
-  if (placeholderEdge !== undefined) {
+  if (input.replacesGuardianRelationshipId !== null) {
     await tx
       .update(guardianRelationships)
-      .set({ guardianPersonId: input.guardian.id, updatedAt: input.nowIso })
-      .where(eq(guardianRelationships.id, placeholderEdge.id))
+      .set(
+        heldEdge === undefined
+          ? { guardianPersonId: input.guardian.id, updatedAt: input.nowIso }
+          : { status: "revoked", updatedAt: input.nowIso },
+      )
+      .where(eq(guardianRelationships.id, input.replacesGuardianRelationshipId))
       .run();
     return;
   }
@@ -552,7 +970,12 @@ async function bindGuardianOnAccept(
     .run();
 }
 
-async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, sessions: Sessions) {
+async function acceptInvitation(
+  c: Context<"/api/invitations/accept">,
+  db: Db,
+  sessions: Sessions,
+  options: InvitationRouteOptions,
+) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
@@ -567,6 +990,7 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
     // Unknown, revoked, and expired all hide behind the same 404 — a token is
     // not proof an invitation exists.
     if (row === undefined || row.status === "revoked") return null;
+    if (!isInvitedRole(row.invitedRole)) return null;
 
     const team = await tx
       .select()
@@ -578,9 +1002,9 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
     if (row.status === "accepted") {
       // Duplicate-accept semantics: IDEMPOTENT for the adult who already
       // accepted (an accept flow retried by refresh/double-tap must not
-      // error), 409 for anyone else (a used single-use token presented by a
-      // different adult is a real conflict) — without revealing who accepted.
-      if (row.acceptedByPersonId !== identity.person.id) return "conflict" as const;
+      // error). A used single-use token presented by a different adult gets
+      // the same hiding answer as an unknown token.
+      if (row.acceptedByPersonId !== identity.person.id) return null;
 
       // The retry reports the role in force NOW — a later invitation may have
       // upgraded it. A membership that has since been REVOKED grants nothing,
@@ -590,8 +1014,29 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
       return grantedRole === undefined ? null : { row, team, grantedRole };
     }
 
-    const nowIso = new Date().toISOString();
+    const nowIso = new Date(options.clock?.() ?? Date.now()).toISOString();
     if (row.expiresAt <= nowIso) return null;
+    if (
+      !(await recipientMatches(
+        tx,
+        row,
+        identity.person.id,
+        options.verifiedEmails ?? verifiedRecipientEmails,
+      ))
+    ) {
+      return null;
+    }
+    if (
+      row.participantId !== null &&
+      row.replacesGuardianRelationshipId !== null &&
+      !(await replacementIsEligible(
+        tx,
+        row.participantId,
+        row.replacesGuardianRelationshipId,
+      ))
+    ) {
+      return null;
+    }
 
     // No identity duplication: the accepting adult keeps their existing
     // Person/Account — acceptance only BINDS that person to the team (and
@@ -603,8 +1048,14 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
     // accepts a later adult invitation stays an owner). `grantedRole` is what
     // the row grants once this transaction commits — the ONLY role reported
     // back, so the answer can never outrun the grant.
-    const membershipRows = await activeMemberships(tx, team.id, identity.person.id);
-    const heldRole = grantedAccess(membershipRows.map((membership) => membership.role))?.role;
+    const membershipRows = await activeMemberships(
+      tx,
+      team.id,
+      identity.person.id,
+    );
+    const heldRole = grantedAccess(
+      membershipRows.map((membership) => membership.role),
+    )?.role;
     const upgrades = roleOutranks(row.invitedRole, heldRole);
 
     if (membershipRows.length === 0) {
@@ -636,7 +1087,9 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
         )
         .run();
     }
-    const grantedRole = upgrades ? row.invitedRole : (heldRole ?? row.invitedRole);
+    const grantedRole = upgrades
+      ? row.invitedRole
+      : (heldRole ?? row.invitedRole);
 
     // Create enforces that participantId and relationship travel together.
     if (row.participantId !== null && row.relationship !== null) {
@@ -645,22 +1098,31 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
         relationship: row.relationship,
         guardian: identity.person,
         nowIso,
+        replacesGuardianRelationshipId: row.replacesGuardianRelationshipId,
       });
     }
 
     await tx
       .update(invitations)
-      .set({ status: "accepted", acceptedByPersonId: identity.person.id, updatedAt: nowIso })
+      .set({
+        status: "accepted",
+        acceptedByPersonId: identity.person.id,
+        updatedAt: nowIso,
+      })
       .where(eq(invitations.id, row.id))
       .run();
-    const accepted = await tx.select().from(invitations).where(eq(invitations.id, row.id)).get();
-    if (accepted === undefined) throw new Error("Invitation disappeared during accept.");
+    const accepted = await tx
+      .select()
+      .from(invitations)
+      .where(eq(invitations.id, row.id))
+      .get();
+    if (accepted === undefined)
+      throw new Error("Invitation disappeared during accept.");
 
     return { row: accepted, team, grantedRole };
   });
 
   if (outcome === null) return c.json(invitationNotFound, 404);
-  if (outcome === "conflict") return c.json(invitationAlreadyAccepted, 409);
 
   // The accept response deliberately omits the invitee label (the inviter's
   // wording may reference a child's first name) and the participant id — the
@@ -679,13 +1141,10 @@ async function acceptInvitation(c: Context<"/api/invitations/accept">, db: Db, s
 }
 
 /**
- * The `/invite` landing page's PREVIEW: exactly the fields the delivery payload
- * already exposes — team name, inviter display name, invited role (see
- * invite-delivery.ts). That is the privacy precedent: anyone holding the link
- * could have read the email that carried these same fields, so showing them
- * requires no authentication. Everything else stays out BY CONSTRUCTION — never
- * the invitee label (the inviter's wording may reference a child), never
- * participant data, never person or team ids.
+ * The `/invite` landing page's PREVIEW: the non-recipient fields its delivery
+ * already exposes — team name, inviter display name, invited role. Anyone
+ * holding the link could have read these in the message. The recipient binding,
+ * invitee label, participant data, and internal ids stay out by construction.
  *
  * Only a PENDING, unexpired invitation on an active team previews. Unknown,
  * revoked, expired, and accepted tokens all collapse to `undefined`, so the
@@ -704,11 +1163,18 @@ export interface InvitationPreview {
 export async function previewInvitation(
   db: Db,
   token: string,
+  clock: () => number = Date.now,
 ): Promise<InvitationPreview | undefined> {
   const tokenHash = await hashInviteToken(token);
-  const row = await db.select().from(invitations).where(eq(invitations.tokenHash, tokenHash)).get();
+  const row = await db
+    .select()
+    .from(invitations)
+    .where(eq(invitations.tokenHash, tokenHash))
+    .get();
   if (row === undefined || row.status !== "pending") return undefined;
-  if (row.expiresAt <= new Date().toISOString()) return undefined;
+  if (!isInvitedRole(row.invitedRole)) return undefined;
+  if (rowRecipient(row) === undefined) return undefined;
+  if (row.expiresAt <= new Date(clock()).toISOString()) return undefined;
 
   const team = await db
     .select()
@@ -717,13 +1183,17 @@ export async function previewInvitation(
     .get();
   if (team === undefined) return undefined;
 
-  const inviter = await db.select().from(people).where(eq(people.id, row.createdByPersonId)).get();
+  const inviter = await db
+    .select()
+    .from(people)
+    .where(eq(people.id, row.createdByPersonId))
+    .get();
   if (inviter === undefined) return undefined;
 
   return {
     teamName: team.name,
     inviterDisplayName: inviter.displayName,
-    invitedRole: row.invitedRole as InvitedRole,
+    invitedRole: row.invitedRole,
   };
 }
 
@@ -749,10 +1219,19 @@ export async function invitationAcceptedBy(
   personId: string,
 ): Promise<{ teamName: string; grantedRole: TeamRole } | undefined> {
   const tokenHash = await hashInviteToken(token);
-  const row = await db.select().from(invitations).where(eq(invitations.tokenHash, tokenHash)).get();
-  if (row === undefined || row.status !== "accepted" || row.acceptedByPersonId !== personId) {
+  const row = await db
+    .select()
+    .from(invitations)
+    .where(eq(invitations.tokenHash, tokenHash))
+    .get();
+  if (
+    row === undefined ||
+    row.status !== "accepted" ||
+    row.acceptedByPersonId !== personId
+  ) {
     return undefined;
   }
+  if (rowRecipient(row) === undefined) return undefined;
 
   const team = await db
     .select()
@@ -790,18 +1269,24 @@ async function invitationPreview(
   c: Context<"/api/invitations/preview">,
   db: Db,
   sessions: Sessions,
+  options: InvitationRouteOptions,
 ) {
   const input = c.valid(invitationTokenInputSchema);
 
-  const preview = await previewInvitation(db, input.token);
+  const preview = await previewInvitation(db, input.token, options.clock);
   if (preview !== undefined) return c.json({ state: "preview", ...preview });
 
   // Only now is a session interesting: a token already accepted BY THIS ADULT
   // resolves to their success state, and by nobody else's.
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity !== undefined) {
-    const accepted = await invitationAcceptedBy(db, input.token, identity.person.id);
-    if (accepted !== undefined) return c.json({ state: "accepted", ...accepted });
+    const accepted = await invitationAcceptedBy(
+      db,
+      input.token,
+      identity.person.id,
+    );
+    if (accepted !== undefined)
+      return c.json({ state: "accepted", ...accepted });
   }
 
   return c.json(invitationNotFound, 404);
@@ -812,16 +1297,25 @@ export function registerInvitationRoutes(
   db: Db,
   sessions: Sessions,
   deliverer: InviteDeliverer,
+  options: InvitationRouteOptions = {},
 ) {
   return app
-    .post("/api/teams/:teamId/invitations", (c) => createInvitation(c, db, sessions, deliverer))
+    .post("/api/teams/:teamId/invitations", (c) =>
+      createInvitation(c, db, sessions, deliverer, options),
+    )
     .post("/api/teams/:teamId/invitations/:invitationId/resend", (c) =>
-      resendInvitation(c, db, sessions, deliverer),
+      resendInvitation(c, db, sessions, deliverer, options),
     )
     .post("/api/teams/:teamId/invitations/:invitationId/revoke", (c) =>
-      revokeInvitation(c, db, sessions),
+      revokeInvitation(c, db, sessions, options),
     )
-    .get("/api/teams/:teamId/invitations", (c) => listInvitations(c, db, sessions, deliverer))
-    .post("/api/invitations/preview", (c) => invitationPreview(c, db, sessions))
-    .post("/api/invitations/accept", (c) => acceptInvitation(c, db, sessions));
+    .get("/api/teams/:teamId/invitations", (c) =>
+      listInvitations(c, db, sessions, deliverer, options),
+    )
+    .post("/api/invitations/preview", (c) =>
+      invitationPreview(c, db, sessions, options),
+    )
+    .post("/api/invitations/accept", (c) =>
+      acceptInvitation(c, db, sessions, options),
+    );
 }

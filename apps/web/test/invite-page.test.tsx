@@ -5,18 +5,36 @@ import type { PageProps } from "@lesto/web";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { DEV_PERSON_ID } from "../app/lib/server/identity";
-import { invitationAcceptedBy, previewInvitation } from "../app/lib/server/invitations";
+import {
+  DEV_PERSON_ID,
+  ensureDevelopmentPersona,
+} from "../app/lib/server/identity";
+import {
+  createInvitationRecipientBinding,
+  invitationAcceptedBy,
+  previewInvitation,
+} from "../app/lib/server/invitations";
+import { createInvitationOutbox } from "../app/lib/server/invitation-outbox";
 import invitePage from "../app/routes/invite/page";
 
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config, services } = await import("./support/application").then((module) =>
-  module.testApplication(),
-);
+const { default: config, services } =
+  await import("./support/application").then((module) =>
+    module.testApplication(),
+  );
 
-const app = await createApp(config);
+if (!Array.isArray(config.migrations))
+  throw new Error("Invitation tests require migrations.");
+const app = await createApp({
+  ...config,
+  migrations: [
+    ...config.migrations,
+    createInvitationRecipientBinding,
+    createInvitationOutbox,
+  ],
+});
 
 const db = services.db;
 
@@ -31,7 +49,7 @@ async function clearState() {
   // accumulated API calls would trip 429s here, which is the limiter working,
   // not the page — so reset it alongside the domain state.
   await config.db.exec(
-    "DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM invitation_delivery_outbox; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -42,8 +60,13 @@ function json(response: { body: string }): unknown {
   return JSON.parse(response.body);
 }
 
-function header(response: { headers: Record<string, string | string[]> }, name: string): string {
-  const value = Object.entries(response.headers).find(([key]) => key.toLowerCase() === name)?.[1];
+function header(
+  response: { headers: Record<string, string | string[]> },
+  name: string,
+): string {
+  const value = Object.entries(response.headers).find(
+    ([key]) => key.toLowerCase() === name,
+  )?.[1];
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
@@ -68,28 +91,37 @@ async function createTeamSeasonAndChild(
   expect(createdTeam.status).toBe(201);
   const teamId = (json(createdTeam) as { team: { id: string } }).team.id;
 
-  const createdSeason = await app.handle("POST", `/api/teams/${teamId}/seasons`, {
-    headers: { ...sameOrigin, cookie },
-    body: {
-      label: "Spring 2026",
-      startDate: "2026-03-01",
-      endDate: "2026-06-01",
-      timeZone: "America/Los_Angeles",
+  const createdSeason = await app.handle(
+    "POST",
+    `/api/teams/${teamId}/seasons`,
+    {
+      headers: { ...sameOrigin, cookie },
+      body: {
+        label: "Spring 2026",
+        startDate: "2026-03-01",
+        endDate: "2026-06-01",
+        timeZone: "America/Los_Angeles",
+      },
     },
-  });
+  );
   expect(createdSeason.status).toBe(201);
-  const seasonId = (json(createdSeason) as { season: { id: string } }).season.id;
+  const seasonId = (json(createdSeason) as { season: { id: string } }).season
+    .id;
 
-  const added = await app.handle("POST", `/api/teams/${teamId}/seasons/${seasonId}/participants`, {
-    headers: { ...sameOrigin, cookie },
-    body: { displayName: CHILD_NAME, birthDate: "2018-04-09" },
-  });
+  const added = await app.handle(
+    "POST",
+    `/api/teams/${teamId}/seasons/${seasonId}/participants`,
+    {
+      headers: { ...sameOrigin, cookie },
+      body: { displayName: CHILD_NAME, birthDate: "2018-04-09" },
+    },
+  );
   expect(added.status).toBe(201);
 
   return {
     teamId,
-    participantId: (json(added) as { participant: { participantId: string } }).participant
-      .participantId,
+    participantId: (json(added) as { participant: { participantId: string } })
+      .participant.participantId,
   };
 }
 
@@ -111,6 +143,7 @@ async function createInvitation(
   teamId: string,
   participantId: string,
 ): Promise<{ token: string; invitationId: string }> {
+  await ensureDevelopmentPersona(db, "second-adult");
   const created = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
     headers: { ...sameOrigin, cookie },
     body: {
@@ -118,12 +151,20 @@ async function createInvitation(
       inviteeLabel: INVITEE_LABEL,
       participantId,
       relationship: "parent",
+      recipientBinding: {
+        kind: "confirmed_person",
+        personId: "person_dev_second_adult",
+      },
     },
   });
   expect(created.status).toBe(201);
-  const invitation = (json(created) as { invitation: { id: string; inviteUrl?: string } })
-    .invitation;
-  return { token: tokenOf(invitation.inviteUrl ?? ""), invitationId: invitation.id };
+  const invitation = (
+    json(created) as { invitation: { id: string; inviteUrl?: string } }
+  ).invitation;
+  return {
+    token: tokenOf(invitation.inviteUrl ?? ""),
+    invitationId: invitation.id,
+  };
 }
 
 async function acceptAs(cookie: string, token: string): Promise<void> {
@@ -143,7 +184,11 @@ async function seedInvitation(): Promise<{
 }> {
   const ownerCookie = await signIn();
   const { teamId, participantId } = await createTeamSeasonAndChild(ownerCookie);
-  const { token, invitationId } = await createInvitation(ownerCookie, teamId, participantId);
+  const { token, invitationId } = await createInvitation(
+    ownerCookie,
+    teamId,
+    participantId,
+  );
   return { ownerCookie, teamId, token, invitationId };
 }
 
@@ -162,13 +207,17 @@ async function loadInvite(cookie?: string): Promise<Loaded> {
   // The page declares no `params` schema, so the loader's `search` argument is
   // unused; `null` stands in for "no validated search value".
   const loaded = await invitePage.load?.(context, null);
-  if (loaded === undefined) throw new Error("The invite page must declare a server loader.");
+  if (loaded === undefined)
+    throw new Error("The invite page must declare a server loader.");
   return loaded;
 }
 
 /** Static markup with React's `&#x27;` apostrophe escaping undone. */
 function render(loaded: Loaded): string {
-  return renderToStaticMarkup(<invitePage.component {...loaded} />).replaceAll("&#x27;", "'");
+  return renderToStaticMarkup(<invitePage.component {...loaded} />).replaceAll(
+    "&#x27;",
+    "'",
+  );
 }
 
 /** `POST /api/invitations/preview` — the token in a BODY, never a request line. */
@@ -184,12 +233,27 @@ function previewOverHttp(token: string, cookie?: string) {
 // internal id. Applied to rendered markup AND to every preview response body.
 function expectNoPrivateLeaks(text: string): void {
   const scanned = text.toLowerCase();
-  for (const forbidden of ["maya", "casey", "person_", "participant_", "invitation_", "team_"]) {
+  for (const forbidden of [
+    "maya",
+    "casey",
+    "person_",
+    "participant_",
+    "invitation_",
+    "team_",
+  ]) {
     expect(scanned).not.toContain(forbidden);
   }
 }
 
 describe("the invitation link shape", () => {
+  it("does not offer the development sign-in endpoint from the shipped landing island", async () => {
+    const source = await readFile(
+      new URL("../app/islands/invite-landing.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toContain("/api/dev/sign-in");
+  });
+
   it("carries the token in the fragment, so the request line holds no credential", async () => {
     const { token } = await seedInvitation();
 
@@ -242,7 +306,9 @@ describe("previewInvitation", () => {
 
   it("returns undefined once the invitation expires", async () => {
     const { token } = await seedInvitation();
-    await config.db.exec("UPDATE invitations SET expires_at = '2020-01-01T00:00:00.000Z'");
+    await config.db.exec(
+      "UPDATE invitations SET expires_at = '2020-01-01T00:00:00.000Z'",
+    );
 
     expect(await previewInvitation(db, token)).toBeUndefined();
   });
@@ -258,17 +324,25 @@ describe("previewInvitation", () => {
 describe("invitationAcceptedBy", () => {
   it("resolves the team for the adult who accepted, and for no one else", async () => {
     const { token } = await seedInvitation();
-    expect(await invitationAcceptedBy(db, token, DEV_PERSON_ID)).toBeUndefined();
+    expect(
+      await invitationAcceptedBy(db, token, DEV_PERSON_ID),
+    ).toBeUndefined();
 
     await acceptAs(await signIn("second-adult"), token);
 
-    expect(await invitationAcceptedBy(db, token, "person_dev_second_adult")).toEqual({
+    expect(
+      await invitationAcceptedBy(db, token, "person_dev_second_adult"),
+    ).toEqual({
       teamName: TEAM_NAME,
       grantedRole: "adult",
     });
     // A DIFFERENT adult — even the inviter — learns nothing from the token.
-    expect(await invitationAcceptedBy(db, token, DEV_PERSON_ID)).toBeUndefined();
-    expect(await invitationAcceptedBy(db, "not-a-real-token", DEV_PERSON_ID)).toBeUndefined();
+    expect(
+      await invitationAcceptedBy(db, token, DEV_PERSON_ID),
+    ).toBeUndefined();
+    expect(
+      await invitationAcceptedBy(db, "not-a-real-token", DEV_PERSON_ID),
+    ).toBeUndefined();
   });
 });
 
@@ -302,7 +376,11 @@ describe("POST /api/invitations/preview", () => {
 
     const mine = await previewOverHttp(token, memberCookie);
     expect(mine.status).toBe(200);
-    expect(json(mine)).toEqual({ state: "accepted", teamName: TEAM_NAME, grantedRole: "adult" });
+    expect(json(mine)).toEqual({
+      state: "accepted",
+      teamName: TEAM_NAME,
+      grantedRole: "adult",
+    });
     expect(Object.keys(json(mine) as object).toSorted()).toEqual([
       "grantedRole",
       "state",
@@ -324,13 +402,25 @@ describe("POST /api/invitations/preview", () => {
     const memberCookie = await signIn("second-adult");
     await acceptAs(memberCookie, token);
 
-    const promotion = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
-      headers: { ...sameOrigin, cookie: ownerCookie },
-      body: { invitedRole: "owner", inviteeLabel: "promotion" },
-    });
+    const promotion = await app.handle(
+      "POST",
+      `/api/teams/${teamId}/invitations`,
+      {
+        headers: { ...sameOrigin, cookie: ownerCookie },
+        body: {
+          invitedRole: "owner",
+          inviteeLabel: "promotion",
+          recipientBinding: {
+            kind: "confirmed_person",
+            personId: "person_dev_second_adult",
+          },
+        },
+      },
+    );
     expect(promotion.status).toBe(201);
     const ownerToken = tokenOf(
-      (json(promotion) as { invitation: { inviteUrl?: string } }).invitation.inviteUrl ?? "",
+      (json(promotion) as { invitation: { inviteUrl?: string } }).invitation
+        .inviteUrl ?? "",
     );
     await acceptAs(memberCookie, ownerToken);
 
@@ -410,7 +500,9 @@ describe("POST /api/invitations/preview", () => {
     // Boundary validation (ADR 0005) throws the coded `WEB_VALIDATION_FAILED`
     // that the HTTP layer answers 400 with — an empty token and an unknown key
     // both stop here rather than reaching a query.
-    await expect(previewOverHttp("")).rejects.toThrow("Request body failed validation.");
+    await expect(previewOverHttp("")).rejects.toThrow(
+      "Request body failed validation.",
+    );
     await expect(
       app.handle("POST", "/api/invitations/preview", {
         headers: sameOrigin,
@@ -433,14 +525,20 @@ describe("/invite page loader", () => {
   it("reports no session for a signed-out visitor", async () => {
     await seedInvitation();
 
-    expect(await loadInvite()).toEqual({ state: "in-browser", signedIn: false });
+    expect(await loadInvite()).toEqual({
+      state: "in-browser",
+      signedIn: false,
+    });
   });
 
   it("reports a session for a signed-in adult", async () => {
     await seedInvitation();
     const memberCookie = await signIn("second-adult");
 
-    expect(await loadInvite(memberCookie)).toEqual({ state: "in-browser", signedIn: true });
+    expect(await loadInvite(memberCookie)).toEqual({
+      state: "in-browser",
+      signedIn: true,
+    });
   });
 
   it("renders no invitation data server-side — the fragment never reaches it", async () => {
@@ -458,3 +556,4 @@ describe("/invite page loader", () => {
     expectNoPrivateLeaks(html);
   });
 });
+import { readFile } from "node:fs/promises";
