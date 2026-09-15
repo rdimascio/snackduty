@@ -116,7 +116,9 @@ export const createInvitationRecipientBinding: MigrationEntry = {
       await schema.execute("ALTER TABLE invitations ADD COLUMN recipient_kind TEXT");
       await schema.execute("ALTER TABLE invitations ADD COLUMN recipient_email TEXT");
       await schema.execute("ALTER TABLE invitations ADD COLUMN recipient_person_id TEXT");
-      await schema.execute("ALTER TABLE invitations ADD COLUMN replaces_guardian_relationship_id TEXT");
+      await schema.execute(
+        "ALTER TABLE invitations ADD COLUMN replaces_guardian_relationship_id TEXT",
+      );
       await schema.execute(
         "CREATE INDEX invitations_recipient_person_id_idx ON invitations (recipient_person_id)",
       );

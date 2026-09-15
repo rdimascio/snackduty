@@ -47,7 +47,9 @@ export const createTeamsAndSeasons: MigrationEntry = {
     up: async (schema) => {
       await schema.execute(createTableSql(teams, schema.dialect));
       await schema.execute(createTableSql(seasons, schema.dialect));
-      await schema.execute("CREATE INDEX teams_created_by_person_id_idx ON teams (created_by_person_id)");
+      await schema.execute(
+        "CREATE INDEX teams_created_by_person_id_idx ON teams (created_by_person_id)",
+      );
       await schema.execute("CREATE INDEX seasons_team_id_idx ON seasons (team_id)");
     },
     down: async (schema) => {
