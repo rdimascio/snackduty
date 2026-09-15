@@ -35,6 +35,10 @@ No staging hosting account, hostname, persistent volume or verified invitation s
 
 The foundation is therefore implemented in substantial local slices, not a completed staging/TestFlight beta. Verified-email authentication onboarding, native recurrence editing/calendar subscription, duty swaps/reminders, broader role audit/jobs, delivery and onboarding work remain open. League operations stay R4; branded apps stay last at R5.
 
+### AWS staging foundation — September 15, 2026
+
+The integrated AWS lane adds an Alchemy 0.93.12 graph for a VPC with public HTTPS load balancing, an EC2 API host, private encrypted RDS PostgreSQL, least-privilege security groups, managed secrets, SSM access, backups and shared S3 state. The runtime now has an explicit SQLite/PostgreSQL configuration seam, bounded pool settings, dialect propagation into Lesto migrations and the invitation queue, and a real `@lesto/pg`/`pg` opener. Deployment is fail-closed until PostgreSQL runtime evidence is supplied. A dry-run/read-only preflight checks AWS account, DNS/origin, topology, security groups, health, snapshots and rollback evidence while redacting credentials. No AWS resources or live staging account were contacted; `stagingVerified` remains false.
+
 ## Published baseline receipts
 
 | PR                                                  | Merged commit | Scope and evidence                                                                                                                                                                                                                                            |
