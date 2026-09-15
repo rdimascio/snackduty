@@ -79,9 +79,12 @@ function databaseUrl(value: string): string {
     parsed.hostname === "" ||
     parsed.pathname === "" ||
     parsed.pathname === "/" ||
-    parsed.hash !== ""
+    parsed.hash !== "" ||
+    !["require", "verify-ca", "verify-full"].includes(parsed.searchParams.get("sslmode") ?? "")
   ) {
-    throw new RuntimeConfigurationError("DATABASE_URL must be a valid PostgreSQL URL.");
+    throw new RuntimeConfigurationError(
+      "DATABASE_URL must be a PostgreSQL URL with sslmode=require, verify-ca, or verify-full.",
+    );
   }
 
   return value;
