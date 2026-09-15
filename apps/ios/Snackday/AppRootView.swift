@@ -3,6 +3,7 @@ import SnackdayDomain
 import SwiftUI
 
 struct AppRootView: View {
+    @State private var selectedTab = 0
     let identity: AdultIdentityDTO?
     let directory: TeamDirectory?
     let snapshot: HomeSnapshot
@@ -10,6 +11,8 @@ struct AppRootView: View {
     let selectSeason: (String) -> Void
     let signOut: () -> Void
     let joinTeam: (() -> Void)?
+    let coordinationController: (any SnackdayCoordinationControlling)?
+    let sessionExpired: @MainActor () async -> Void
 
     init(
         identity: AdultIdentityDTO? = nil,
@@ -18,7 +21,9 @@ struct AppRootView: View {
         selectTeam: @escaping (String) -> Void = { _ in },
         selectSeason: @escaping (String) -> Void = { _ in },
         signOut: @escaping () -> Void = {},
-        joinTeam: (() -> Void)? = nil
+        joinTeam: (() -> Void)? = nil,
+        coordinationController: (any SnackdayCoordinationControlling)? = nil,
+        sessionExpired: @escaping @MainActor () async -> Void = {}
     ) {
         self.identity = identity
         self.directory = directory
@@ -27,10 +32,12 @@ struct AppRootView: View {
         self.selectSeason = selectSeason
         self.signOut = signOut
         self.joinTeam = joinTeam
+        self.coordinationController = coordinationController
+        self.sessionExpired = sessionExpired
     }
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             HomeView(
                 identity: identity,
                 directory: directory,
@@ -38,19 +45,19 @@ struct AppRootView: View {
                 selectTeam: selectTeam,
                 selectSeason: selectSeason,
                 signOut: signOut,
-                joinTeam: joinTeam
+                joinTeam: joinTeam,
+                openSchedule: { selectedTab = 1 }
             )
             .tabItem { Label("Home", systemImage: "house.fill") }
+            .tag(0)
 
-            UnavailableFeatureView(
-                title: "Schedule",
-                systemImage: "calendar",
-                description: "Schedule details are not available in this beta yet."
-            )
+            schedule
             .tabItem { Label("Schedule", systemImage: "calendar") }
+            .tag(1)
 
             RosterView(roster: snapshot.roster)
-                .tabItem { Label("Team", systemImage: "person.3.fill") }
+            .tabItem { Label("Team", systemImage: "person.3.fill") }
+            .tag(2)
 
             UnavailableFeatureView(
                 title: "Inbox",
@@ -58,8 +65,21 @@ struct AppRootView: View {
                 description: "Team messaging is not available in this beta yet."
             )
             .tabItem { Label("Inbox", systemImage: "bubble.left.and.bubble.right.fill") }
+            .tag(3)
         }
         .tint(.snackdayForest)
+    }
+
+    @ViewBuilder private var schedule: some View {
+        if let identity, let directory, let coordinationController,
+           let context = NativeAppViewModel.coordinationContext(
+               for: .ready(identity: identity, directory: directory, snapshot: snapshot)
+           ) {
+            ScheduleView(context: context, controller: coordinationController, sessionExpired: sessionExpired)
+        } else {
+            UnavailableFeatureView(title: "Schedule", systemImage: "calendar",
+                                   description: "Select a team and season to load the schedule.")
+        }
     }
 }
 
@@ -71,6 +91,7 @@ private struct HomeView: View {
     let selectSeason: (String) -> Void
     let signOut: () -> Void
     let joinTeam: (() -> Void)?
+    let openSchedule: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -134,25 +155,29 @@ private struct HomeView: View {
     }
 
     private var scheduleStatus: some View {
-        VStack(alignment: .leading, spacing: SnackdaySpacing.standard) {
-            Label("SCHEDULE", systemImage: "calendar.badge.clock")
-                .font(.caption.weight(.bold))
-                .tracking(1.2)
-            Text(snapshot.nextEvent)
-                .font(.title2.weight(.bold))
-                .fixedSize(horizontal: false, vertical: true)
+        Button(action: openSchedule) {
+            VStack(alignment: .leading, spacing: SnackdaySpacing.standard) {
+                Label("SCHEDULE", systemImage: "calendar.badge.clock")
+                    .font(.caption.weight(.bold))
+                    .tracking(1.2)
+                Text("View your team’s schedule")
+                    .font(.title2.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(20)
+            .foregroundStyle(.white)
+            .background(
+                LinearGradient(
+                    colors: [.snackdayForest, .snackdayForestDeep],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+            )
+            .shadow(color: Color.snackdayForest.opacity(0.18), radius: 18, y: 9)
         }
-        .padding(20)
-        .foregroundStyle(.white)
-        .background(
-            LinearGradient(
-                colors: [.snackdayForest, .snackdayForestDeep],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-        )
-        .shadow(color: Color.snackdayForest.opacity(0.18), radius: 18, y: 9)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("home-open-schedule")
     }
 
     private var rosterSummary: some View {

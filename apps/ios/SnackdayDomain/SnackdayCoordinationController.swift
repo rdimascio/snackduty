@@ -13,7 +13,7 @@ import Foundation
     private var mutationRevision: UInt64 = 0
     private var scheduleTask: Task<Void, Never>?
     private var detailTask: Task<Void, Never>?
-    private var cancelMutation: (() -> Void)?
+    private var cancelMutation: (@Sendable () -> Void)?
     private var continuations: [UUID: AsyncStream<CoordinationState>.Continuation] = [:]
 
     public init(transport: any SnackdayCoordinationTransport) {
@@ -291,6 +291,10 @@ import Foundation
                         dutySlots: dutyResponse.dutySlots
                     )
                 )
+                updateScheduleAttendance(
+                    occurrenceID: occurrenceID,
+                    counts: attendanceResponse.attendance.counts
+                )
                 publish()
             } catch {
                 handleDetailError(
@@ -304,6 +308,23 @@ import Foundation
         }
         detailTask = task
         await awaitTask(task)
+    }
+
+    private func updateScheduleAttendance(occurrenceID: String, counts: AttendanceCountsDTO) {
+        guard case .loaded(let events) = state.schedule else { return }
+        state.schedule = .loaded(events.map { event in
+            ScheduleEventDTO(series: event.series, occurrences: event.occurrences.map { occurrence in
+                guard occurrence.id == occurrenceID else { return occurrence }
+                return EventOccurrenceDTO(
+                    id: occurrence.id, seriesId: occurrence.seriesId,
+                    localDate: occurrence.localDate, startsAt: occurrence.startsAt,
+                    durationMinutes: occurrence.durationMinutes, status: occurrence.status,
+                    cancelledReason: occurrence.cancelledReason,
+                    createdAt: occurrence.createdAt, updatedAt: occurrence.updatedAt,
+                    attendance: counts
+                )
+            })
+        })
     }
 
     private func handleScheduleError(

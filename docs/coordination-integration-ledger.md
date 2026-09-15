@@ -1,6 +1,6 @@
 # Coordination integration ledger
 
-Root owns every shared interface and integration file. All three Sol leaves
+Root owns every shared interface and integration file. All four Sol tickets
 start at the same frozen foundation commit in isolated branches/worktrees.
 No agent edits a sibling's files. Shared contract changes are requested from root.
 
@@ -11,8 +11,8 @@ No agent edits a sibling's files. Shared contract changes are requested from roo
 - Mission: implement the six frozen coordination operations and make HTTP
   handlers call them; preserve existing policy, recurrence and duty semantics.
 - Own: web server events.ts, attendance.ts, duties.ts; new
-  coordination-operations.ts and coordination-actor.ts; web tests events.test.ts,
-  attendance.test.ts, duties.test.ts and new coordination-operations.test.ts.
+  coordination-operations.ts and coordination-actor.ts; web tests events-api.test.ts,
+  attendance-api.test.ts, duties-api.test.ts and new coordination-operations.test.ts.
 - Forbidden: all other files, especially contracts, migrations, composition,
   manifests, native files and harness. Root owns migration 013 and registration.
 - Dependencies: frozen TypeScript contracts and eventCreationReceipts table.
@@ -52,6 +52,20 @@ No agent edits a sibling's files. Shared contract changes are requested from roo
   mutation feedback are honest. No live preview fallback. Named UI tests retain
   privacy assertions and screenshots. Root executes simulator tests.
 
+### J-G — Real composed acceptance
+
+- Mission: prove the first coordination journey through the real composed runtime
+  using generated, cryptographically verified adult identities and durable SQL.
+- Own: apps/web/test/beta-journey.test.ts only.
+- Forbidden: all other files, especially application wiring, contracts, migrations,
+  scripts, native files and release documents.
+- Dependencies: frozen contracts and J-A implementation. This ticket reused the
+  J-E Sol slot after transport implementation completed.
+- Done: dual coach–parent identity, recipient-bound joining without implicit child
+  authority, atomic event/snack replay, own-child RSVP, self claim, independent
+  team/season boundaries, revocation and durable restart. Generated keys establish
+  local integration only; live provider verification remains incomplete.
+
 ### Root — Foundation and convergence
 
 Own all unallocated files, including contracts/fixtures, migration 013, route
@@ -62,5 +76,17 @@ Simulator and shared DerivedData access are serialized by root.
 
 ## Receipts
 
-Foundation: contracts, canonical fixtures and migration registration only.
-Leaf implementation and real integration evidence pending.
+| Owner           | Source commit        | Integrated commit               | Evidence                                                                                                                          |
+| --------------- | -------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Root foundation | `82d19b4`            | `82d19b4`                       | Contracts, canonical TS/Swift fixtures, migration 013; 47 native domain tests and 8 migration/runtime tests passed before leaves. |
+| J-A Sol         | `ab275ce`            | `7e57cea`                       | 46 focused server tests, 6 co-coach tests and strict type checking passed.                                                        |
+| J-E Sol         | `f52bb4b`            | `eacd6c2`                       | Six real transport operations, typed failures and deterministic controller tests; simulator verification owned by root.           |
+| J-F Sol         | `373db5f`, `d648c17` | `1a6cb85` plus root integration | Views, fixture UI/model tests; sorting simplification incorporated centrally after an actual Swift compiler timeout.              |
+| J-G Sol         | `fe33c40`            | `17ff976`                       | 2 real composed-runtime tests / 128 assertions passed; the same tests fail against the frozen contracts without J-A routes.       |
+
+Root integration and final Mac/release evidence remain pending. Shared app/Xcode
+wiring and actual native/server/UI acceptance are root-owned. An independent
+gpt-5.5 review found no additional material issues beyond root's pending session
+restoration lifetime and stale RSVP schedule count regressions. The requested
+additional Claude review hit its account session limit; no Claude coordination
+review pass is claimed.

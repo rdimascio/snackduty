@@ -59,9 +59,10 @@ final class CoordinationUITests: XCTestCase {
         openSchedule(in: app)
         XCTAssertTrue(app.descendants(matching: .any)["schedule-error"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["You’re offline"].exists)
-        app.buttons["schedule-retry"].tap()
+        // ContentUnavailableView propagates its container identifier to actions.
+        app.buttons["Try Again"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["schedule-empty"].waitForExistence(timeout: 2))
-        let refresh = app.buttons["schedule-refresh"]
+        let refresh = app.buttons["Refresh Schedule"]
         XCTAssertTrue(refresh.exists)
         refresh.tap()
         XCTAssertTrue(app.descendants(matching: .any)["schedule-empty"].waitForExistence(timeout: 2))
@@ -97,7 +98,7 @@ final class CoordinationUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Schedule"].waitForExistence(timeout: 2))
     }
 
-    private func attachScreenshot(_ app: XCUIApplication, name: String) {
+    @MainActor private func attachScreenshot(_ app: XCUIApplication, name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways

@@ -13,6 +13,8 @@ struct NativeAppStateView: View {
     let retry: () -> Void
     let signOut: () -> Void
     var joinTeam: (() -> Void)? = nil
+    var coordinationController: (any SnackdayCoordinationControlling)? = nil
+    var sessionExpired: @MainActor () async -> Void = {}
 
     @ViewBuilder var body: some View {
         switch state {
@@ -43,7 +45,9 @@ struct NativeAppStateView: View {
                 selectTeam: selectTeam,
                 selectSeason: selectSeason,
                 signOut: signOut,
-                joinTeam: joinTeam
+                joinTeam: joinTeam,
+                coordinationController: coordinationController,
+                sessionExpired: sessionExpired
             )
         case .emptyTeams(let identity):
             SignedInEmptyView(

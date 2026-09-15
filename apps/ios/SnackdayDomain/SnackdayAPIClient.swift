@@ -204,8 +204,8 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
         let occurrenceIDs = Set(response.occurrences.map(\.id))
         guard response.series.teamId == teamID,
               response.series.seasonId == seasonID,
-              response.occurrences.allSatisfy { $0.seriesId == response.series.id },
-              response.dutySlots.allSatisfy { occurrenceIDs.contains($0.occurrenceId) }
+              response.occurrences.allSatisfy({ $0.seriesId == response.series.id }),
+              response.dutySlots.allSatisfy({ occurrenceIDs.contains($0.occurrenceId) })
         else {
             throw CoordinationFailure.invalidResponse
         }

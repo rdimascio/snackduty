@@ -323,4 +323,3 @@ public struct CoordinationState: Equatable, Sendable {
     func recordAttendance(participantID: String, status: AttendanceStatusDTO) async
     func claimDuty(slotID: String) async
 }
-

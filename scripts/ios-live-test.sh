@@ -40,6 +40,7 @@ fi
 IOS_DESTINATION="${IOS_DESTINATION:-$(bun "$ROOT_DIR/scripts/ios-destination.ts")}"
 
 export TEST_RUNNER_SNACKDAY_LIVE_API="$SNACKDAY_LIVE_API"
+export TEST_RUNNER_SNACKDAY_LIVE_UI_TEAM_ID="${SNACKDAY_LIVE_UI_TEAM_ID:?The seeded coordination team ID is required}"
 
 LOG_FILE="$(mktemp -t snackday-ios-live-test)"
 trap 'rm -f "$LOG_FILE"' EXIT
@@ -52,6 +53,7 @@ xcodebuild test \
   -destination "$IOS_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   -only-testing:SnackdayDomainTests/SnackdayAPIClientTests \
+  -only-testing:SnackdayUITests/LiveCoordinationUITests \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= 2>&1 | tee "$LOG_FILE"
 XCODEBUILD_STATUS="${PIPESTATUS[0]}"
 set -e
@@ -62,3 +64,10 @@ bun "$ROOT_DIR/scripts/lib/xcodebuild-verdict.ts" \
   --named-test \
   "the live round-trip test" \
   "LIVE API|liveDevServerRoundTrip"
+
+bun "$ROOT_DIR/scripts/lib/xcodebuild-verdict.ts" \
+  "$LOG_FILE" \
+  "$XCODEBUILD_STATUS" \
+  --named-test \
+  "the live native coordination UI journey" \
+  "LiveCoordinationUITests.*testRealCoachParentCoordination"

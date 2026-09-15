@@ -44,6 +44,16 @@
 		100000000000000000000024 /* JoinTeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000022; };
 		100000000000000000000025 /* JoinTeamTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000023; };
 		100000000000000000000026 /* CoordinationContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000024; };
+		100000000000000000000027 /* SnackdayCoordinationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000025; };
+		100000000000000000000028 /* SnackdayCoordinationAPIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000026; };
+		100000000000000000000029 /* CoordinationControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000027; };
+		10000000000000000000002A /* ScheduleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000028; };
+		10000000000000000000002B /* EventDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000029; };
+		10000000000000000000002C /* CreateEventView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002A; };
+		10000000000000000000002D /* CoordinationFixtureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002B; };
+		10000000000000000000002E /* CoordinationViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002C; };
+		10000000000000000000002F /* CoordinationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002D; };
+		100000000000000000000030 /* LiveCoordinationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000002E; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -98,6 +108,16 @@
 		200000000000000000000022 /* JoinTeamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinTeamView.swift; sourceTree = "<group>"; };
 		200000000000000000000023 /* JoinTeamTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinTeamTests.swift; sourceTree = "<group>"; };
 		200000000000000000000024 /* CoordinationContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinationContracts.swift; sourceTree = "<group>"; };
+		200000000000000000000025 /* SnackdayCoordinationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnackdayCoordinationController.swift; sourceTree = "<group>"; };
+		200000000000000000000026 /* SnackdayCoordinationAPIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnackdayCoordinationAPIClientTests.swift; sourceTree = "<group>"; };
+		200000000000000000000027 /* CoordinationControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinationControllerTests.swift; sourceTree = "<group>"; };
+		200000000000000000000028 /* ScheduleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleView.swift; sourceTree = "<group>"; };
+		200000000000000000000029 /* EventDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventDetailView.swift; sourceTree = "<group>"; };
+		20000000000000000000002A /* CreateEventView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateEventView.swift; sourceTree = "<group>"; };
+		20000000000000000000002B /* CoordinationFixtureController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinationFixtureController.swift; sourceTree = "<group>"; };
+		20000000000000000000002C /* CoordinationViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinationViewTests.swift; sourceTree = "<group>"; };
+		20000000000000000000002D /* CoordinationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinationUITests.swift; sourceTree = "<group>"; };
+		20000000000000000000002E /* LiveCoordinationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCoordinationUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -112,13 +132,13 @@
 
 /* Begin PBXGroup section */
 		500000000000000000000001 = {isa = PBXGroup; children = (500000000000000000000002, 500000000000000000000003, 500000000000000000000004, 500000000000000000000005, 500000000000000000000006, 500000000000000000000007, 500000000000000000000009, 500000000000000000000008, ); sourceTree = "<group>"; };
-		500000000000000000000002 /* Snackday */ = {isa = PBXGroup; children = (200000000000000000000022, 200000000000000000000021, 200000000000000000000020, 20000000000000000000001F, 200000000000000000000001, 200000000000000000000002, 200000000000000000000011, 200000000000000000000003, ); path = Snackday; sourceTree = "<group>"; };
-		500000000000000000000003 /* SnackdayDomain */ = {isa = PBXGroup; children = (200000000000000000000024, 20000000000000000000001B, 20000000000000000000001A, 200000000000000000000019, 200000000000000000000004, 20000000000000000000000F, 200000000000000000000010, 200000000000000000000017, ); path = SnackdayDomain; sourceTree = "<group>"; };
+		500000000000000000000002 /* Snackday */ = {isa = PBXGroup; children = (20000000000000000000002B, 20000000000000000000002A, 200000000000000000000029, 200000000000000000000028, 200000000000000000000022, 200000000000000000000021, 200000000000000000000020, 20000000000000000000001F, 200000000000000000000001, 200000000000000000000002, 200000000000000000000011, 200000000000000000000003, ); path = Snackday; sourceTree = "<group>"; };
+		500000000000000000000003 /* SnackdayDomain */ = {isa = PBXGroup; children = (200000000000000000000025, 200000000000000000000024, 20000000000000000000001B, 20000000000000000000001A, 200000000000000000000019, 200000000000000000000004, 20000000000000000000000F, 200000000000000000000010, 200000000000000000000017, ); path = SnackdayDomain; sourceTree = "<group>"; };
 		500000000000000000000004 /* SnackdayDesignSystem */ = {isa = PBXGroup; children = (200000000000000000000005, ); path = SnackdayDesignSystem; sourceTree = "<group>"; };
-		500000000000000000000005 /* SnackdayTests */ = {isa = PBXGroup; children = (200000000000000000000023, 200000000000000000000006, ); path = SnackdayTests; sourceTree = "<group>"; };
-		500000000000000000000006 /* SnackdayDomainTests */ = {isa = PBXGroup; children = (20000000000000000000001E, 20000000000000000000001D, 20000000000000000000001C, 200000000000000000000007, 200000000000000000000012, 200000000000000000000013, 200000000000000000000014, 200000000000000000000018, ); path = SnackdayDomainTests; sourceTree = "<group>"; };
+		500000000000000000000005 /* SnackdayTests */ = {isa = PBXGroup; children = (20000000000000000000002C, 200000000000000000000023, 200000000000000000000006, ); path = SnackdayTests; sourceTree = "<group>"; };
+		500000000000000000000006 /* SnackdayDomainTests */ = {isa = PBXGroup; children = (200000000000000000000027, 200000000000000000000026, 20000000000000000000001E, 20000000000000000000001D, 20000000000000000000001C, 200000000000000000000007, 200000000000000000000012, 200000000000000000000013, 200000000000000000000014, 200000000000000000000018, ); path = SnackdayDomainTests; sourceTree = "<group>"; };
 		500000000000000000000007 /* SnackdayDesignSystemTests */ = {isa = PBXGroup; children = (200000000000000000000008, ); path = SnackdayDesignSystemTests; sourceTree = "<group>"; };
-		500000000000000000000009 /* SnackdayUITests */ = {isa = PBXGroup; children = (200000000000000000000015, ); path = SnackdayUITests; sourceTree = "<group>"; };
+		500000000000000000000009 /* SnackdayUITests */ = {isa = PBXGroup; children = (20000000000000000000002E, 20000000000000000000002D, 200000000000000000000015, ); path = SnackdayUITests; sourceTree = "<group>"; };
 		500000000000000000000008 /* Products */ = {isa = PBXGroup; children = (200000000000000000000009, 20000000000000000000000A, 20000000000000000000000B, 20000000000000000000000C, 20000000000000000000000D, 20000000000000000000000E, 200000000000000000000016, ); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
@@ -142,13 +162,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		600000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000024, 100000000000000000000023, 100000000000000000000022, 100000000000000000000021, 100000000000000000000001, 100000000000000000000002, 100000000000000000000014, ); runOnlyForDeploymentPostprocessing = 0; };
-		600000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000026, 10000000000000000000001D, 10000000000000000000001C, 10000000000000000000001B, 100000000000000000000004, 100000000000000000000012, 100000000000000000000013, 100000000000000000000019, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (10000000000000000000002D, 10000000000000000000002C, 10000000000000000000002B, 10000000000000000000002A, 100000000000000000000024, 100000000000000000000023, 100000000000000000000022, 100000000000000000000021, 100000000000000000000001, 100000000000000000000002, 100000000000000000000014, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000027, 100000000000000000000026, 10000000000000000000001D, 10000000000000000000001C, 10000000000000000000001B, 100000000000000000000004, 100000000000000000000012, 100000000000000000000013, 100000000000000000000019, ); runOnlyForDeploymentPostprocessing = 0; };
 		600000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
-		600000000000000000000005 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000025, 100000000000000000000006, ); runOnlyForDeploymentPostprocessing = 0; };
-		600000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000020, 10000000000000000000001F, 10000000000000000000001E, 100000000000000000000007, 100000000000000000000015, 100000000000000000000016, 100000000000000000000017, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000005 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (10000000000000000000002E, 100000000000000000000025, 100000000000000000000006, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000006 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000029, 100000000000000000000028, 100000000000000000000020, 10000000000000000000001F, 10000000000000000000001E, 100000000000000000000007, 100000000000000000000015, 100000000000000000000016, 100000000000000000000017, ); runOnlyForDeploymentPostprocessing = 0; };
 		600000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000008, ); runOnlyForDeploymentPostprocessing = 0; };
-		600000000000000000000008 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000018, ); runOnlyForDeploymentPostprocessing = 0; };
+		600000000000000000000008 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (100000000000000000000030, 10000000000000000000002F, 100000000000000000000018, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */

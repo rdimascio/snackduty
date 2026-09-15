@@ -2,7 +2,7 @@
 
 ## Current beta foundation — September 14, 2026
 
-Source baseline is merged PR #3, `e0842fd`; `origin/main` was fetched again and has no newer changes. The integration branch is `feat/beta-foundation`. This branch is not yet published or merged. The [integration ledger](./beta-integration-ledger.md) records isolated Sol ownership and commit receipts; [release evidence](./beta-release-evidence.md) separates local and external verification.
+The beta foundation merged in PR #4 as `4c11695` after independent review and all local/hosted checks. The first native coordination journey is being implemented in `feat/native-coordination`, with three isolated Sol lanes cut from frozen contracts `82d19b4`. The [integration ledger](./beta-integration-ledger.md) records isolated Sol ownership and commit receipts; [release evidence](./beta-release-evidence.md) separates local and external verification.
 
 Implemented and integrated locally:
 
@@ -19,7 +19,7 @@ The composed runtime journey passes 2 tests and 91 assertions using real generat
 
 The complete Mac gate passed on `afe87e8`: 288 web tests, 22 domain tests, 39 manifest tests, 12 harness tests, 59 Swift tests, four UI tests, Debug/Release simulator builds and real native/API acceptance. Xcode 16.2 discovered iPhone 16 Pro on iOS 18.3. The acceptance receipt is `.artifacts/acceptance/run-1FLROh/receipt.json`; its dirty flag reflects the preserved unrelated untracked file.
 
-Two independent integrated reviews completed. Reproduced findings have regressions for redirect credentials, local logout, rejected sign-in, archived-season privacy and selection. The final review found cancellation of the invitation sheet could strand the application refresh. `d54a2f4` fixes the refresh lifetime; its regression failed before the fix and passed after it. A repeated gate exposed a scheduler-dependent test wait; `fc29d3d` uses deterministic request-registration barriers. Both deltas passed independent review and the complete gate. Hosted checks on the published commit remain required before merge.
+Two independent integrated reviews completed. Reproduced findings have regressions for redirect credentials, local logout, rejected sign-in, archived-season privacy and selection. The final review found cancellation of the invitation sheet could strand the application refresh. `d54a2f4` fixes the refresh lifetime; its regression failed before the fix and passed after it. A repeated gate exposed a scheduler-dependent test wait; `fc29d3d` uses deterministic request-registration barriers. Both deltas passed independent review and the complete gate. Hosted checks passed on PR head `1b894f3` before merge. The clean CI acceptance receipt records GitHub’s merge-test commit `a400ac4`, Bun 1.3.5 and Xcode 16.4; local checks used Bun 1.4.2 and Xcode 16.2.
 
 ### External requirements still incomplete
 
@@ -29,10 +29,11 @@ The foundation is therefore implemented in substantial local slices, not a compl
 
 ## Published baseline receipts
 
-| PR                                                  | Merged commit | Scope and evidence                                                                                                                                                       |
-| --------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [#1](https://github.com/rdimascio/snackduty/pull/1) | `5146232`     | Roadmap, private roster reads, duty API, native privacy display and Mac product CI; local and hosted gates passed.                                                       |
-| [#2](https://github.com/rdimascio/snackduty/pull/2) | `5611809`     | Owner-controlled co-coach grants and additive guardian rights; local and hosted gates passed.                                                                            |
-| [#3](https://github.com/rdimascio/snackduty/pull/3) | `e0842fd`     | Reproducible synthetic scenarios, fast feedback, native UI guards/screenshots, redacted failure receipts and live native/API acceptance; local and hosted checks passed. |
+| PR                                                  | Merged commit | Scope and evidence                                                                                                                                                                                                                                            |
+| --------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#1](https://github.com/rdimascio/snackduty/pull/1) | `5146232`     | Roadmap, private roster reads, duty API, native privacy display and Mac product CI; local and hosted gates passed.                                                                                                                                            |
+| [#2](https://github.com/rdimascio/snackduty/pull/2) | `5611809`     | Owner-controlled co-coach grants and additive guardian rights; local and hosted gates passed.                                                                                                                                                                 |
+| [#3](https://github.com/rdimascio/snackduty/pull/3) | `e0842fd`     | Reproducible synthetic scenarios, fast feedback, native UI guards/screenshots, redacted failure receipts and live native/API acceptance; local and hosted checks passed.                                                                                      |
+| [#4](https://github.com/rdimascio/snackduty/pull/4) | `4c11695`     | Shared policy, injected application composition, verified-token/session implementation, recipient-bound durable invitations, real native shell and Bun/SQLite runtime. Full local and hosted gates passed; external account and TestFlight work remains open. |
 
 The [development loop](./development-loop.md) remains the entry point. `bun run check:fast` checks TypeScript and tests; `bun run check:scenario` exercises synthetic real-API scenarios; native runners discover installed simulators. `bun run accept` requires its named native live test and preserves redacted failure artifacts. `bun run gate` runs the complete Mac product checks. CI evidence must refer to the exact reviewed commit before merge.

@@ -57,7 +57,7 @@ final class CoordinationViewModel {
         state = update
     }
 
-    static func containsUnauthorized(_ state: CoordinationState) -> Bool {
+    nonisolated static func containsUnauthorized(_ state: CoordinationState) -> Bool {
         if case .failed(.unauthorized) = state.schedule { return true }
         if case .failed(.unauthorized) = state.detail { return true }
         if case .failed(.unauthorized) = state.mutation { return true }
@@ -221,15 +221,19 @@ struct ScheduleRow: Identifiable, Equatable {
 }
 
 func scheduleRows(_ events: [ScheduleEventDTO]) -> [ScheduleRow] {
-    events
-        .flatMap { event in
-            event.occurrences.map { ScheduleRow(series: event.series, occurrence: $0) }
+    var rows: [ScheduleRow] = []
+    for event in events {
+        for occurrence in event.occurrences {
+            rows.append(ScheduleRow(series: event.series, occurrence: occurrence))
         }
-        .sorted {
-            $0.occurrence.startsAt == $1.occurrence.startsAt
-                ? $0.occurrence.id < $1.occurrence.id
-                : $0.occurrence.startsAt < $1.occurrence.startsAt
+    }
+    rows.sort { lhs, rhs in
+        if lhs.occurrence.startsAt == rhs.occurrence.startsAt {
+            return lhs.occurrence.id < rhs.occurrence.id
         }
+        return lhs.occurrence.startsAt < rhs.occurrence.startsAt
+    }
+    return rows
 }
 
 private struct ScheduleEventRow: View {
