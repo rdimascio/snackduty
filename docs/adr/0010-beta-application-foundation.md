@@ -50,7 +50,8 @@ recorded local delivery is never evidence that an email was sent.
 - Canonical payloads: `contracts/fixtures/*.json`; validate real server responses
   and decode these same resource files in Swift tests.
 - `POST /api/auth/apple/challenge` → `{challengeId, nonce}`. Native sends SHA-256
-  of the returned nonce to Apple's request; the verifier checks that nonce claim.
+  of the returned UTF-8 nonce, encoded as lowercase hexadecimal, to Apple's
+  request; the verifier checks that exact nonce claim.
 - `POST /api/auth/apple/sign-in` accepts `{challengeId, identityToken,
 displayName?, adultConsent:true}` and returns the existing account/person shape.
 - `GET /api/session` returns that identity or 401. `POST /api/session/logout`

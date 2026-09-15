@@ -1,3 +1,4 @@
+import type { Clock } from "./application-contracts";
 /**
  * One-adult duty slots attached to materialized event occurrences.
  *
@@ -121,11 +122,16 @@ function dutySlotById(tx: Db, teamId: string, occurrenceId: string, slotId: stri
     .get();
 }
 
-function occurrenceAcceptsNewAssignment(occurrence: {
-  status: string;
-  startsAtUtc: string;
-}): boolean {
-  return occurrence.status === "scheduled" && occurrence.startsAtUtc > new Date().toISOString();
+function occurrenceAcceptsNewAssignment(
+  occurrence: {
+    status: string;
+    startsAtUtc: string;
+  },
+  clock: Clock,
+): boolean {
+  return (
+    occurrence.status === "scheduled" && occurrence.startsAtUtc > new Date(clock()).toISOString()
+  );
 }
 
 async function activeTeamAdult(tx: Db, teamId: string, personId: string) {
@@ -182,6 +188,7 @@ async function createDutySlot(
   c: Context<"/api/teams/:teamId/occurrences/:occurrenceId/duty-slots">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -194,7 +201,7 @@ async function createDutySlot(
     const occurrence = await occurrenceByTeam(tx, team.id, c.param("occurrenceId"));
     if (occurrence === undefined) return "no-occurrence" as const;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const row = await tx
       .insert(dutySlots)
       .values({
@@ -269,6 +276,7 @@ async function claimDutySlot(
   c: Context<"/api/teams/:teamId/occurrences/:occurrenceId/duty-slots/:slotId/claim">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -284,9 +292,9 @@ async function claimDutySlot(
     if (slot === undefined) return "no-slot" as const;
     if (slot.assigneePersonId === identity.person.id) return { row: slot };
     if (slot.assigneePersonId !== null) return "taken" as const;
-    if (!occurrenceAcceptsNewAssignment(occurrence)) return "unavailable" as const;
+    if (!occurrenceAcceptsNewAssignment(occurrence, clock)) return "unavailable" as const;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const claimed = await tx
       .update(dutySlots)
       .set({
@@ -320,6 +328,7 @@ async function releaseDutySlot(
   c: Context<"/api/teams/:teamId/occurrences/:occurrenceId/duty-slots/:slotId/release">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -335,9 +344,9 @@ async function releaseDutySlot(
       return "taken" as const;
     }
     if (slot.assigneePersonId === null) return { row: slot };
-    if (!occurrenceAcceptsNewAssignment(occurrence)) return "unavailable" as const;
+    if (!occurrenceAcceptsNewAssignment(occurrence, clock)) return "unavailable" as const;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const released = await tx
       .update(dutySlots)
       .set({
@@ -367,6 +376,7 @@ async function assignDutySlot(
   c: Context<"/api/teams/:teamId/occurrences/:occurrenceId/duty-slots/:slotId/assignment">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -381,7 +391,7 @@ async function assignDutySlot(
     if (slot === undefined) return "no-slot" as const;
 
     if (slot.assigneePersonId === input.assigneePersonId) return { row: slot };
-    if (!occurrenceAcceptsNewAssignment(occurrence)) return "unavailable" as const;
+    if (!occurrenceAcceptsNewAssignment(occurrence, clock)) return "unavailable" as const;
 
     let assignee: { id: string } | undefined;
     if (input.assigneePersonId !== null) {
@@ -389,7 +399,7 @@ async function assignDutySlot(
       if (assignee === undefined) return "no-adult" as const;
     }
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const assigned = await tx
       .update(dutySlots)
       .set({
@@ -424,21 +434,26 @@ async function assignDutySlot(
   return c.json({ dutySlot: await projectedDutySlot(db, outcome.row) });
 }
 
-export function registerDutyRoutes(app: Lesto, db: Db, sessions: Sessions) {
+export function registerDutyRoutes(
+  app: Lesto,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock = Date.now,
+) {
   return app
     .post("/api/teams/:teamId/occurrences/:occurrenceId/duty-slots", (c) =>
-      createDutySlot(c, db, sessions),
+      createDutySlot(c, db, sessions, clock),
     )
     .get("/api/teams/:teamId/occurrences/:occurrenceId/duty-slots", (c) =>
       listDutySlots(c, db, sessions),
     )
     .post("/api/teams/:teamId/occurrences/:occurrenceId/duty-slots/:slotId/claim", (c) =>
-      claimDutySlot(c, db, sessions),
+      claimDutySlot(c, db, sessions, clock),
     )
     .post("/api/teams/:teamId/occurrences/:occurrenceId/duty-slots/:slotId/release", (c) =>
-      releaseDutySlot(c, db, sessions),
+      releaseDutySlot(c, db, sessions, clock),
     )
     .post("/api/teams/:teamId/occurrences/:occurrenceId/duty-slots/:slotId/assignment", (c) =>
-      assignDutySlot(c, db, sessions),
+      assignDutySlot(c, db, sessions, clock),
     );
 }

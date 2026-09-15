@@ -2,6 +2,8 @@ import type { Sessions } from "@lesto/auth";
 import type { Db } from "@lesto/db";
 
 import { lesto } from "@lesto/web";
+import type { Lesto } from "@lesto/web";
+import type { Clock } from "./application-contracts";
 import type { LestoAppConfig } from "@lesto/kernel";
 
 import { bindAppServices } from "./app-services";
@@ -48,41 +50,19 @@ export function buildApp(
   sessions: Sessions,
   developmentSignIn: boolean,
   inviteDelivery: InviteDeliverer = devInviteDeliverer(),
+  clock: Clock = Date.now,
+  exposeCalendarFeeds = true,
 ) {
-  const app = registerCalendarFeedRoutes(
-    registerDutyRoutes(
-      registerAttendanceRoutes(
-        registerEventRoutes(
-          registerInvitationRoutes(
-            registerTeamReadRoutes(
-              registerRosterImportRoutes(
-                registerRosterRoutes(
-                  registerTeamRoutes(buildBaseApp(db, sessions), db, sessions),
-                  db,
-                  sessions,
-                ),
-                db,
-                sessions,
-              ),
-              db,
-              sessions,
-            ),
-            db,
-            sessions,
-            inviteDelivery,
-          ),
-          db,
-          sessions,
-        ),
-        db,
-        sessions,
-      ),
-      db,
-      sessions,
-    ),
-    db,
-    sessions,
-  );
+  let app: Lesto = buildBaseApp(db, sessions);
+  app = registerTeamRoutes(app, db, sessions, clock);
+  app = registerRosterRoutes(app, db, sessions);
+  app = registerRosterImportRoutes(app, db, sessions);
+  app = registerTeamReadRoutes(app, db, sessions);
+  app = registerInvitationRoutes(app, db, sessions, inviteDelivery);
+  app = registerEventRoutes(app, db, sessions, clock);
+  app = registerAttendanceRoutes(app, db, sessions, clock);
+  app = registerDutyRoutes(app, db, sessions, clock);
+  if (exposeCalendarFeeds) app = registerCalendarFeedRoutes(app, db, sessions, clock);
 
   if (!developmentSignIn) return app;
 
@@ -129,6 +109,7 @@ export interface ApplicationOptions {
   readonly mode: "development" | "staging" | "production";
   readonly developmentSignIn: boolean;
   readonly inviteDelivery: InviteDeliverer;
+  readonly exposeCalendarFeeds?: boolean;
   readonly appleVerifier?: import("./application-contracts").AppleIdentityVerifier;
 }
 export const applicationMigrations = [
@@ -147,7 +128,14 @@ export function createApplication(options: ApplicationOptions) {
   }
   const config: LestoAppConfig = {
     db: options.sql,
-    app: buildApp(options.db, options.sessions, options.developmentSignIn, options.inviteDelivery),
+    app: buildApp(
+      options.db,
+      options.sessions,
+      options.developmentSignIn,
+      options.inviteDelivery,
+      options.clock,
+      options.exposeCalendarFeeds ?? options.mode === "development",
+    ),
     migrations: applicationMigrations,
     secure: { originCheck: {} },
     ui: { dialect: "preact", css: "app/styles/app.css" },

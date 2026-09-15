@@ -22,7 +22,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT="$ROOT_DIR/apps/ios/Snackday.xcodeproj"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$ROOT_DIR/DerivedData}"
-IOS_DESTINATION="${IOS_DESTINATION:-platform=iOS Simulator,name=iPhone 16,OS=latest}"
 
 if [[ -z "${SNACKDAY_LIVE_API:-}" ]]; then
   echo "error: SNACKDAY_LIVE_API=<base URL> is required, e.g. SNACKDAY_LIVE_API=http://localhost:3000." >&2
@@ -37,6 +36,8 @@ if ! xcodebuild -version >/dev/null 2>&1; then
   echo "error: Full Xcode is required. Install Xcode or set DEVELOPER_DIR to its Developer directory." >&2
   exit 1
 fi
+
+IOS_DESTINATION="${IOS_DESTINATION:-$(bun "$ROOT_DIR/scripts/ios-destination.ts")}"
 
 export TEST_RUNNER_SNACKDAY_LIVE_API="$SNACKDAY_LIVE_API"
 

@@ -76,7 +76,7 @@ async function run(
   if (exitCode !== 0) throw devScenarioError(step, `${command[0]} exited ${exitCode}`);
 }
 
-async function simulatorList(signal?: AbortSignal): Promise<SimulatorList> {
+export async function simulatorList(signal?: AbortSignal): Promise<SimulatorList> {
   signal?.throwIfAborted();
   const child = Bun.spawn({
     cmd: ["xcrun", "simctl", "list", "devices", "available", "--json"],

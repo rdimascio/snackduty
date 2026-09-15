@@ -1,3 +1,4 @@
+import type { Clock } from "./application-contracts";
 /**
  * Private calendar feeds and ICS export (ADR 0009).
  *
@@ -123,6 +124,7 @@ async function mintCalendarFeed(
   c: Context<"/api/teams/:teamId/calendar-feed">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -133,7 +135,7 @@ async function mintCalendarFeed(
     const team = await readableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const existing = await activeFeedRow(tx, team.id, identity.person.id);
     if (existing === undefined) {
       await tx
@@ -169,6 +171,7 @@ async function revokeCalendarFeed(
   c: Context<"/api/teams/:teamId/calendar-feed/revoke">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -181,7 +184,7 @@ async function revokeCalendarFeed(
     if (existing !== undefined) {
       await tx
         .update(calendarFeedTokens)
-        .set({ status: "revoked", updatedAt: new Date().toISOString() })
+        .set({ status: "revoked", updatedAt: new Date(clock()).toISOString() })
         .where(eq(calendarFeedTokens.id, existing.id))
         .run();
     }
@@ -324,10 +327,17 @@ async function exportOccurrence(
   return icsResponse(body, { "Content-Disposition": 'attachment; filename="snackday-event.ics"' });
 }
 
-export function registerCalendarFeedRoutes(app: Lesto, db: Db, sessions: Sessions) {
+export function registerCalendarFeedRoutes(
+  app: Lesto,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock = Date.now,
+) {
   return app
-    .post("/api/teams/:teamId/calendar-feed", (c) => mintCalendarFeed(c, db, sessions))
-    .post("/api/teams/:teamId/calendar-feed/revoke", (c) => revokeCalendarFeed(c, db, sessions))
+    .post("/api/teams/:teamId/calendar-feed", (c) => mintCalendarFeed(c, db, sessions, clock))
+    .post("/api/teams/:teamId/calendar-feed/revoke", (c) =>
+      revokeCalendarFeed(c, db, sessions, clock),
+    )
     .get("/api/teams/:teamId/occurrences/:occurrenceId/export", (c) =>
       exportOccurrence(c, db, sessions),
     )

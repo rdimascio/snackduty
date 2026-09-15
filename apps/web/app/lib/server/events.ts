@@ -1,3 +1,4 @@
+import type { Clock } from "./application-contracts";
 /**
  * Events: recurring series with MATERIALIZED occurrences (ADR 0009).
  *
@@ -362,6 +363,7 @@ async function createSeries(
   c: Context<"/api/teams/:teamId/seasons/:seasonId/events">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -381,7 +383,7 @@ async function createSeries(
       .get();
     if (season === undefined) return null;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const row = await tx
       .insert(eventSeries)
       .values({
@@ -500,6 +502,7 @@ async function updateSeries(
   c: Context<"/api/teams/:teamId/events/:seriesId/update">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -525,7 +528,7 @@ async function updateSeries(
       .get();
     if (row === undefined) return "no-series" as const;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     await tx
       .update(eventSeries)
       .set({
@@ -559,6 +562,7 @@ async function cancelOccurrence(
   c: Context<"/api/teams/:teamId/occurrences/:occurrenceId/cancel">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -590,7 +594,7 @@ async function cancelOccurrence(
       return { row };
     }
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     await tx
       .update(eventOccurrences)
       .set({ status: "cancelled", cancelledReason: input.reason, cancelledAt: now, updatedAt: now })
@@ -707,12 +711,19 @@ async function listTeamEvents(c: Context<"/api/teams/:teamId/events">, db: Db, s
   return c.json({ events: await loadTeamEvents(db, team.id) });
 }
 
-export function registerEventRoutes(app: Lesto, db: Db, sessions: Sessions) {
+export function registerEventRoutes(
+  app: Lesto,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock = Date.now,
+) {
   return app
-    .post("/api/teams/:teamId/seasons/:seasonId/events", (c) => createSeries(c, db, sessions))
-    .post("/api/teams/:teamId/events/:seriesId/update", (c) => updateSeries(c, db, sessions))
+    .post("/api/teams/:teamId/seasons/:seasonId/events", (c) =>
+      createSeries(c, db, sessions, clock),
+    )
+    .post("/api/teams/:teamId/events/:seriesId/update", (c) => updateSeries(c, db, sessions, clock))
     .post("/api/teams/:teamId/occurrences/:occurrenceId/cancel", (c) =>
-      cancelOccurrence(c, db, sessions),
+      cancelOccurrence(c, db, sessions, clock),
     )
     .get("/api/teams/:teamId/events", (c) => listTeamEvents(c, db, sessions));
 }

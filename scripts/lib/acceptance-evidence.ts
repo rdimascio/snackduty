@@ -10,10 +10,10 @@ export function redactAcceptanceLog(value: string): string {
       "[redacted credential header]",
     )
     .replace(/\bBearer\s+[^\s"')]+/giu, "Bearer [redacted]")
-    .replace(/\bsnackday_session_dev=[^\s;"']+/gu, "snackday_session_dev=[redacted]")
+    .replace(/(?:__Host-snackday_session|snackday_session_dev)=[^\s;"']+/gu, "session=[redacted]")
     .replace(/\/invite#[^\s"'<>)]*/giu, "/invite#[redacted]")
     .replace(
-      /\b(?:token|secret|password)\b["']?\s*[:=]\s*["']?[^\s,"'}]+/giu,
+      /\b(?:token|identityToken|nonce|secret|password)\b["']?\s*[:=]\s*["']?[^\s,"'}]+/giu,
       "credential=[redacted]",
     )
     .replace(/\b[0-9a-f]{64}\b/giu, "[redacted credential]");

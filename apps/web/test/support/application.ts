@@ -4,7 +4,7 @@ import { developmentIdentityServices } from "../../app/lib/server/identity";
 import { devInviteDeliverer } from "../../app/lib/server/invite-delivery";
 
 // Each suite owns its database; application imports never register globals.
-export async function testApplication() {
+export async function testApplication(clock: () => number = Date.now) {
   const { db: sql } = await openSqlite(":memory:");
   const { db, sessions } = await developmentIdentityServices(sql);
   const devInviteDelivery = devInviteDeliverer();
@@ -13,7 +13,7 @@ export async function testApplication() {
     db,
     sessions,
     mode: "development",
-    clock: Date.now,
+    clock,
     developmentSignIn: true,
     inviteDelivery: devInviteDelivery,
   });

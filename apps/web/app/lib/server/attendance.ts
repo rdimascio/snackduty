@@ -1,3 +1,4 @@
+import type { Clock } from "./application-contracts";
 /**
  * Per-child attendance on one occurrence, under the guardian rule (ADR 0009).
  *
@@ -114,6 +115,7 @@ async function recordAttendance(
   c: Context<"/api/teams/:teamId/occurrences/:occurrenceId/attendance">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -143,7 +145,7 @@ async function recordAttendance(
     )
       return "no-participant" as const;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const existing = await tx
       .select()
       .from(eventAttendance)
@@ -275,10 +277,15 @@ async function readAttendance(
   return c.json({ attendance: { counts, entries: projected } });
 }
 
-export function registerAttendanceRoutes(app: Lesto, db: Db, sessions: Sessions) {
+export function registerAttendanceRoutes(
+  app: Lesto,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock = Date.now,
+) {
   return app
     .post("/api/teams/:teamId/occurrences/:occurrenceId/attendance", (c) =>
-      recordAttendance(c, db, sessions),
+      recordAttendance(c, db, sessions, clock),
     )
     .get("/api/teams/:teamId/occurrences/:occurrenceId/attendance", (c) =>
       readAttendance(c, db, sessions),

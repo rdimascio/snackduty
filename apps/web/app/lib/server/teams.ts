@@ -1,3 +1,4 @@
+import type { Clock } from "./application-contracts";
 import type { Sessions } from "@lesto/auth";
 import { and, createTableSql, defineTable, dropTableSql, eq, inList, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
@@ -181,12 +182,12 @@ export function projectTeam(row: {
   });
 }
 
-async function createTeam(c: Context<"/api/teams">, db: Db, sessions: Sessions) {
+async function createTeam(c: Context<"/api/teams">, db: Db, sessions: Sessions, clock: Clock) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const input = c.valid(createTeamInputSchema);
-  const now = new Date().toISOString();
+  const now = new Date(clock()).toISOString();
   const row = await db
     .insert(teams)
     .values({
@@ -203,7 +204,12 @@ async function createTeam(c: Context<"/api/teams">, db: Db, sessions: Sessions) 
   return c.json({ team: projectTeam(row) }, 201);
 }
 
-async function createSeason(c: Context<"/api/teams/:teamId/seasons">, db: Db, sessions: Sessions) {
+async function createSeason(
+  c: Context<"/api/teams/:teamId/seasons">,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock,
+) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
@@ -212,7 +218,7 @@ async function createSeason(c: Context<"/api/teams/:teamId/seasons">, db: Db, se
     const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const row = await tx
       .insert(seasons)
       .values({
@@ -267,6 +273,7 @@ async function setCoCoachRole(
   db: Db,
   sessions: Sessions,
   role: "coach" | "adult",
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -305,7 +312,7 @@ async function setCoCoachRole(
     if (held === undefined) return "no-member" as const;
     if (held.role === "owner") return "owner" as const;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     await tx
       .update(adultMemberships)
       .set({ role, updatedAt: now })
@@ -328,15 +335,20 @@ async function setCoCoachRole(
   return c.json({ membership: { ...outcome, status: "active" as const } });
 }
 
-export function registerTeamRoutes(app: Lesto, db: Db, sessions: Sessions) {
+export function registerTeamRoutes(
+  app: Lesto,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock = Date.now,
+) {
   return app
-    .post("/api/teams", (c) => createTeam(c, db, sessions))
-    .post("/api/teams/:teamId/seasons", (c) => createSeason(c, db, sessions))
+    .post("/api/teams", (c) => createTeam(c, db, sessions, clock))
+    .post("/api/teams/:teamId/seasons", (c) => createSeason(c, db, sessions, clock))
     .post("/api/teams/:teamId/adult-members/:personId/co-coach/grant", (c) =>
-      setCoCoachRole(c, db, sessions, "coach"),
+      setCoCoachRole(c, db, sessions, "coach", clock),
     )
     .post("/api/teams/:teamId/adult-members/:personId/co-coach/revoke", (c) =>
-      setCoCoachRole(c, db, sessions, "adult"),
+      setCoCoachRole(c, db, sessions, "adult", clock),
     )
     .get("/api/teams/:teamId", (c) => readTeam(c, db, sessions));
 }

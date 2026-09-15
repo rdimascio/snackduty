@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT="$ROOT_DIR/apps/ios/Snackday.xcodeproj"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$ROOT_DIR/DerivedData}"
-IOS_DESTINATION="${IOS_DESTINATION:-platform=iOS Simulator,name=iPhone 16,OS=latest}"
 TEST_NAME="testHomeRosterPrivacyAndTabNavigation"
 
 if ! xcodebuild -version >/dev/null 2>&1 && [[ -d /Applications/Xcode.app ]]; then
@@ -15,6 +14,8 @@ if ! xcodebuild -version >/dev/null 2>&1; then
   echo "error: Full Xcode is required. Install Xcode or set DEVELOPER_DIR to its Developer directory." >&2
   exit 1
 fi
+
+IOS_DESTINATION="${IOS_DESTINATION:-$(bun "$ROOT_DIR/scripts/ios-destination.ts")}"
 
 LOG_FILE="$(mktemp -t snackday-ios-ui-test)"
 trap 'rm -f "$LOG_FILE"' EXIT
