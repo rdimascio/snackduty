@@ -1494,7 +1494,7 @@ async function main(): Promise<void> {
       "visible with its reason, guardian-scoped attendance with hiding 404s, child-free calendar " +
       "feed polled unauthenticated with noindex, re-mint rotates the feed URL, authenticated " +
       "single-event ICS export, revoke), " +
-      "iOS live round trip.",
+      "iOS live controller/API round trip and coach-create → parent-RSVP → snack-claim UI journey with independent team switching.",
   );
 }
 
