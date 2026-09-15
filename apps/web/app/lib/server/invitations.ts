@@ -854,6 +854,27 @@ async function acceptInvitation(
       return null;
     }
 
+    // Claim the single-use token before granting membership or guardianship.
+    // The conditional write takes the row lock on PostgreSQL, so a concurrent
+    // revoke/rotation wins cleanly instead of allowing a stale read to revive
+    // a revoked invitation.
+    const consumed = await tx
+      .update(invitations)
+      .set({
+        status: "accepted",
+        acceptedByPersonId: identity.person.id,
+        updatedAt: nowIso,
+      })
+      .where(
+        and(
+          eq(invitations.id, row.id),
+          eq(invitations.status, "pending"),
+          eq(invitations.tokenHash, tokenHash),
+        ),
+      )
+      .run();
+    if (consumed.changes !== 1) return null;
+
     // No identity duplication: the accepting adult keeps their existing
     // Person/Account — acceptance only BINDS that person to the team (and
     // optionally to a participant), it never creates people.
@@ -910,15 +931,6 @@ async function acceptInvitation(
       });
     }
 
-    await tx
-      .update(invitations)
-      .set({
-        status: "accepted",
-        acceptedByPersonId: identity.person.id,
-        updatedAt: nowIso,
-      })
-      .where(eq(invitations.id, row.id))
-      .run();
     const accepted = await tx.select().from(invitations).where(eq(invitations.id, row.id)).get();
     if (accepted === undefined) throw new Error("Invitation disappeared during accept.");
 
