@@ -30,7 +30,8 @@ import {
   recordAttendanceInputSchema,
 } from "./events";
 import { authenticatedAdult, people } from "./identity";
-import { guardianRelationships, memberships, participants } from "./roster";
+import { authorizeTeamOperation } from "./authorization";
+import { memberships, participants } from "./roster";
 import { teamAccess } from "./teams";
 
 const unauthorized = { error: "authentication required" } as const;
@@ -87,29 +88,6 @@ async function rosteredParticipant(
   return membership === undefined ? undefined : participant;
 }
 
-/** The participant ids `personId` holds an ACTIVE guardian edge to, of `candidates`. */
-async function guardedParticipantIds(
-  tx: Db,
-  personId: string,
-  candidates: readonly string[],
-): Promise<Set<string>> {
-  if (candidates.length === 0) return new Set();
-
-  const edges = await tx
-    .select()
-    .from(guardianRelationships)
-    .where(
-      and(
-        eq(guardianRelationships.guardianPersonId, personId),
-        inList(guardianRelationships.participantId, [...candidates]),
-        eq(guardianRelationships.status, "active"),
-      ),
-    )
-    .all();
-
-  return new Set(edges.map((edge) => edge.participantId));
-}
-
 function projectAttendance(row: {
   id: string;
   occurrenceId: string;
@@ -156,12 +134,14 @@ async function recordAttendance(
     );
     if (participant === undefined) return "no-participant" as const;
 
-    if (access.level !== "manage") {
-      const guarded = await guardedParticipantIds(tx, identity.person.id, [participant.id]);
-      // A team adult with no guardian edge to THIS child gets the same answer
-      // an unknown child gets — attendance authority is never disclosed.
-      if (!guarded.has(participant.id)) return "no-participant" as const;
-    }
+    if (
+      !(await authorizeTeamOperation(tx, identity.person.id, "participant.manage", {
+        teamId: access.team.id,
+        seasonId: found.series.seasonId,
+        participantId: participant.id,
+      }))
+    )
+      return "no-participant" as const;
 
     const now = new Date().toISOString();
     const existing = await tx
@@ -237,18 +217,17 @@ async function readAttendance(
     (await attendanceCountsByOccurrence(db, [found.occurrence.id])).get(found.occurrence.id) ??
     emptyAttendanceCounts();
 
-  // A manager reads every entry; anyone else reads only the children they
-  // guard — resolved as one set lookup, not per row.
-  const guarded =
-    access.level === "manage"
-      ? undefined
-      : await guardedParticipantIds(
-          db,
-          identity.person.id,
-          rows.map((row) => row.participantId),
-        );
-  const entries =
-    guarded === undefined ? rows : rows.filter((row) => guarded.has(row.participantId));
+  const entries = [];
+  for (const row of rows) {
+    if (
+      await authorizeTeamOperation(db, identity.person.id, "participant.read", {
+        teamId: access.team.id,
+        seasonId: found.series.seasonId,
+        participantId: row.participantId,
+      })
+    )
+      entries.push(row);
+  }
 
   const participantRows =
     entries.length === 0

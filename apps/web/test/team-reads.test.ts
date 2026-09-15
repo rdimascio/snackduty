@@ -4,11 +4,12 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config } = await import("./support/application").then((module) =>
+const { default: config, services } = await import("./support/application").then((module) =>
   module.testApplication(),
 );
 
 const app = await createApp(config);
+const { loadRoster } = await import("../app/lib/server/team-reads");
 
 async function clearState() {
   await config.db.exec(
@@ -117,6 +118,24 @@ async function insertForeignTeamAndSeason(): Promise<{ teamId: string; seasonId:
 }
 
 describe("authorized team reads", () => {
+  it("reauthorizes direct roster reads instead of trusting a forged access hint", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    await addChild(cookie, teamId, seasonId);
+    expect(
+      await loadRoster(services.db, teamId, seasonId, {
+        personId: "person_stranger",
+        access: "manage",
+      }),
+    ).toEqual([]);
+    await config.db.exec("UPDATE accounts SET status = 'suspended'");
+    expect(
+      await loadRoster(services.db, teamId, seasonId, {
+        personId: "person_dev_adult",
+        access: "manage",
+      }),
+    ).toEqual([]);
+  });
   it("loads the real team roster and team list through the full journey", async () => {
     const cookie = await signIn();
     const { teamId, seasonId } = await createTeamAndSeason(cookie);
@@ -171,7 +190,13 @@ describe("authorized team reads", () => {
     const listRead = await app.handle("GET", "/api/teams", { headers: { cookie } });
     expect(listRead.status).toBe(200);
     expect(json(listRead)).toEqual({
-      teams: [{ ...(json(singleRead) as Record<string, unknown>), access: "manage" }],
+      teams: [
+        {
+          ...(json(singleRead) as Record<string, unknown>),
+          access: "manage",
+          capabilities: { read: true, manage: true, delegate: true },
+        },
+      ],
     });
     const listedTeam = (json(listRead) as { teams: { team: { id: string } }[] }).teams;
     expect(listedTeam).toHaveLength(1);

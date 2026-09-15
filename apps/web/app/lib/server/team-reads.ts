@@ -2,9 +2,10 @@ import type { Sessions } from "@lesto/auth";
 import { and, eq, inList } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { Context, Lesto } from "@lesto/web";
-import { guardianRelationshipSchema, seasonSchema } from "@snackday/domain";
+import { rosterResponseSchema, teamDirectorySchema, seasonSchema } from "@snackday/domain";
 
 import { authenticatedAdult, people } from "./identity";
+import { authorizeTeamOperation } from "./authorization";
 import { invitations, projectedInvitationStatus } from "./invitations";
 import {
   activeSeasonParticipantRows,
@@ -12,7 +13,7 @@ import {
   projectGuardian,
   projectParticipant,
 } from "./roster";
-import { adultMemberships, grantedAccess, projectTeam, seasons, teamAccess, teams } from "./teams";
+import { adultMemberships, projectTeam, seasons, teamAccess, teams } from "./teams";
 import type { TeamAccessLevel } from "./teams";
 
 const unauthorized = { error: "authentication required" } as const;
@@ -44,25 +45,10 @@ export async function listAccessibleTeams(db: Db, personId: string) {
     .from(adultMemberships)
     .where(and(eq(adultMemberships.personId, personId), eq(adultMemberships.status, "active")))
     .all();
-  const rolesByTeamId = new Map<string, string[]>();
-  for (const membership of membershipRows) {
-    const roles = rolesByTeamId.get(membership.teamId);
-    if (roles === undefined) rolesByTeamId.set(membership.teamId, [membership.role]);
-    else roles.push(membership.role);
-  }
-  // The SAME fold `teamAccess` authorizes with — owner outranks coach and adult, unknown
-  // roles grant nothing — so this list and the authorization seam agree by
-  // construction rather than by two copies of the rule staying in sync.
-  const accessByTeamId = new Map<string, TeamAccessLevel>();
-  for (const [teamId, roles] of rolesByTeamId) {
-    const granted = grantedAccess(roles);
-    if (granted !== undefined) accessByTeamId.set(teamId, granted.level);
-  }
-  // Creator authority is implicit (no membership row required) and manages.
-  for (const team of createdRows) accessByTeamId.set(team.id, "manage");
-
   const createdIds = new Set(createdRows.map((team) => team.id));
-  const memberTeamIds = [...accessByTeamId.keys()].filter((teamId) => !createdIds.has(teamId));
+  const memberTeamIds = [...new Set(membershipRows.map((membership) => membership.teamId))].filter(
+    (teamId) => !createdIds.has(teamId),
+  );
   const memberRows =
     memberTeamIds.length === 0
       ? []
@@ -72,7 +58,13 @@ export async function listAccessibleTeams(db: Db, personId: string) {
           .where(and(inList(teams.id, memberTeamIds), eq(teams.status, "active")))
           .all();
 
-  const teamRows = [...createdRows, ...memberRows];
+  const authorized = [];
+  for (const candidate of [...createdRows, ...memberRows]) {
+    const access = await teamAccess(db, candidate.id, personId);
+    if (access !== undefined) authorized.push(access);
+  }
+  const accessByTeamId = new Map(authorized.map((access) => [access.team.id, access]));
+  const teamRows = authorized.map((access) => access.team);
   teamRows.sort(
     (left, right) =>
       left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
@@ -103,7 +95,12 @@ export async function listAccessibleTeams(db: Db, personId: string) {
       .map((season) => seasonSchema.parse(season)),
     // Every listed team has an entry by construction; "read" is the
     // never-granting-more fallback the types demand.
-    access: accessByTeamId.get(team.id) ?? "read",
+    access: accessByTeamId.get(team.id)?.level ?? "read",
+    capabilities: accessByTeamId.get(team.id)?.capabilities ?? {
+      read: false,
+      manage: false,
+      delegate: false,
+    },
   }));
 }
 
@@ -111,7 +108,9 @@ async function listTeams(c: Context<"/api/teams">, db: Db, sessions: Sessions) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  return c.json({ teams: await listAccessibleTeams(db, identity.person.id) });
+  return c.json(
+    teamDirectorySchema.parse({ teams: await listAccessibleTeams(db, identity.person.id) }),
+  );
 }
 
 function activeGuardianEdges(db: Db, participantIds: string[], guardianPersonId?: string) {
@@ -198,12 +197,6 @@ export type RosterEntry = Omit<ParticipantProjection, "birthDate"> & {
   readonly guardianInvitations?: GuardianInvitationCounts;
 };
 
-function canReadParticipant(edge: { permissions: string }): boolean {
-  return guardianRelationshipSchema.shape.permissions
-    .parse(JSON.parse(edge.permissions) as unknown)
-    .includes("participant.read");
-}
-
 /**
  * The one privacy-aware roster projection: the roster API and /app page loader
  * both read through here after deriving `viewer` on the server. Managers may
@@ -221,18 +214,24 @@ export async function loadRoster(
   seasonId: string,
   viewer: RosterViewer,
 ): Promise<RosterEntry[]> {
+  // A caller-supplied or cached access hint is never a privacy boundary.
+  if (!(await authorizeTeamOperation(db, viewer.personId, "roster.read", { teamId, seasonId })))
+    return [];
   const participantRows = await activeSeasonParticipantRows(db, teamId, seasonId);
   if (participantRows.length === 0) return [];
 
   const participantIds = participantRows.map((participant) => participant.id);
-  const readableParticipantIds =
-    viewer.access === "manage"
-      ? new Set(participantIds)
-      : new Set(
-          (await activeGuardianEdges(db, participantIds, viewer.personId))
-            .filter((edge) => canReadParticipant(edge))
-            .map((edge) => edge.participantId),
-        );
+  const readableParticipantIds = new Set<string>();
+  for (const participantId of participantIds) {
+    if (
+      await authorizeTeamOperation(db, viewer.personId, "participant.read", {
+        teamId,
+        seasonId,
+        participantId,
+      })
+    )
+      readableParticipantIds.add(participantId);
+  }
   const privateParticipantIds = [...readableParticipantIds];
   const guardianRows =
     privateParticipantIds.length === 0 ? [] : await activeGuardianEdges(db, privateParticipantIds);
@@ -308,12 +307,14 @@ async function readRoster(
     .get();
   if (season === undefined) return c.json(teamNotFound, 404);
 
-  return c.json({
-    roster: await loadRoster(db, access.team.id, season.id, {
-      personId: identity.person.id,
-      access: access.level,
+  return c.json(
+    rosterResponseSchema.parse({
+      roster: await loadRoster(db, access.team.id, season.id, {
+        personId: identity.person.id,
+        access: access.level,
+      }),
     }),
-  });
+  );
 }
 
 export function registerTeamReadRoutes(app: Lesto, db: Db, sessions: Sessions) {
