@@ -28,6 +28,8 @@ The harness boots the selected simulator when needed, installs the Debug app, an
 
 The scenario fixtures and assertions live in `scripts/lib/dev-scenario-seed.ts`. Extend these when adding another reproducible role or journey; avoid maintaining a separate set of manual SQL seeds. This scenario supplements the larger acceptance journey, which exercises imports, invitation lifecycle, events, attendance, calendar feeds, and the native API client.
 
+Scenario startup or verification failures print redacted server-log tails before cleanup. The larger acceptance command preserves complete redacted failure logs as described below.
+
 ## Choose the smallest useful check
 
 | During development             | Command                                     | What it proves                                                                                                                |

@@ -52,8 +52,8 @@ async function runLongLived(simulator?: string, launchIos = false): Promise<void
     controller.abort();
     if (running !== undefined) stopPromise = running.stop();
   };
-  process.once("SIGINT", requestStop);
-  process.once("SIGTERM", requestStop);
+  process.on("SIGINT", requestStop);
+  process.on("SIGTERM", requestStop);
   try {
     running = await startDevScenario({ signal: controller.signal });
     if (launchIos) {

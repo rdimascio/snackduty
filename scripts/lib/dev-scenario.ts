@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import type { Subprocess } from "bun";
 
+import { redactAcceptanceLog } from "./acceptance-evidence";
 import { devScenarioError, isDevScenarioError } from "./dev-scenario-api";
 import { seedDevScenario } from "./dev-scenario-seed";
 import type { DevScenarioManifest } from "./dev-scenario-seed";
@@ -64,6 +65,22 @@ async function stopWebServer(server: WebServer): Promise<void> {
   if (!stopped) {
     server.process.kill(9);
     await server.process.exited;
+  }
+}
+
+async function printFailureLogs(server: WebServer): Promise<void> {
+  const logs = await Promise.all(
+    [server.stdoutLog, server.stderrLog].map(async (path) => ({
+      path,
+      content: await readFile(path, "utf8").catch(() => ""),
+    })),
+  );
+  for (const { path, content } of logs) {
+    if (content.trim() !== "") {
+      console.error(
+        `${path} (tail):\n${redactAcceptanceLog(content.split("\n").slice(-25).join("\n"))}`,
+      );
+    }
   }
 }
 
@@ -143,7 +160,11 @@ export async function startDevScenario(
       waitForServerExit: () => server.process.exited,
     };
   } catch (error) {
-    await stop();
+    try {
+      if (!options.signal?.aborted) await printFailureLogs(server);
+    } finally {
+      await stop();
+    }
     throw error;
   }
 }
