@@ -101,5 +101,5 @@ includes 81 Swift tests, seven fixture UI tests, Debug/Release builds and named
 real controller/API plus coach–parent UI journeys. The clean gate acceptance
 receipt is `.artifacts/acceptance/run-1AgTjP/receipt.json`, source `1f9e10a`.
 Focused clean acceptance also passed at `0ab4097` in `run-dYDR3Y`. Runtime
-migration 013, restart and backup/restore pass locally. Hosted checks remain
-required before merge; staging and TestFlight remain unverified.
+migration 013, restart and backup/restore pass locally. [PR #5](https://github.com/rdimascio/snackduty/pull/5) records hosted check
+and merge receipts; staging and TestFlight remain unverified.

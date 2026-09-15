@@ -2,7 +2,7 @@
 
 ## Current beta foundation — September 14, 2026
 
-The beta foundation merged in PR #4 as `4c11695` after independent review and all local/hosted checks. The first native coordination journey is implemented and locally verified on `1f9e10a`, with four isolated Sol tickets cut from frozen contracts `82d19b4` and three implementation slots reused as dependencies cleared. Its hosted PR checks remain required. The [foundation ledger](./beta-integration-ledger.md) and [coordination ledger](./coordination-integration-ledger.md) record ownership and commits; [release evidence](./beta-release-evidence.md) separates local and external verification.
+The beta foundation merged in PR #4 as `4c11695` after independent review and all local/hosted checks. The first native coordination journey is implemented and locally verified on `1f9e10a`, with four isolated Sol tickets cut from frozen contracts `82d19b4` and three implementation slots reused as dependencies cleared. Hosted check and merge receipts are tracked on [PR #5](https://github.com/rdimascio/snackduty/pull/5). The [foundation ledger](./beta-integration-ledger.md) and [coordination ledger](./coordination-integration-ledger.md) record ownership and commits; [release evidence](./beta-release-evidence.md) separates local and external verification.
 
 Implemented and integrated locally:
 
