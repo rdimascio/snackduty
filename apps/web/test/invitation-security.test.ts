@@ -29,9 +29,7 @@ describe("invitation recipient binding", () => {
   it("matches only a provider-verified email claim for the signed-in person", async () => {
     const verifiedEmails = (_db: Db, personId: string) =>
       Promise.resolve(
-        personId === "person_recipient"
-          ? ["other@example.test", "recipient@example.test"]
-          : [],
+        personId === "person_recipient" ? ["other@example.test", "recipient@example.test"] : [],
       );
 
     expect(

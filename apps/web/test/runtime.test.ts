@@ -42,6 +42,7 @@ function configuration(databasePath: string): RuntimeConfiguration {
     host: "127.0.0.1",
     port: 0,
     publicBaseUrl: new URL("https://staging.snackduty.test"),
+    appleClientId: "com.snackday.runtime-fixture",
     upstreamCredentialPathLoggingSafe: false,
   };
 }
@@ -93,11 +94,15 @@ describe("remote runtime configuration", () => {
     SNACKDAY_RUNTIME_MODE: "staging",
     LESTO_DB: "/data/snackduty.db",
     SNACKDAY_PUBLIC_BASE_URL: "https://staging.snackduty.test",
+    SNACKDAY_APPLE_CLIENT_ID: "com.snackday.runtime-fixture",
   };
 
   it("requires an explicit remote mode, durable absolute database path, and HTTPS origin", () => {
     expect(() => runtimeConfiguration(valid)).not.toThrow();
     expect(() => runtimeConfiguration({ ...valid, SNACKDAY_RUNTIME_MODE: undefined })).toThrow(
+      RuntimeConfigurationError,
+    );
+    expect(() => runtimeConfiguration({ ...valid, SNACKDAY_APPLE_CLIENT_ID: undefined })).toThrow(
       RuntimeConfigurationError,
     );
     expect(() => runtimeConfiguration({ ...valid, SNACKDAY_RUNTIME_MODE: "development" })).toThrow(

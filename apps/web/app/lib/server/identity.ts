@@ -9,6 +9,7 @@ import { createDb, createTableSql, defineTable, dropTableSql, eq, text } from "@
 import type { Db, SqlDatabase } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import { z } from "zod";
+import type { SessionService } from "./application-contracts";
 
 export const people = defineTable("people", {
   id: text("id").primaryKey(),
@@ -130,10 +131,13 @@ export async function identityServices(
 
   return {
     db: createDb(handle),
-    sessions: new Sessions({
-      store: namespacedSessionStore(store, options.mode),
-      ...(options.clock === undefined ? {} : { clock: options.clock }),
-    }),
+    sessions: Object.assign(
+      new Sessions({
+        store: namespacedSessionStore(store, options.mode),
+        ...(options.clock === undefined ? {} : { clock: options.clock }),
+      }),
+      { mode: options.mode },
+    ),
   };
 }
 
@@ -232,10 +236,10 @@ export function ensureDevelopmentPersona(db: Db, persona: DevPersonaKey): Promis
  */
 export async function authenticatedAdult(
   db: Db,
-  sessions: Sessions,
+  sessions: SessionService,
   cookieHeader: string | undefined,
 ): Promise<AdultIdentity | undefined> {
-  const token = sessionTokenFromCookieHeader(cookieHeader);
+  const token = sessionTokenFromCookieHeader(cookieHeader, sessions.mode === "verified");
 
   if (token === undefined) return undefined;
 

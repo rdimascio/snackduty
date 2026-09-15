@@ -3,12 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { DEV_PERSON_ID } from "../app/lib/server/identity";
 import { ensureDevelopmentPersona } from "../app/lib/server/identity";
-import {
-  createInvitationRecipientBinding,
-  invitationAcceptedBy,
-  previewInvitation,
-} from "../app/lib/server/invitations";
-import { createInvitationOutbox } from "../app/lib/server/invitation-outbox";
+import { invitationAcceptedBy, previewInvitation } from "../app/lib/server/invitations";
 
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
@@ -17,20 +12,9 @@ const {
   default: config,
   devInviteDelivery,
   services,
-} = await import("./support/application").then((module) =>
-  module.testApplication(),
-);
+} = await import("./support/application").then((module) => module.testApplication());
 
-if (!Array.isArray(config.migrations))
-  throw new Error("Invitation tests require migrations.");
-const app = await createApp({
-  ...config,
-  migrations: [
-    ...config.migrations,
-    createInvitationRecipientBinding,
-    createInvitationOutbox,
-  ],
-});
+const app = await createApp(config);
 
 const db = services.db;
 
@@ -38,7 +22,7 @@ async function clearState() {
   // `lesto_rate_limits` is the kernel's shared per-client budget — this suite
   // makes many API calls, so reset it alongside the domain state.
   await config.db.exec(
-    "DELETE FROM invitation_delivery_outbox; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -49,13 +33,8 @@ function json(response: { body: string }): unknown {
   return JSON.parse(response.body);
 }
 
-function header(
-  response: { headers: Record<string, string | string[]> },
-  name: string,
-): string {
-  const value = Object.entries(response.headers).find(
-    ([key]) => key.toLowerCase() === name,
-  )?.[1];
+function header(response: { headers: Record<string, string | string[]> }, name: string): string {
+  const value = Object.entries(response.headers).find(([key]) => key.toLowerCase() === name)?.[1];
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }
 
@@ -83,24 +62,18 @@ async function createTeam(cookie: string, name: string): Promise<string> {
   return (json(created) as { team: { id: string } }).team.id;
 }
 
-async function createTeamAndSeason(
-  cookie: string,
-): Promise<{ teamId: string; seasonId: string }> {
+async function createTeamAndSeason(cookie: string): Promise<{ teamId: string; seasonId: string }> {
   const teamId = await createTeam(cookie, TEAM_NAME);
 
-  const createdSeason = await app.handle(
-    "POST",
-    `/api/teams/${teamId}/seasons`,
-    {
-      headers: { ...sameOrigin, cookie },
-      body: {
-        label: "Spring 2026",
-        startDate: "2026-03-01",
-        endDate: "2026-06-01",
-        timeZone: "America/Los_Angeles",
-      },
+  const createdSeason = await app.handle("POST", `/api/teams/${teamId}/seasons`, {
+    headers: { ...sameOrigin, cookie },
+    body: {
+      label: "Spring 2026",
+      startDate: "2026-03-01",
+      endDate: "2026-06-01",
+      timeZone: "America/Los_Angeles",
     },
-  );
+  });
   expect(createdSeason.status).toBe(201);
 
   return {
@@ -115,17 +88,12 @@ async function addChild(
   seasonId: string,
   body?: { displayName: string; birthDate: string },
 ): Promise<string> {
-  const added = await app.handle(
-    "POST",
-    `/api/teams/${teamId}/seasons/${seasonId}/participants`,
-    {
-      headers: { ...sameOrigin, cookie },
-      body: body ?? { displayName: "Rowan Child", birthDate: "2018-04-09" },
-    },
-  );
+  const added = await app.handle("POST", `/api/teams/${teamId}/seasons/${seasonId}/participants`, {
+    headers: { ...sameOrigin, cookie },
+    body: body ?? { displayName: "Rowan Child", birthDate: "2018-04-09" },
+  });
   expect(added.status).toBe(201);
-  return (json(added) as { participant: { participantId: string } }).participant
-    .participantId;
+  return (json(added) as { participant: { participantId: string } }).participant.participantId;
 }
 
 async function invite(cookie: string, teamId: string, body: unknown) {
@@ -230,10 +198,7 @@ function tokenOf(invitation: InvitationBody): string {
  */
 function withoutOpaqueIds(text: string): string {
   return text
-    .replaceAll(
-      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gu,
-      "[uuid]",
-    )
+    .replaceAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gu, "[uuid]")
     .replaceAll(/[0-9a-f]{64}/gu, "[token]");
 }
 
@@ -260,9 +225,7 @@ describe("generalized authentication", () => {
       inviteeLabel: "somebody",
     });
     expect(foreignInvite.status).toBe(404);
-    expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual(
-      [],
-    );
+    expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual([]);
   });
 });
 
@@ -293,25 +256,14 @@ describe("privacy-aware roster reads", () => {
         relationship: "parent",
       }),
     );
-    expect((await accept(memberCookie, tokenOf(guardianInvite))).status).toBe(
-      200,
-    );
+    expect((await accept(memberCookie, tokenOf(guardianInvite))).status).toBe(200);
 
     const managed = await createTeamAndSeason(memberCookie);
-    const managedChildId = await addChild(
-      memberCookie,
-      managed.teamId,
-      managed.seasonId,
-      {
-        displayName: "Managed Team Child",
-        birthDate: "2017-06-12",
-      },
-    );
-    expect(
-      rosterOf(
-        await readRoster(memberCookie, managed.teamId, managed.seasonId),
-      ),
-    ).toEqual([
+    const managedChildId = await addChild(memberCookie, managed.teamId, managed.seasonId, {
+      displayName: "Managed Team Child",
+      birthDate: "2017-06-12",
+    });
+    expect(rosterOf(await readRoster(memberCookie, managed.teamId, managed.seasonId))).toEqual([
       {
         participantId: managedChildId,
         displayName: "Managed Team Child",
@@ -322,30 +274,16 @@ describe("privacy-aware roster reads", () => {
       },
     ]);
 
-    const managerRoster = rosterOf(
-      await readRoster(ownerCookie, teamId, seasonId),
-    );
-    expect(managerRoster.every((entry) => entry.birthDate !== undefined)).toBe(
-      true,
-    );
-    expect(managerRoster.every((entry) => entry.guardians !== undefined)).toBe(
-      true,
-    );
-    expect(
-      managerRoster.every((entry) => entry.guardianInvitations !== undefined),
-    ).toBe(true);
+    const managerRoster = rosterOf(await readRoster(ownerCookie, teamId, seasonId));
+    expect(managerRoster.every((entry) => entry.birthDate !== undefined)).toBe(true);
+    expect(managerRoster.every((entry) => entry.guardians !== undefined)).toBe(true);
+    expect(managerRoster.every((entry) => entry.guardianInvitations !== undefined)).toBe(true);
 
     const memberRead = await readRoster(memberCookie, teamId, seasonId);
     expect(memberRead.status).toBe(200);
-    const memberRoster = (
-      json(memberRead) as { roster: Record<string, unknown>[] }
-    ).roster;
-    const ownChild = memberRoster.find(
-      (entry) => entry.participantId === ownChildId,
-    );
-    const teammate = memberRoster.find(
-      (entry) => entry.participantId === teammateId,
-    );
+    const memberRoster = (json(memberRead) as { roster: Record<string, unknown>[] }).roster;
+    const ownChild = memberRoster.find((entry) => entry.participantId === ownChildId);
+    const teammate = memberRoster.find((entry) => entry.participantId === teammateId);
 
     expect(ownChild).toMatchObject({
       participantId: ownChildId,
@@ -385,9 +323,7 @@ describe("privacy-aware roster reads", () => {
         relationship: "parent",
       }),
     );
-    expect((await accept(memberCookie, tokenOf(guardianInvite))).status).toBe(
-      200,
-    );
+    expect((await accept(memberCookie, tokenOf(guardianInvite))).status).toBe(200);
 
     const edge = (await config.db
       .prepare(
@@ -404,18 +340,12 @@ describe("privacy-aware roster reads", () => {
     await config.db
       .prepare("UPDATE guardian_relationships SET permissions = ? WHERE id = ?")
       .run([JSON.stringify(["participant.manage"]), edge.id]);
-    expect(rosterOf(await readRoster(memberCookie, teamId, seasonId))).toEqual([
-      minimal,
-    ]);
+    expect(rosterOf(await readRoster(memberCookie, teamId, seasonId))).toEqual([minimal]);
 
     await config.db
-      .prepare(
-        "UPDATE guardian_relationships SET permissions = ?, status = 'revoked' WHERE id = ?",
-      )
+      .prepare("UPDATE guardian_relationships SET permissions = ?, status = 'revoked' WHERE id = ?")
       .run([JSON.stringify(["participant.read"]), edge.id]);
-    expect(rosterOf(await readRoster(memberCookie, teamId, seasonId))).toEqual([
-      minimal,
-    ]);
+    expect(rosterOf(await readRoster(memberCookie, teamId, seasonId))).toEqual([minimal]);
   });
 
   it("does not turn a cross-team guardian edge into roster access", async () => {
@@ -426,15 +356,10 @@ describe("privacy-aware roster reads", () => {
       birthDate: "2017-02-03",
     });
     const second = await createTeamAndSeason(ownerCookie);
-    const secondChildId = await addChild(
-      ownerCookie,
-      second.teamId,
-      second.seasonId,
-      {
-        displayName: "Other Team Child",
-        birthDate: "2016-01-02",
-      },
-    );
+    const secondChildId = await addChild(ownerCookie, second.teamId, second.seasonId, {
+      displayName: "Other Team Child",
+      birthDate: "2016-01-02",
+    });
     const memberCookie = await signIn("second-adult");
 
     const firstTeamInvite = invitationOf(
@@ -443,9 +368,7 @@ describe("privacy-aware roster reads", () => {
         inviteeLabel: "first team adult",
       }),
     );
-    expect((await accept(memberCookie, tokenOf(firstTeamInvite))).status).toBe(
-      200,
-    );
+    expect((await accept(memberCookie, tokenOf(firstTeamInvite))).status).toBe(200);
     const secondTeamInvite = invitationOf(
       await invite(ownerCookie, second.teamId, {
         invitedRole: "adult",
@@ -454,13 +377,9 @@ describe("privacy-aware roster reads", () => {
         relationship: "parent",
       }),
     );
-    expect((await accept(memberCookie, tokenOf(secondTeamInvite))).status).toBe(
-      200,
-    );
+    expect((await accept(memberCookie, tokenOf(secondTeamInvite))).status).toBe(200);
 
-    expect(
-      rosterOf(await readRoster(memberCookie, first.teamId, first.seasonId)),
-    ).toEqual([
+    expect(rosterOf(await readRoster(memberCookie, first.teamId, first.seasonId))).toEqual([
       {
         participantId: expect.any(String) as string,
         displayName: "First Team Child",
@@ -468,16 +387,12 @@ describe("privacy-aware roster reads", () => {
         guardians: [],
       },
     ]);
-    expect(
-      rosterOf(await readRoster(memberCookie, second.teamId, second.seasonId)),
-    ).toEqual([
+    expect(rosterOf(await readRoster(memberCookie, second.teamId, second.seasonId))).toEqual([
       expect.objectContaining({
         participantId: secondChildId,
         displayName: "Other Team Child",
         birthDate: "2016-01-02",
-        guardians: [
-          expect.objectContaining({ displayName: SECOND_ADULT_NAME }),
-        ],
+        guardians: [expect.objectContaining({ displayName: SECOND_ADULT_NAME })],
       }),
     ]);
 
@@ -487,20 +402,12 @@ describe("privacy-aware roster reads", () => {
       )
       .run([second.teamId, SECOND_PERSON_ID]);
 
-    const firstRead = await readRoster(
-      memberCookie,
-      first.teamId,
-      first.seasonId,
-    );
+    const firstRead = await readRoster(memberCookie, first.teamId, first.seasonId);
     expect(firstRead.status).toBe(200);
     expect(firstRead.body).not.toContain("Other Team Child");
     expect(firstRead.body).not.toContain("2016-01-02");
 
-    const inactiveTeamRead = await readRoster(
-      memberCookie,
-      second.teamId,
-      second.seasonId,
-    );
+    const inactiveTeamRead = await readRoster(memberCookie, second.teamId, second.seasonId);
     expect(inactiveTeamRead.status).toBe(404);
     expect(json(inactiveTeamRead)).toEqual({ error: "team not found" });
   });
@@ -530,9 +437,7 @@ describe("invitation lifecycle", () => {
     expect(json(unknown)).toEqual({
       error: "invitation recipient is not eligible",
     });
-    expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual(
-      [],
-    );
+    expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual([]);
   });
 
   it("does not let a forwarded link grant the wrong adult", async () => {
@@ -549,9 +454,7 @@ describe("invitation lifecycle", () => {
     const forwarded = await accept(ownerCookie, tokenOf(created));
     expect(forwarded.status).toBe(404);
     expect(json(forwarded)).toEqual({ error: "invitation not found" });
-    expect(
-      await config.db.prepare("SELECT id FROM adult_memberships").all(),
-    ).toEqual([]);
+    expect(await config.db.prepare("SELECT id FROM adult_memberships").all()).toEqual([]);
     expect((await accept(secondCookie, tokenOf(created))).status).toBe(200);
   });
 
@@ -566,15 +469,11 @@ describe("invitation lifecycle", () => {
       }),
     );
     await config.db
-      .prepare(
-        "UPDATE invitations SET invited_role = 'administrator' WHERE id = ?",
-      )
+      .prepare("UPDATE invitations SET invited_role = 'administrator' WHERE id = ?")
       .run([created.id]);
 
     expect((await accept(secondCookie, tokenOf(created))).status).toBe(404);
-    expect(
-      await config.db.prepare("SELECT id FROM adult_memberships").all(),
-    ).toEqual([]);
+    expect(await config.db.prepare("SELECT id FROM adult_memberships").all()).toEqual([]);
   });
 
   it("keeps a legacy unbound row inert until its owner binds it on resend", async () => {
@@ -611,9 +510,7 @@ describe("invitation lifecycle", () => {
       },
     );
     expect(rebound.status).toBe(200);
-    expect(
-      (await accept(secondCookie, tokenOf(invitationOf(rebound)))).status,
-    ).toBe(200);
+    expect((await accept(secondCookie, tokenOf(invitationOf(rebound)))).status).toBe(200);
   });
 
   it("creates a pending invitation with a copyable dev link and only a hashed token", async () => {
@@ -661,6 +558,7 @@ describe("invitation lifecycle", () => {
     const delivered = devInviteDelivery.deliveries.slice(before);
     expect(delivered).toEqual([
       {
+        idempotencyKey: expect.stringMatching(/^invitation:invitation_.+:[a-f0-9]{64}$/u),
         invitationId: invitation.id,
         teamName: "Invite Falcons",
         inviterDisplayName: "Development Adult",
@@ -699,9 +597,7 @@ describe("invitation lifecycle", () => {
         })
       ).status,
     ).toBe(201);
-    expect(
-      await config.db.prepare("SELECT id FROM invitations").all(),
-    ).toHaveLength(2);
+    expect(await config.db.prepare("SELECT id FROM invitations").all()).toHaveLength(2);
   });
 
   it("lists every invitation state with a link only for pending ones", async () => {
@@ -721,29 +617,22 @@ describe("invitation lifecycle", () => {
         inviteeLabel: "gets revoked",
       }),
     );
-    await app.handle(
-      "POST",
-      `/api/teams/${teamId}/invitations/${revoked.id}/revoke`,
-      {
-        headers: { ...sameOrigin, cookie },
-      },
-    );
+    await app.handle("POST", `/api/teams/${teamId}/invitations/${revoked.id}/revoke`, {
+      headers: { ...sameOrigin, cookie },
+    });
     const acceptedInvite = invitationOf(
       await invite(cookie, teamId, {
         invitedRole: "adult",
         inviteeLabel: "gets accepted",
       }),
     );
-    expect((await accept(secondCookie, tokenOf(acceptedInvite))).status).toBe(
-      200,
-    );
+    expect((await accept(secondCookie, tokenOf(acceptedInvite))).status).toBe(200);
 
     const listed = await app.handle("GET", `/api/teams/${teamId}/invitations`, {
       headers: { cookie },
     });
     expect(listed.status).toBe(200);
-    const invitations = (json(listed) as { invitations: InvitationBody[] })
-      .invitations;
+    const invitations = (json(listed) as { invitations: InvitationBody[] }).invitations;
     // Same-millisecond creations tie-break on random ids, so compare by id.
     const byId = new Map(invitations.map((entry) => [entry.id, entry]));
     expect(invitations).toHaveLength(3);
@@ -783,9 +672,7 @@ describe("invitation lifecycle", () => {
     const newToken = tokenOf(rotated);
     expect(newToken).not.toBe(oldToken);
     expect(rotated.expiresAt >= created.expiresAt).toBe(true);
-    expect(
-      await config.db.prepare("SELECT id FROM invitations").all(),
-    ).toHaveLength(1);
+    expect(await config.db.prepare("SELECT id FROM invitations").all()).toHaveLength(1);
 
     const staleAccept = await accept(secondCookie, oldToken);
     expect(staleAccept.status).toBe(404);
@@ -833,9 +720,7 @@ describe("invitation lifecycle", () => {
 
     expect(
       await config.db
-        .prepare(
-          "SELECT team_id, person_id, role, status FROM adult_memberships",
-        )
+        .prepare("SELECT team_id, person_id, role, status FROM adult_memberships")
         .all(),
     ).toEqual([
       {
@@ -863,12 +748,8 @@ describe("invitation lifecycle", () => {
 
     // No identity duplication: exactly the two persona pairs plus the child's
     // account-less Person exist.
-    expect(await config.db.prepare("SELECT id FROM people").all()).toHaveLength(
-      3,
-    );
-    expect(
-      await config.db.prepare("SELECT id FROM accounts").all(),
-    ).toHaveLength(2);
+    expect(await config.db.prepare("SELECT id FROM people").all()).toHaveLength(3);
+    expect(await config.db.prepare("SELECT id FROM accounts").all()).toHaveLength(2);
   });
 
   it("repeat accept is idempotent for the recipient and hides it from another adult", async () => {
@@ -890,9 +771,7 @@ describe("invitation lifecycle", () => {
     const again = await accept(secondCookie, token);
     expect(again.status).toBe(200);
     expect(json(again)).toEqual(json(first));
-    expect(
-      await config.db.prepare("SELECT id FROM adult_memberships").all(),
-    ).toHaveLength(1);
+    expect(await config.db.prepare("SELECT id FROM adult_memberships").all()).toHaveLength(1);
 
     const other = await accept(cookie, token);
     expect(other.status).toBe(404);
@@ -933,15 +812,11 @@ describe("invitation lifecycle", () => {
     // A second invitation for the SAME role is a no-op on the grant, and the
     // reported role still matches the one row in force.
     expect(json(again)).toMatchObject({ membership: { role: "adult" } });
+    expect(await config.db.prepare("SELECT role, status FROM adult_memberships").all()).toEqual([
+      { role: "adult", status: "active" },
+    ]);
     expect(
-      await config.db
-        .prepare("SELECT role, status FROM adult_memberships")
-        .all(),
-    ).toEqual([{ role: "adult", status: "active" }]);
-    expect(
-      await config.db
-        .prepare("SELECT status FROM invitations ORDER BY created_at, id")
-        .all(),
+      await config.db.prepare("SELECT status FROM invitations ORDER BY created_at, id").all(),
     ).toEqual([{ status: "accepted" }, { status: "accepted" }]);
   });
 
@@ -977,9 +852,7 @@ describe("invitation lifecycle", () => {
     // The GRANT moved with the report: still one row, now owner.
     expect(
       await config.db
-        .prepare(
-          "SELECT team_id, person_id, role, status FROM adult_memberships",
-        )
+        .prepare("SELECT team_id, person_id, role, status FROM adult_memberships")
         .all(),
     ).toEqual([
       {
@@ -1028,14 +901,10 @@ describe("invitation lifecycle", () => {
       invitation: { id: asAdult.id, status: "accepted" },
       membership: { role: "owner" },
     });
-    expect(
-      await config.db
-        .prepare("SELECT role, status FROM adult_memberships")
-        .all(),
-    ).toEqual([{ role: "owner", status: "active" }]);
-    expect(
-      await invitationAcceptedBy(db, tokenOf(asAdult), SECOND_PERSON_ID),
-    ).toEqual({
+    expect(await config.db.prepare("SELECT role, status FROM adult_memberships").all()).toEqual([
+      { role: "owner", status: "active" },
+    ]);
+    expect(await invitationAcceptedBy(db, tokenOf(asAdult), SECOND_PERSON_ID)).toEqual({
       teamName: TEAM_NAME,
       grantedRole: "owner",
     });
@@ -1088,9 +957,7 @@ describe("invitation lifecycle", () => {
         inviteeLabel: "accepted invite",
       }),
     );
-    expect((await accept(secondCookie, tokenOf(acceptedInvite))).status).toBe(
-      200,
-    );
+    expect((await accept(secondCookie, tokenOf(acceptedInvite))).status).toBe(200);
     const revokeAccepted = await app.handle(
       "POST",
       `/api/teams/${teamId}/invitations/${acceptedInvite.id}/revoke`,
@@ -1127,9 +994,7 @@ describe("invitation lifecycle", () => {
       { headers: { ...sameOrigin, cookie } },
     );
     expect(resent.status).toBe(200);
-    expect(
-      (await accept(secondCookie, tokenOf(invitationOf(resent)))).status,
-    ).toBe(200);
+    expect((await accept(secondCookie, tokenOf(invitationOf(resent)))).status).toBe(200);
   });
 });
 
@@ -1154,9 +1019,10 @@ describe("expired invitations", () => {
     const listed = await listInvitations(cookie, teamId);
     expect(listed.status).toBe(200);
     const byId = new Map(
-      (json(listed) as { invitations: InvitationBody[] }).invitations.map(
-        (entry) => [entry.id, entry],
-      ),
+      (json(listed) as { invitations: InvitationBody[] }).invitations.map((entry) => [
+        entry.id,
+        entry,
+      ]),
     );
 
     // The self-contradiction is gone: a row whose expiry has passed no longer
@@ -1167,9 +1033,7 @@ describe("expired invitations", () => {
     expect(typeof byId.get(stillPending.id)?.inviteUrl).toBe("string");
     // The stored LIFECYCLE column is untouched — `resend` still needs it.
     expect(
-      await config.db
-        .prepare("SELECT status FROM invitations WHERE id = ?")
-        .all([created.id]),
+      await config.db.prepare("SELECT status FROM invitations WHERE id = ?").all([created.id]),
     ).toEqual([{ status: "pending" }]);
   });
 
@@ -1209,9 +1073,7 @@ describe("expired invitations", () => {
     // The expired link is still dead; the new one works.
     expect((await accept(secondCookie, tokenOf(created))).status).toBe(404);
     expect((await accept(secondCookie, tokenOf(fresh))).status).toBe(200);
-    expect(
-      await config.db.prepare("SELECT id FROM invitations").all(),
-    ).toHaveLength(2);
+    expect(await config.db.prepare("SELECT id FROM invitations").all()).toHaveLength(2);
   });
 
   it("still lets resend re-arm an expired invitation", async () => {
@@ -1232,14 +1094,9 @@ describe("expired invitations", () => {
     );
     expect(resent.status).toBe(200);
     expect(invitationOf(resent).status).toBe("pending");
-    expect(
-      (
-        await accept(
-          await signIn("second-adult"),
-          tokenOf(invitationOf(resent)),
-        )
-      ).status,
-    ).toBe(200);
+    expect((await accept(await signIn("second-adult"), tokenOf(invitationOf(resent)))).status).toBe(
+      200,
+    );
   });
 });
 
@@ -1257,9 +1114,8 @@ describe("accepting a guardian invitation", () => {
       relationship: "parent",
     });
     expect(manual.status).toBe(201);
-    const placeholderEdgeId = (
-      json(manual) as { guardian: { guardianId: string } }
-    ).guardian.guardianId;
+    const placeholderEdgeId = (json(manual) as { guardian: { guardianId: string } }).guardian
+      .guardianId;
 
     // ... then invites the same parent to the same child with the same label.
     const created = invitationOf(
@@ -1322,9 +1178,10 @@ describe("accepting a guardian invitation", () => {
     // Two genuinely different people, so two edges — the dedupe never merges
     // guardians who do not share an identity.
     const roster = rosterOf(await readRoster(cookie, teamId, seasonId));
-    expect(
-      roster[0]?.guardians.map((guardian) => guardian.displayName),
-    ).toEqual(["Alex Guardian", SECOND_ADULT_NAME]);
+    expect(roster[0]?.guardians.map((guardian) => guardian.displayName)).toEqual([
+      "Alex Guardian",
+      SECOND_ADULT_NAME,
+    ]);
   });
 
   it("preserves an unselected same-name placeholder instead of treating a name as identity", async () => {
@@ -1353,9 +1210,7 @@ describe("accepting a guardian invitation", () => {
 
     expect(
       await config.db
-        .prepare(
-          "SELECT guardian_person_id FROM guardian_relationships WHERE participant_id = ?",
-        )
+        .prepare("SELECT guardian_person_id FROM guardian_relationships WHERE participant_id = ?")
         .all([participantId]),
     ).toHaveLength(2);
   });
@@ -1369,13 +1224,10 @@ describe("accepting a guardian invitation", () => {
       displayName: "Confirmed placeholder",
       relationship: "parent",
     });
-    const relationshipId = (
-      json(manual) as { guardian: { guardianId: string } }
-    ).guardian.guardianId;
+    const relationshipId = (json(manual) as { guardian: { guardianId: string } }).guardian
+      .guardianId;
     const edge = (await config.db
-      .prepare(
-        "SELECT guardian_person_id FROM guardian_relationships WHERE id = ?",
-      )
+      .prepare("SELECT guardian_person_id FROM guardian_relationships WHERE id = ?")
       .get([relationshipId])) as { guardian_person_id: string };
     const created = invitationOf(
       await invite(cookie, teamId, {
@@ -1392,22 +1244,13 @@ describe("accepting a guardian invitation", () => {
       .prepare(
         "INSERT INTO accounts (id, person_id, status, created_at, updated_at) VALUES (?, ?, 'active', ?, ?)",
       )
-      .run([
-        "account_placeholder_claimed",
-        edge.guardian_person_id,
-        nowIso,
-        nowIso,
-      ]);
+      .run(["account_placeholder_claimed", edge.guardian_person_id, nowIso, nowIso]);
 
     expect((await accept(secondCookie, tokenOf(created))).status).toBe(404);
-    expect(
-      await config.db.prepare("SELECT id FROM adult_memberships").all(),
-    ).toEqual([]);
+    expect(await config.db.prepare("SELECT id FROM adult_memberships").all()).toEqual([]);
     expect(
       await config.db
-        .prepare(
-          "SELECT guardian_person_id, status FROM guardian_relationships WHERE id = ?",
-        )
+        .prepare("SELECT guardian_person_id, status FROM guardian_relationships WHERE id = ?")
         .get([relationshipId]),
     ).toEqual({
       guardian_person_id: edge.guardian_person_id,
@@ -1435,9 +1278,7 @@ describe("accepting a guardian invitation", () => {
 
     expect(
       await config.db
-        .prepare(
-          "SELECT id FROM guardian_relationships WHERE participant_id = ?",
-        )
+        .prepare("SELECT id FROM guardian_relationships WHERE participant_id = ?")
         .all([participantId]),
     ).toHaveLength(1);
   });
@@ -1488,9 +1329,7 @@ describe("roster invitation status", () => {
         relationship: "caregiver",
       }),
     );
-    expect((await accept(secondCookie, tokenOf(acceptedInvite))).status).toBe(
-      200,
-    );
+    expect((await accept(secondCookie, tokenOf(acceptedInvite))).status).toBe(200);
 
     const rosterRead = await readRoster(cookie, teamId, seasonId);
     expect(rosterOf(rosterRead)[0]?.guardianInvitations).toEqual({
@@ -1507,10 +1346,7 @@ describe("roster invitation status", () => {
       }),
     );
     expect(teamWide.status).toBe("pending");
-    expect(
-      rosterOf(await readRoster(cookie, teamId, seasonId))[0]
-        ?.guardianInvitations,
-    ).toEqual({
+    expect(rosterOf(await readRoster(cookie, teamId, seasonId))[0]?.guardianInvitations).toEqual({
       pending: 0,
       expired: 1,
       accepted: 1,
@@ -1540,20 +1376,12 @@ describe("invitation authorization boundaries", () => {
         headers: sameOrigin,
         body: { invitedRole: "adult", inviteeLabel: "anyone" },
       }),
-      await app.handle(
-        "POST",
-        "/api/teams/missing/invitations/missing/resend",
-        {
-          headers: sameOrigin,
-        },
-      ),
-      await app.handle(
-        "POST",
-        "/api/teams/missing/invitations/missing/revoke",
-        {
-          headers: sameOrigin,
-        },
-      ),
+      await app.handle("POST", "/api/teams/missing/invitations/missing/resend", {
+        headers: sameOrigin,
+      }),
+      await app.handle("POST", "/api/teams/missing/invitations/missing/revoke", {
+        headers: sameOrigin,
+      }),
       await app.handle("GET", "/api/teams/missing/invitations"),
       await app.handle("POST", "/api/invitations/accept", {
         headers: sameOrigin,
@@ -1565,9 +1393,7 @@ describe("invitation authorization boundaries", () => {
       expect(response.status).toBe(401);
       expect(json(response)).toEqual({ error: "authentication required" });
     }
-    expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual(
-      [],
-    );
+    expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual([]);
   });
 
   it("hides another owner's team behind 404 on every owner-scoped route", async () => {
@@ -1586,20 +1412,12 @@ describe("invitation authorization boundaries", () => {
         invitedRole: "adult",
         inviteeLabel: "intruder",
       }),
-      await app.handle(
-        "POST",
-        `/api/teams/${teamId}/invitations/${created.id}/resend`,
-        {
-          headers: { ...sameOrigin, cookie: secondCookie },
-        },
-      ),
-      await app.handle(
-        "POST",
-        `/api/teams/${teamId}/invitations/${created.id}/revoke`,
-        {
-          headers: { ...sameOrigin, cookie: secondCookie },
-        },
-      ),
+      await app.handle("POST", `/api/teams/${teamId}/invitations/${created.id}/resend`, {
+        headers: { ...sameOrigin, cookie: secondCookie },
+      }),
+      await app.handle("POST", `/api/teams/${teamId}/invitations/${created.id}/revoke`, {
+        headers: { ...sameOrigin, cookie: secondCookie },
+      }),
       await app.handle("GET", `/api/teams/${teamId}/invitations`, {
         headers: { cookie: secondCookie },
       }),
@@ -1610,9 +1428,7 @@ describe("invitation authorization boundaries", () => {
       expect(json(response)).toEqual({ error: "team not found" });
     }
     expect(
-      await config.db
-        .prepare("SELECT status FROM invitations WHERE id = ?")
-        .all([created.id]),
+      await config.db.prepare("SELECT status FROM invitations WHERE id = ?").all([created.id]),
     ).toEqual([{ status: "pending" }]);
   });
 
@@ -1646,21 +1462,16 @@ describe("invitation authorization boundaries", () => {
     // Untouched down to the token hash and the expiry — neither rotated nor
     // revoked through the wrong team's route.
     expect(
-      await config.db
-        .prepare("SELECT * FROM invitations WHERE id = ?")
-        .get([created.id]),
+      await config.db.prepare("SELECT * FROM invitations WHERE id = ?").get([created.id]),
     ).toEqual(before);
     // ... and the original link still works on the team it belongs to.
-    expect(
-      (await accept(await signIn("second-adult"), tokenOf(created))).status,
-    ).toBe(200);
+    expect((await accept(await signIn("second-adult"), tokenOf(created))).status).toBe(200);
   });
 
   it("stops honoring a live session once the account or the person is deactivated", async () => {
     const cookie = await signIn();
     const { teamId } = await createTeamAndSeason(cookie);
-    const readTeam = () =>
-      app.handle("GET", `/api/teams/${teamId}`, { headers: { cookie } });
+    const readTeam = () => app.handle("GET", `/api/teams/${teamId}`, { headers: { cookie } });
     expect((await readTeam()).status).toBe(200);
 
     // The SESSION stays valid throughout — only the identity behind it is
@@ -1693,9 +1504,7 @@ describe("invitation authorization boundaries", () => {
     expect(json(withRevokedPerson)).toEqual({
       error: "authentication required",
     });
-    expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual(
-      [],
-    );
+    expect(await config.db.prepare("SELECT id FROM invitations").all()).toEqual([]);
   });
 
   it("refuses cross-site and metadata-less mutations before touching state", async () => {
@@ -1708,29 +1517,18 @@ describe("invitation authorization boundaries", () => {
       }),
     );
 
-    for (const headers of [
-      { "sec-fetch-site": "cross-site", cookie },
-      { cookie },
-    ]) {
+    for (const headers of [{ "sec-fetch-site": "cross-site", cookie }, { cookie }]) {
       const responses = [
         await app.handle("POST", `/api/teams/${teamId}/invitations`, {
           headers,
           body: { invitedRole: "adult", inviteeLabel: "csrf probe" },
         }),
-        await app.handle(
-          "POST",
-          `/api/teams/${teamId}/invitations/${created.id}/resend`,
-          {
-            headers,
-          },
-        ),
-        await app.handle(
-          "POST",
-          `/api/teams/${teamId}/invitations/${created.id}/revoke`,
-          {
-            headers,
-          },
-        ),
+        await app.handle("POST", `/api/teams/${teamId}/invitations/${created.id}/resend`, {
+          headers,
+        }),
+        await app.handle("POST", `/api/teams/${teamId}/invitations/${created.id}/revoke`, {
+          headers,
+        }),
         await app.handle("POST", "/api/invitations/accept", {
           headers,
           body: { token: "0".repeat(64) },
@@ -1738,9 +1536,9 @@ describe("invitation authorization boundaries", () => {
       ];
       for (const response of responses) expect(response.status).toBe(403);
     }
-    expect(
-      await config.db.prepare("SELECT status FROM invitations").all(),
-    ).toEqual([{ status: "pending" }]);
+    expect(await config.db.prepare("SELECT status FROM invitations").all()).toEqual([
+      { status: "pending" },
+    ]);
   });
 });
 
@@ -1759,18 +1557,15 @@ describe("delivery privacy", () => {
         relationship: "parent",
       }),
     );
-    await app.handle(
-      "POST",
-      `/api/teams/${teamId}/invitations/${created.id}/resend`,
-      {
-        headers: { ...sameOrigin, cookie },
-      },
-    );
+    await app.handle("POST", `/api/teams/${teamId}/invitations/${created.id}/resend`, {
+      headers: { ...sameOrigin, cookie },
+    });
 
     const delivered = devInviteDelivery.deliveries.slice(before);
     expect(delivered).toHaveLength(2);
     for (const payload of delivered) {
       expect(Object.keys(payload).toSorted()).toEqual([
+        "idempotencyKey",
         "invitationId",
         "inviteUrl",
         "invitedRole",
@@ -1779,9 +1574,7 @@ describe("delivery privacy", () => {
         "teamName",
       ]);
     }
-    const serialized = withoutOpaqueIds(
-      JSON.stringify(delivered).toLowerCase(),
-    );
+    const serialized = withoutOpaqueIds(JSON.stringify(delivered).toLowerCase());
     for (const forbidden of ["rowan", "dad", "participant", "birth", "label"]) {
       expect(serialized).not.toContain(forbidden);
     }

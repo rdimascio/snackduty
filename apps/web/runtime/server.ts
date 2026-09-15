@@ -13,7 +13,7 @@ import type { RuntimeApplication, RuntimeApplicationAdapters } from "./applicati
 import type { RuntimeConfiguration, RuntimeEnvironment } from "./config";
 import { runtimeConfiguration } from "./config";
 import { redactingRequestTracer } from "./tracing";
-import { createAppleIdentityVerifier } from "../app/lib/server/apple-identity";
+import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 
 type ServeRuntime = (app: App, options: GracefulShutdownOptions) => Promise<Server>;
 
@@ -46,14 +46,23 @@ export async function startRuntimeServer(
 ): Promise<RunningRuntimeServer> {
   const application = await openRuntimeApplication(configuration, adapters);
   const serveRuntime = adapters.serve ?? serveWithGracefulShutdown;
+  let closeResources = application.close;
 
   try {
+    const worker = await application.outbox?.work();
+    let resourcesClosed = false;
+    closeResources = async () => {
+      if (resourcesClosed) return;
+      resourcesClosed = true;
+      await worker?.stop();
+      await application.close();
+    };
     const server = await serveRuntime(application.app, {
       host: configuration.host,
       port: configuration.port,
       health: { isReady: databaseReady(application) },
       logRequest: redactingLogRequest(logAccessLine),
-      onClosed: application.close,
+      onClosed: closeResources,
       ...(adapters.tracer === undefined ? {} : { tracer: redactingRequestTracer(adapters.tracer) }),
       ...(adapters.parseTraceparent === undefined
         ? {}
@@ -69,11 +78,11 @@ export async function startRuntimeServer(
         if (stopped) return;
         stopped = true;
         await server.close();
-        await application.close();
+        await closeResources();
       },
     };
   } catch (error) {
-    await application.close();
+    await closeResources();
     throw error;
   }
 }
@@ -83,18 +92,23 @@ export async function runRuntimeFromEnvironment(
   adapters: RuntimeServerAdapters = {},
 ): Promise<RunningRuntimeServer> {
   const configuration = runtimeConfiguration(environment);
-  const audience = environment["SNACKDAY_APPLE_CLIENT_ID"]?.trim();
-  const appleVerifier =
-    adapters.appleVerifier ??
-    (audience
-      ? createAppleIdentityVerifier({
-          audience,
-          ...(adapters.clock === undefined ? {} : { clock: adapters.clock }),
-        })
-      : undefined);
+  const encodedKey = environment["SNACKDAY_INVITATION_OUTBOX_KEY"];
+  const decodedKey = encodedKey === undefined ? undefined : Buffer.from(encodedKey, "base64");
+  if (
+    decodedKey !== undefined &&
+    (decodedKey.byteLength !== 32 || decodedKey.toString("base64") !== encodedKey)
+  ) {
+    throw new Error("SNACKDAY_INVITATION_OUTBOX_KEY must be a base64-encoded 32-byte key.");
+  }
+  const invitationCipher =
+    adapters.invitationCipher ??
+    (decodedKey === undefined ? undefined : aesGcmInvitationPayloadCipher(decodedKey));
+  if (adapters.inviteDelivery !== undefined && invitationCipher === undefined) {
+    throw new Error("Configured invitation delivery requires an outbox encryption key.");
+  }
   const running = await startRuntimeServer(configuration, {
     ...adapters,
-    ...(appleVerifier === undefined ? {} : { appleVerifier }),
+    ...(invitationCipher === undefined ? {} : { invitationCipher }),
   });
   console.log(
     JSON.stringify({

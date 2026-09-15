@@ -6,6 +6,7 @@ import { devInviteDeliverer } from "./app/lib/server/invite-delivery";
 import { createAppleIdentityVerifier } from "./app/lib/server/apple-identity";
 import { unavailableInviteDeliverer } from "./runtime/delivery";
 import { runtimeConfiguration } from "./runtime/config";
+import { aesGcmInvitationPayloadCipher } from "./app/lib/server/invitation-outbox";
 
 // Lesto invokes this factory per boot; importing it opens no database.
 export default async function applicationConfig() {
@@ -28,6 +29,12 @@ export default async function applicationConfig() {
     mode,
     developmentSignIn: env.SNACKDAY_DEV_SIGN_IN,
     inviteDelivery: mode === "development" ? devInviteDeliverer() : unavailableInviteDeliverer(),
+    ...(mode === "development"
+      ? {
+          // Public, synthetic-only development key. Remote delivery never uses it.
+          invitationCipher: aesGcmInvitationPayloadCipher(new Uint8Array(32).fill(7)),
+        }
+      : {}),
     ...(audience ? { appleVerifier: createAppleIdentityVerifier({ audience }) } : {}),
   }).config;
 }

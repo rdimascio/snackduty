@@ -54,14 +54,10 @@ export function devInviteDeliverer(): DevInviteDeliverer {
     deliveries,
 
     deliver(delivery) {
-      if (
-        delivery.idempotencyKey !== undefined &&
-        deliveredKeys.has(delivery.idempotencyKey)
-      ) {
+      if (delivery.idempotencyKey !== undefined && deliveredKeys.has(delivery.idempotencyKey)) {
         return Promise.resolve();
       }
-      if (delivery.idempotencyKey !== undefined)
-        deliveredKeys.add(delivery.idempotencyKey);
+      if (delivery.idempotencyKey !== undefined) deliveredKeys.add(delivery.idempotencyKey);
       deliveries.push(delivery);
       linkByInvitationId.set(delivery.invitationId, delivery.inviteUrl);
       return Promise.resolve();

@@ -8,7 +8,9 @@ import type {
 } from "@snackday/domain";
 
 export type Clock = () => number;
-export type SessionService = Pick<Sessions, "create" | "verify" | "revoke">;
+export type SessionService = Pick<Sessions, "create" | "verify" | "revoke"> & {
+  readonly mode: "development" | "verified";
+};
 export interface VerifiedProviderIdentity {
   readonly issuer: string;
   readonly subject: string;
@@ -20,7 +22,7 @@ export interface AppleIdentityVerifier {
 }
 export interface AuthenticationOptions {
   readonly db: Db;
-  readonly sessions: Sessions;
+  readonly sessions: SessionService;
   readonly clock: Clock;
   readonly appleVerifier?: AppleIdentityVerifier;
   readonly secureCookies: boolean;

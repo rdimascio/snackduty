@@ -15,6 +15,7 @@ function configuration(databasePath: string): RuntimeConfiguration {
     host: "127.0.0.1",
     port: 0,
     publicBaseUrl: new URL("https://local-runtime-verification.invalid"),
+    appleClientId: "com.snackday.local-runtime-verification",
     upstreamCredentialPathLoggingSafe: false,
   };
 }

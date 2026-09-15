@@ -32,7 +32,7 @@
  * even that body carries nothing for a row the manager cannot act on.
  */
 
-import type { Sessions } from "@lesto/auth";
+import type { SessionService as Sessions } from "./application-contracts";
 import { and, eq } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { Context, Lesto } from "@lesto/web";

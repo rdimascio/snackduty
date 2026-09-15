@@ -1,4 +1,4 @@
-import type { Sessions } from "@lesto/auth";
+import type { SessionService as Sessions } from "../app/lib/server/application-contracts";
 import type { Db, SqlDatabase } from "@lesto/db";
 import { createApp } from "@lesto/kernel";
 import type { App, LestoAppConfig } from "@lesto/kernel";
@@ -6,6 +6,11 @@ import type { App, LestoAppConfig } from "@lesto/kernel";
 import type { AppleIdentityVerifier, Clock } from "../app/lib/server/application-contracts";
 import { createApplication } from "../app/lib/server/composition";
 import { identityServices } from "../app/lib/server/identity";
+import { createAppleIdentityVerifier } from "../app/lib/server/apple-identity";
+import type {
+  InvitationOutbox,
+  InvitationPayloadCipher,
+} from "../app/lib/server/invitation-outbox";
 import type { InviteDeliverer } from "../app/lib/server/invite-delivery";
 import type { RuntimeConfiguration } from "./config";
 import { openRuntimeDatabase } from "./database";
@@ -20,6 +25,7 @@ export interface RuntimeApplicationAdapters {
   readonly createKernelApplication?: (config: LestoAppConfig) => Promise<App>;
   readonly inviteDelivery?: InviteDeliverer;
   readonly appleVerifier?: AppleIdentityVerifier;
+  readonly invitationCipher?: InvitationPayloadCipher;
 }
 
 export interface RuntimeApplication {
@@ -28,6 +34,7 @@ export interface RuntimeApplication {
   readonly sql: SqlDatabase;
   readonly sessions: Sessions;
   readonly migrationsApplied: readonly string[];
+  readonly outbox: InvitationOutbox | undefined;
   close(): Promise<void>;
 }
 
@@ -57,12 +64,18 @@ export async function openRuntimeApplication(
       developmentSignIn: false,
       inviteDelivery,
       exposeCalendarFeeds: configuration.upstreamCredentialPathLoggingSafe,
-      ...(adapters.appleVerifier === undefined ? {} : { appleVerifier: adapters.appleVerifier }),
+      appleVerifier:
+        adapters.appleVerifier ??
+        createAppleIdentityVerifier({ audience: configuration.appleClientId, clock }),
+      ...(adapters.invitationCipher === undefined
+        ? {}
+        : { invitationCipher: adapters.invitationCipher }),
     });
     await registerRuntimePages(application.config.app);
     const kernel = await (adapters.createKernelApplication ?? createApp)(application.config);
     const app = remoteSafetyPolicy(withRuntimeAssets(kernel), {
-      invitationDeliveryAvailable: adapters.inviteDelivery !== undefined,
+      invitationDeliveryAvailable:
+        adapters.inviteDelivery !== undefined && application.outbox !== undefined,
       upstreamCredentialPathLoggingSafe: configuration.upstreamCredentialPathLoggingSafe,
     });
 
@@ -72,6 +85,7 @@ export async function openRuntimeApplication(
       sql: database.sql,
       sessions,
       migrationsApplied: kernel.migrationsApplied,
+      outbox: application.outbox,
       close,
     };
   } catch (error) {

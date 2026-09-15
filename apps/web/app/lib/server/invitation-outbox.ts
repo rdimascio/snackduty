@@ -1,11 +1,4 @@
-import {
-  createDb,
-  createTableSql,
-  defineTable,
-  dropTableSql,
-  eq,
-  text,
-} from "@lesto/db";
+import { createDb, createTableSql, defineTable, dropTableSql, eq, text } from "@lesto/db";
 import type { Db, SqlDatabase } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import { isPermanentFailure, permanentFailure, Queue } from "@lesto/queue";
@@ -89,22 +82,15 @@ function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
 }
 
 /** AES-256-GCM keeps raw invitation tokens and recipient addresses out of SQL. */
-export function aesGcmInvitationPayloadCipher(
-  secret: Uint8Array,
-): InvitationPayloadCipher {
+export function aesGcmInvitationPayloadCipher(secret: Uint8Array): InvitationPayloadCipher {
   if (secret.byteLength !== 32) {
-    throw new Error(
-      "Invitation outbox encryption key must contain exactly 32 bytes.",
-    );
+    throw new Error("Invitation outbox encryption key must contain exactly 32 bytes.");
   }
 
-  const key = crypto.subtle.importKey(
-    "raw",
-    ownedBytes(secret),
-    "AES-GCM",
-    false,
-    ["encrypt", "decrypt"],
-  );
+  const key = crypto.subtle.importKey("raw", ownedBytes(secret), "AES-GCM", false, [
+    "encrypt",
+    "decrypt",
+  ]);
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
@@ -143,10 +129,7 @@ export interface InvitationDeliveryIntent {
 
 export interface InvitationOutbox {
   transaction<R>(
-    operation: (
-      db: Db,
-      persist: (intent: InvitationDeliveryIntent) => Promise<void>,
-    ) => Promise<R>,
+    operation: (db: Db, persist: (intent: InvitationDeliveryIntent) => Promise<void>) => Promise<R>,
   ): Promise<R>;
   requestSchedule(): Promise<void>;
   schedulePending(): Promise<number>;
@@ -203,11 +186,8 @@ export function createInvitationOutboxOperations(
   });
 
   queue.define(JOB_NAME, async (payload) => {
-    const parsed = z
-      .strictObject({ outboxId: z.string().min(1) })
-      .safeParse(payload);
-    if (!parsed.success)
-      throw permanentFailure(new Error("Invalid invitation outbox job."));
+    const parsed = z.strictObject({ outboxId: z.string().min(1) }).safeParse(payload);
+    if (!parsed.success) throw permanentFailure(new Error("Invalid invitation outbox job."));
 
     const outbox = await db
       .select()
@@ -232,11 +212,7 @@ export function createInvitationOutboxOperations(
       return;
     }
 
-    const team = await ownedActiveTeam(
-      db,
-      invitation.teamId,
-      invitation.createdByPersonId,
-    );
+    const team = await ownedActiveTeam(db, invitation.teamId, invitation.createdByPersonId);
     if (team === undefined) {
       await cancel(db, outbox.id, nowIso);
       return;
@@ -264,21 +240,15 @@ export function createInvitationOutboxOperations(
     try {
       delivery = await options.cipher.open(outbox.encryptedPayload);
     } catch {
-      throw permanentFailure(
-        new Error("Invitation outbox payload could not be decrypted."),
-      );
+      throw permanentFailure(new Error("Invitation outbox payload could not be decrypted."));
     }
-    const deliveredTokenHash = await hashBearerToken(
-      delivery.inviteUrl.slice("/invite#".length),
-    );
+    const deliveredTokenHash = await hashBearerToken(delivery.inviteUrl.slice("/invite#".length));
     if (
       delivery.idempotencyKey !== outbox.deliveryKey ||
       delivery.invitationId !== invitation.id ||
       deliveredTokenHash !== outbox.tokenHash
     ) {
-      throw permanentFailure(
-        new Error("Invitation outbox payload does not match current intent."),
-      );
+      throw permanentFailure(new Error("Invitation outbox payload does not match current intent."));
     }
     if (
       delivery.invitedRole !== invitation.invitedRole ||

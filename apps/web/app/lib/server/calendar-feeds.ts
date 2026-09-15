@@ -35,7 +35,7 @@ import type { Clock } from "./application-contracts";
  * child-free.
  */
 
-import type { Sessions } from "@lesto/auth";
+import type { SessionService as Sessions } from "./application-contracts";
 import { and, createTableSql, defineTable, dropTableSql, eq, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";

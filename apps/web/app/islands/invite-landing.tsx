@@ -120,22 +120,14 @@ function NoToken(): ReactNode {
   );
 }
 
-function Accepted({
-  grantedRole,
-  teamName,
-}: {
-  grantedRole: string;
-  teamName: string;
-}): ReactNode {
+function Accepted({ grantedRole, teamName }: { grantedRole: string; teamName: string }): ReactNode {
   return (
     <div className="text-center">
       <p className="text-sm font-bold text-primary">Invitation accepted</p>
       <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">
         You&apos;re on {teamName}
       </h1>
-      <p className="mt-2 text-muted-foreground">
-        You joined as {roleDescription(grantedRole)}.
-      </p>
+      <p className="mt-2 text-muted-foreground">You joined as {roleDescription(grantedRole)}.</p>
       <div className="mt-8">
         <a
           className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
@@ -167,11 +159,7 @@ const actionClassName =
  * `signedIn` is the only thing the server loader could still resolve, and it
  * chooses which affordance a valid preview offers.
  */
-function InviteLanding({
-  signedIn: sessionAtLoad,
-}: {
-  signedIn: boolean;
-}): ReactNode {
+function InviteLanding({ signedIn: sessionAtLoad }: { signedIn: boolean }): ReactNode {
   const [token, setToken] = useState("");
   const [landing, setLanding] = useState<Landing>({ status: "resolving" });
   const [pending, setPending] = useState(false);
@@ -246,24 +234,17 @@ function InviteLanding({
   if (landing.status === "no-token") return <NoToken />;
   if (landing.status === "invalid") return <Invalid />;
   if (landing.status === "accepted") {
-    return (
-      <Accepted grantedRole={landing.grantedRole} teamName={landing.teamName} />
-    );
+    return <Accepted grantedRole={landing.grantedRole} teamName={landing.teamName} />;
   }
 
   return (
     <div className="text-center">
       <p className="text-sm font-bold text-primary">You&apos;re invited</p>
-      <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">
-        {landing.teamName}
-      </h1>
+      <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">{landing.teamName}</h1>
       <p className="mt-2 text-muted-foreground">
-        {landing.inviterDisplayName} invited you to join as{" "}
-        {roleDescription(landing.invitedRole)}.
+        {landing.inviterDisplayName} invited you to join as {roleDescription(landing.invitedRole)}.
       </p>
-      <div className="mt-8 flex flex-col items-center gap-3">
-        {affordance()}
-      </div>
+      <div className="mt-8 flex flex-col items-center gap-3">{affordance()}</div>
     </div>
   );
 }

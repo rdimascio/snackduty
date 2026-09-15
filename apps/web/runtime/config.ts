@@ -8,6 +8,7 @@ export interface RuntimeConfiguration {
   readonly host: string;
   readonly port: number;
   readonly publicBaseUrl: URL;
+  readonly appleClientId: string;
   readonly upstreamCredentialPathLoggingSafe: boolean;
 }
 
@@ -99,6 +100,7 @@ export function runtimeConfiguration(environment: RuntimeEnvironment): RuntimeCo
     host: environment["HOST"]?.trim() || "0.0.0.0",
     port: port(environment["PORT"]),
     publicBaseUrl: publicBaseUrl(required(environment, "SNACKDAY_PUBLIC_BASE_URL")),
+    appleClientId: required(environment, "SNACKDAY_APPLE_CLIENT_ID"),
     upstreamCredentialPathLoggingSafe: explicitBoolean(
       environment["SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE"],
       "SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE",

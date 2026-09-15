@@ -10,10 +10,7 @@ import { lesto } from "@lesto/web";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { accounts, createIdentity, people } from "../app/lib/server/identity";
-import type {
-  InviteDeliverer,
-  InviteDelivery,
-} from "../app/lib/server/invite-delivery";
+import type { InviteDeliverer, InviteDelivery } from "../app/lib/server/invite-delivery";
 import {
   aesGcmInvitationPayloadCipher,
   createInvitationOutbox,
@@ -36,9 +33,7 @@ const TOKEN_HASH = await hashInviteToken(TOKEN);
 const EMAIL = "recipient@example.test";
 
 afterEach(async () => {
-  await Promise.all(
-    directories.splice(0).map((path) => rm(path, { recursive: true })),
-  );
+  await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true })));
 });
 
 async function databasePath(): Promise<string> {
@@ -66,10 +61,7 @@ async function openDatabase(path: string) {
   return { ...opened, typed: createDb(opened.db) };
 }
 
-async function seedInvitation(
-  db: ReturnType<typeof createDb>,
-  tokenHash = TOKEN_HASH,
-) {
+async function seedInvitation(db: ReturnType<typeof createDb>, tokenHash = TOKEN_HASH) {
   const nowIso = new Date(NOW).toISOString();
   await db
     .insert(people)
@@ -172,16 +164,10 @@ describe("durable invitation outbox", () => {
       }),
     ).rejects.toThrow("source operation failed");
 
-    expect(
-      await opened.db.prepare("SELECT invitee_label FROM invitations").get(),
-    ).toEqual({
+    expect(await opened.db.prepare("SELECT invitee_label FROM invitations").get()).toEqual({
       invitee_label: "Private label",
     });
-    expect(
-      await opened.db
-        .prepare("SELECT id FROM invitation_delivery_outbox")
-        .all(),
-    ).toEqual([]);
+    expect(await opened.db.prepare("SELECT id FROM invitation_delivery_outbox").all()).toEqual([]);
     opened.close();
   });
 
@@ -206,9 +192,7 @@ describe("durable invitation outbox", () => {
     await outbox.transaction(async (_db, persist) => persist(delivery()));
 
     const stored = (await opened.db
-      .prepare(
-        "SELECT encrypted_payload, status, queued_at FROM invitation_delivery_outbox",
-      )
+      .prepare("SELECT encrypted_payload, status, queued_at FROM invitation_delivery_outbox")
       .get()) as {
       encrypted_payload: string;
       status: string;
@@ -222,14 +206,8 @@ describe("durable invitation outbox", () => {
     expect(await outbox.schedulePending()).toBe(1);
     expect(await outbox.drain()).toBe(1);
     expect(delivered).toHaveLength(1);
-    expect(delivered[0]?.idempotencyKey).toBe(
-      `invitation:invitation_outbox:${TOKEN_HASH}`,
-    );
-    expect(
-      await opened.db
-        .prepare("SELECT status FROM invitation_delivery_outbox")
-        .get(),
-    ).toEqual({
+    expect(delivered[0]?.idempotencyKey).toBe(`invitation:invitation_outbox:${TOKEN_HASH}`);
+    expect(await opened.db.prepare("SELECT status FROM invitation_delivery_outbox").get()).toEqual({
       status: "delivered",
     });
     opened.close();
@@ -256,9 +234,7 @@ describe("durable invitation outbox", () => {
     await firstOutbox.requestSchedule();
     expect(schedulingErrors).toHaveLength(1);
     expect(
-      await first.db
-        .prepare("SELECT status, queued_at FROM invitation_delivery_outbox")
-        .get(),
+      await first.db.prepare("SELECT status, queued_at FROM invitation_delivery_outbox").get(),
     ).toEqual({ status: "pending", queued_at: null });
     first.close();
 
@@ -307,14 +283,10 @@ describe("durable invitation outbox", () => {
     await outbox.schedulePending();
 
     expect(await outbox.runOnce()).toMatchObject({ outcome: "retry" });
-    const failedAttempt = (await opened.db
-      .prepare("SELECT last_error FROM lesto_jobs")
-      .get()) as {
+    const failedAttempt = (await opened.db.prepare("SELECT last_error FROM lesto_jobs").get()) as {
       last_error: string;
     };
-    expect(failedAttempt.last_error).toBe(
-      "Invitation delivery provider failed.",
-    );
+    expect(failedAttempt.last_error).toBe("Invitation delivery provider failed.");
     expect(failedAttempt.last_error).not.toContain(EMAIL);
     now += 1_000;
     expect(await outbox.runOnce()).toMatchObject({ outcome: "done" });

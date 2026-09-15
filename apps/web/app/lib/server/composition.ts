@@ -1,13 +1,18 @@
-import type { Sessions } from "@lesto/auth";
+import type { SessionService as Sessions } from "./application-contracts";
 import type { Db } from "@lesto/db";
 
 import { lesto } from "@lesto/web";
+import { installSchema as installQueueSchema } from "@lesto/queue";
 import type { Lesto } from "@lesto/web";
 import type { Clock } from "./application-contracts";
 import type { LestoAppConfig } from "@lesto/kernel";
 
 import { bindAppServices } from "./app-services";
-import { createAuthentication, createAuthenticationSchema } from "./authentication";
+import {
+  createAuthentication,
+  createAuthenticationSchema,
+  verifiedRecipientEmails,
+} from "./authentication";
 import { registerSessionRoutes } from "./session-routes";
 import {
   authenticatedAdult,
@@ -23,7 +28,14 @@ import { createDuties, registerDutyRoutes } from "./duties";
 import { createEvents, registerEventRoutes } from "./events";
 import { devInviteDeliverer } from "./invite-delivery";
 import type { InviteDeliverer } from "./invite-delivery";
-import { createInvitations, registerInvitationRoutes } from "./invitations";
+import {
+  createInvitations,
+  createInvitationRecipientBinding,
+  registerInvitationRoutes,
+} from "./invitations";
+import type { InvitationRouteOptions } from "./invitations";
+import { createInvitationOutbox, createInvitationOutboxOperations } from "./invitation-outbox";
+import type { InvitationPayloadCipher } from "./invitation-outbox";
 import { registerRosterImportRoutes } from "./roster-import";
 import { createRoster, registerRosterRoutes } from "./roster";
 import { registerTeamReadRoutes } from "./team-reads";
@@ -54,13 +66,14 @@ export function buildApp(
   inviteDelivery: InviteDeliverer = devInviteDeliverer(),
   clock: Clock = Date.now,
   exposeCalendarFeeds = true,
+  invitationOptions: InvitationRouteOptions = {},
 ) {
   let app: Lesto = buildBaseApp(db, sessions);
   app = registerTeamRoutes(app, db, sessions, clock);
   app = registerRosterRoutes(app, db, sessions);
   app = registerRosterImportRoutes(app, db, sessions);
   app = registerTeamReadRoutes(app, db, sessions);
-  app = registerInvitationRoutes(app, db, sessions, inviteDelivery);
+  app = registerInvitationRoutes(app, db, sessions, inviteDelivery, invitationOptions);
   app = registerEventRoutes(app, db, sessions, clock);
   app = registerAttendanceRoutes(app, db, sessions, clock);
   app = registerDutyRoutes(app, db, sessions, clock);
@@ -113,6 +126,7 @@ export interface ApplicationOptions {
   readonly inviteDelivery: InviteDeliverer;
   readonly exposeCalendarFeeds?: boolean;
   readonly appleVerifier?: import("./application-contracts").AppleIdentityVerifier;
+  readonly invitationCipher?: InvitationPayloadCipher;
 }
 export const applicationMigrations = [
   createIdentity,
@@ -123,12 +137,30 @@ export const applicationMigrations = [
   createCalendarFeeds,
   createDuties,
   createAuthenticationSchema,
+  createInvitationRecipientBinding,
+  createInvitationOutbox,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 export function createApplication(options: ApplicationOptions) {
   if (options.mode !== "development" && options.developmentSignIn) {
     throw new Error("Development authentication requires development mode.");
   }
+  if ((options.sessions.mode === "development") !== (options.mode === "development")) {
+    throw new Error("Session services must match the application environment.");
+  }
+  const outbox =
+    options.invitationCipher === undefined
+      ? undefined
+      : createInvitationOutboxOperations({
+          sql: options.sql,
+          deliverer: options.inviteDelivery,
+          cipher: options.invitationCipher,
+          clock: options.clock,
+          onSchedulingError: () =>
+            console.error(
+              JSON.stringify({ level: "error", event: "invitation.scheduling_failed" }),
+            ),
+        });
   const config: LestoAppConfig = {
     db: options.sql,
     app: registerSessionRoutes(
@@ -139,6 +171,11 @@ export function createApplication(options: ApplicationOptions) {
         options.inviteDelivery,
         options.clock,
         options.exposeCalendarFeeds ?? options.mode === "development",
+        {
+          clock: options.clock,
+          ...(outbox === undefined ? {} : { outbox }),
+          verifiedEmails: verifiedRecipientEmails,
+        },
       ),
       createAuthentication({
         db: options.db,
@@ -149,8 +186,9 @@ export function createApplication(options: ApplicationOptions) {
       }),
     ),
     migrations: applicationMigrations,
+    schemas: [installQueueSchema],
     secure: { originCheck: {} },
     ui: { dialect: "preact", css: "app/styles/app.css" },
   };
-  return { config, services: { db: options.db, sessions: options.sessions } };
+  return { config, services: { db: options.db, sessions: options.sessions }, outbox };
 }
