@@ -15,6 +15,7 @@ const metadata = entityMetadataSchema.shape;
 export const domainPermissionSchema = z.enum([
   "team.read",
   "team.settings.manage",
+  "team.operations.manage",
   "season.read",
   "roster.read",
   "roster.manage",

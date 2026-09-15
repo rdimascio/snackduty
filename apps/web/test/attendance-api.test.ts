@@ -4,13 +4,15 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config } = await import("../lesto.app");
+const { default: config } = await import("./support/application").then((module) =>
+  module.testApplication(),
+);
 
 const app = await createApp(config);
 
 async function clearState() {
   await config.db.exec(
-    "DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -27,6 +29,7 @@ function header(response: { headers: Record<string, string | string[]> }, name: 
 }
 
 const sameOrigin = { "sec-fetch-site": "same-origin" };
+const SECOND_PERSON_ID = "person_dev_second_adult";
 
 async function signIn(persona?: "second-adult"): Promise<string> {
   const response = await app.handle("POST", "/api/dev/sign-in", {
@@ -109,6 +112,7 @@ async function buildFixture(cookie: string): Promise<Fixture> {
 
 /** The second adult joins as a member AND becomes child A's guardian, via the real invite flow. */
 async function joinAsGuardianOfChildA(ownerCookie: string, fixture: Fixture): Promise<string> {
+  const guardianCookie = await signIn("second-adult");
   const invited = await app.handle("POST", `/api/teams/${fixture.teamId}/invitations`, {
     headers: { ...sameOrigin, cookie: ownerCookie },
     body: {
@@ -116,13 +120,13 @@ async function joinAsGuardianOfChildA(ownerCookie: string, fixture: Fixture): Pr
       inviteeLabel: "Casey's parent",
       participantId: fixture.childA,
       relationship: "parent",
+      recipientBinding: { kind: "confirmed_person", personId: SECOND_PERSON_ID },
     },
   });
   expect(invited.status).toBe(201);
   const inviteUrl = (json(invited) as { invitation: { inviteUrl: string } }).invitation.inviteUrl;
   const token = inviteUrl.split("#")[1] ?? "";
 
-  const guardianCookie = await signIn("second-adult");
   const accepted = await app.handle("POST", "/api/invitations/accept", {
     headers: { ...sameOrigin, cookie: guardianCookie },
     body: { token },
@@ -140,16 +144,20 @@ async function joinAsMemberWithoutGuardianEdge(
   ownerCookie: string,
   fixture: Fixture,
 ): Promise<string> {
+  const memberCookie = await signIn("second-adult");
   const invited = await app.handle("POST", `/api/teams/${fixture.teamId}/invitations`, {
     headers: { ...sameOrigin, cookie: ownerCookie },
-    body: { invitedRole: "adult", inviteeLabel: "the team treasurer" },
+    body: {
+      invitedRole: "adult",
+      inviteeLabel: "the team treasurer",
+      recipientBinding: { kind: "confirmed_person", personId: SECOND_PERSON_ID },
+    },
   });
   expect(invited.status).toBe(201);
   const token =
     (json(invited) as { invitation: { inviteUrl: string } }).invitation.inviteUrl.split("#")[1] ??
     "";
 
-  const memberCookie = await signIn("second-adult");
   const accepted = await app.handle("POST", "/api/invitations/accept", {
     headers: { ...sameOrigin, cookie: memberCookie },
     body: { token },
@@ -335,6 +343,51 @@ describe("reading attendance", () => {
     for (const forbidden of ["casey", "robin", "participant_"]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("hides attendance aggregates after the occurrence season is archived", async () => {
+    const ownerCookie = await signIn();
+    const fixture = await buildFixture(ownerCookie);
+    expect((await record(ownerCookie, fixture, fixture.childA, "yes")).status).toBe(200);
+
+    await config.db
+      .prepare("UPDATE seasons SET status = 'archived' WHERE id = ?")
+      .run([fixture.seasonId]);
+
+    for (const response of [
+      await read(ownerCookie, fixture),
+      await record(ownerCookie, fixture, fixture.childA, "maybe"),
+    ]) {
+      expect(response.status).toBe(404);
+      expect(json(response)).toEqual({ error: "event not found" });
+    }
+    expect(await config.db.prepare("SELECT status FROM event_attendance").all()).toEqual([
+      { status: "yes" },
+    ]);
+  });
+
+  it("rejects an occurrence whose authoritative series belongs to another team", async () => {
+    const ownerCookie = await signIn();
+    const first = await buildFixture(ownerCookie);
+    const second = await buildFixture(ownerCookie);
+    expect((await record(ownerCookie, first, first.childA, "yes")).status).toBe(200);
+
+    await config.db
+      .prepare(
+        "UPDATE event_occurrences SET local_date = '2030-05-02', series_id = (SELECT series_id FROM event_occurrences WHERE id = ?) WHERE id = ?",
+      )
+      .run([second.occurrenceId, first.occurrenceId]);
+
+    for (const response of [
+      await read(ownerCookie, first),
+      await record(ownerCookie, first, first.childA, "maybe"),
+    ]) {
+      expect(response.status).toBe(404);
+      expect(json(response)).toEqual({ error: "event not found" });
+    }
+    expect(await config.db.prepare("SELECT status FROM event_attendance").all()).toEqual([
+      { status: "yes" },
+    ]);
   });
 
   it("hides reads from strangers and requires authentication", async () => {

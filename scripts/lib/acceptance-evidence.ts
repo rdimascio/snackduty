@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { xcodeEnvironment } from "./dev-scenario-ios";
 
 /** Logs belong to synthetic local runs only; never retain the database or headers. */
 export function redactAcceptanceLog(value: string): string {
@@ -10,10 +11,10 @@ export function redactAcceptanceLog(value: string): string {
       "[redacted credential header]",
     )
     .replace(/\bBearer\s+[^\s"')]+/giu, "Bearer [redacted]")
-    .replace(/\bsnackday_session_dev=[^\s;"']+/gu, "snackday_session_dev=[redacted]")
+    .replace(/(?:__Host-snackday_session|snackday_session_dev)=[^\s;"']+/gu, "session=[redacted]")
     .replace(/\/invite#[^\s"'<>)]*/giu, "/invite#[redacted]")
     .replace(
-      /\b(?:token|secret|password)\b["']?\s*[:=]\s*["']?[^\s,"'}]+/giu,
+      /\b(?:token|identityToken|nonce|secret|password)\b["']?\s*[:=]\s*["']?[^\s,"'}]+/giu,
       "credential=[redacted]",
     )
     .replace(/\b[0-9a-f]{64}\b/giu, "[redacted credential]");
@@ -23,6 +24,7 @@ function command(root: string, executable: string, args: string[]): string | nul
   try {
     return execFileSync(executable, args, {
       cwd: root,
+      ...(executable === "xcodebuild" ? { env: xcodeEnvironment() } : {}),
       encoding: "utf8",
       timeout: 5_000,
       stdio: ["ignore", "pipe", "pipe"],

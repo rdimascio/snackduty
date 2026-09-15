@@ -4,7 +4,10 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config } = await import("../lesto.app");
+const { default: config, services } = await import("./support/application").then((module) =>
+  module.testApplication(),
+);
+const { DEV_PERSONAS, ensureDevelopmentPersona } = await import("../app/lib/server/identity");
 const { RESCHEDULE_CANCEL_REASON } = await import("../app/lib/server/events");
 const { weekdayOf } = await import("../app/lib/server/event-time");
 
@@ -12,7 +15,7 @@ const app = await createApp(config);
 
 async function clearState() {
   await config.db.exec(
-    "DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -146,9 +149,17 @@ function weeklyOn(byWeekday: string[], startDate: string, untilDate: string) {
 
 /** Join a second adult onto the team as a READ-ONLY member via the real flow. */
 async function joinReadOnlyMember(ownerCookie: string, teamId: string): Promise<string> {
+  await ensureDevelopmentPersona(services.db, "second-adult");
   const invited = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
     headers: { ...sameOrigin, cookie: ownerCookie },
-    body: { invitedRole: "adult", inviteeLabel: "the second adult" },
+    body: {
+      invitedRole: "adult",
+      inviteeLabel: "the second adult",
+      recipientBinding: {
+        kind: "confirmed_person",
+        personId: DEV_PERSONAS["second-adult"].personId,
+      },
+    },
   });
   expect(invited.status).toBe(201);
   const inviteUrl = (json(invited) as { invitation: { inviteUrl: string } }).invitation.inviteUrl;
@@ -456,6 +467,61 @@ describe("event listing", () => {
     const hidden = await listEvents(strangerCookie, rebuilt.teamId);
     expect(hidden.status).toBe(404);
     expect(json(hidden)).toEqual({ error: "team not found" });
+  });
+
+  it("hides archived-season events and denies mutations after an archive", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    const created = await createSeries(cookie, teamId, seasonId);
+    const seriesId = (json(created) as { series: { id: string } }).series.id;
+    const occurrenceId = createdOccurrences(created)[0]?.id ?? "";
+
+    expect((json(await listEvents(cookie, teamId)) as { events: unknown[] }).events).toHaveLength(
+      1,
+    );
+    await config.db.prepare("UPDATE seasons SET status = 'archived' WHERE id = ?").run([seasonId]);
+
+    expect((json(await listEvents(cookie, teamId)) as { events: unknown[] }).events).toEqual([]);
+    const createAfterArchive = await createSeries(cookie, teamId, seasonId);
+    expect(createAfterArchive.status).toBe(404);
+    expect(json(createAfterArchive)).toEqual({ error: "team not found" });
+
+    const updateAfterArchive = await updateSeries(cookie, teamId, seriesId, weeklyPractice);
+    expect(updateAfterArchive.status).toBe(404);
+    expect(json(updateAfterArchive)).toEqual({ error: "event not found" });
+    const cancelAfterArchive = await cancelOccurrence(cookie, teamId, occurrenceId, "Too late");
+    expect(cancelAfterArchive.status).toBe(404);
+    expect(json(cancelAfterArchive)).toEqual({ error: "event not found" });
+
+    expect(
+      await config.db.prepare("SELECT title FROM event_series WHERE id = ?").get([seriesId]),
+    ).toEqual({ title: "Tuesday Practice" });
+    expect(
+      await config.db
+        .prepare("SELECT status FROM event_occurrences WHERE id = ?")
+        .get([occurrenceId]),
+    ).toEqual({ status: "scheduled" });
+  });
+
+  it("rejects a series whose season belongs to another team", async () => {
+    const cookie = await signIn();
+    const first = await createTeamAndSeason(cookie);
+    const second = await createTeamAndSeason(cookie);
+    const created = await createSeries(cookie, first.teamId, first.seasonId);
+    const seriesId = (json(created) as { series: { id: string } }).series.id;
+    const occurrenceId = createdOccurrences(created)[0]?.id ?? "";
+
+    await config.db
+      .prepare("UPDATE event_series SET season_id = ? WHERE id = ?")
+      .run([second.seasonId, seriesId]);
+
+    expect((json(await listEvents(cookie, first.teamId)) as { events: unknown[] }).events).toEqual(
+      [],
+    );
+    expect((await updateSeries(cookie, first.teamId, seriesId, weeklyPractice)).status).toBe(404);
+    expect(
+      (await cancelOccurrence(cookie, first.teamId, occurrenceId, "Invalid scope")).status,
+    ).toBe(404);
   });
 });
 

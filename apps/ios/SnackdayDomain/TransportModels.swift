@@ -58,10 +58,14 @@ public struct SeasonDTO: Codable, Equatable, Sendable {
 public struct TeamWithSeasonsDTO: Codable, Equatable, Sendable {
     public let team: TeamDTO
     public let seasons: [SeasonDTO]
+    public let access: String?
+    public let capabilities: TeamCapabilities?
 
-    public init(team: TeamDTO, seasons: [SeasonDTO]) {
+    public init(team: TeamDTO, seasons: [SeasonDTO], access: String? = nil, capabilities: TeamCapabilities? = nil) {
         self.team = team
         self.seasons = seasons
+        self.access = access
+        self.capabilities = capabilities
     }
 }
 
@@ -183,12 +187,12 @@ public struct TeamSelection: Equatable, Sendable {
 }
 
 extension TeamsResponse {
-    /// The first team that carries at least one season, preferring its first
-    /// `active` season. The server already sorts teams by creation and seasons
+    /// The first active team that carries an active, same-team season.
+    /// The server already sorts teams by creation and seasons
     /// by start date, so this preserves that ordering.
     public var primarySelection: TeamSelection? {
-        for entry in teams {
-            let season = entry.seasons.first(where: { $0.status == "active" }) ?? entry.seasons.first
+        for entry in teams where entry.team.status == "active" {
+            let season = entry.seasons.first(where: { $0.status == "active" && $0.teamId == entry.team.id })
             if let season {
                 return TeamSelection(team: entry.team, season: season)
             }
@@ -209,7 +213,7 @@ extension HomeSnapshot {
         HomeSnapshot(
             greeting: greeting,
             team: TeamSummary(name: selection.team.name, season: selection.season.label),
-            nextEvent: "No events scheduled yet",
+            nextEvent: "Schedule details are not available yet",
             roster: roster.map { participant in
                 RosterMember(
                     id: participant.participantId,

@@ -14,10 +14,12 @@ if ! xcodebuild -version >/dev/null 2>&1; then
   exit 1
 fi
 
-exec xcodebuild build \
-  -project "$PROJECT" \
-  -scheme Snackday \
-  -configuration Debug \
-  -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath "$DERIVED_DATA_PATH" \
-  CODE_SIGNING_ALLOWED=NO
+for configuration in ${IOS_CONFIGURATION:-Debug Release}; do
+  xcodebuild build \
+    -project "$PROJECT" \
+    -scheme Snackday \
+    -configuration "$configuration" \
+    -destination 'generic/platform=iOS Simulator' \
+    -derivedDataPath "$DERIVED_DATA_PATH" \
+    CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+done

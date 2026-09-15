@@ -4,16 +4,17 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const [{ default: config }, { DEV_PERSONAS }] = await Promise.all([
-  import("../lesto.app"),
-  import("../app/lib/server/identity"),
-]);
+const [{ default: config, services }, { DEV_PERSONAS, ensureDevelopmentPersona }] =
+  await Promise.all([
+    import("./support/application").then((module) => module.testApplication()),
+    import("../app/lib/server/identity"),
+  ]);
 
 const app = await createApp(config);
 
 async function clearState() {
   await config.db.exec(
-    "DELETE FROM duty_slots; DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM duty_slots; DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -91,9 +92,17 @@ async function createTeamWithOccurrence(cookie: string, name: string) {
 }
 
 async function joinTeam(ownerCookie: string, teamId: string): Promise<string> {
+  await ensureDevelopmentPersona(services.db, "second-adult");
   const invitation = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
     headers: { ...sameOrigin, cookie: ownerCookie },
-    body: { invitedRole: "adult", inviteeLabel: "Second parent" },
+    body: {
+      invitedRole: "adult",
+      inviteeLabel: "Second parent",
+      recipientBinding: {
+        kind: "confirmed_person",
+        personId: DEV_PERSONAS["second-adult"].personId,
+      },
+    },
   });
   expect(invitation.status).toBe(201);
   const inviteUrl = (json(invitation) as { invitation: { inviteUrl: string } }).invitation
@@ -302,6 +311,13 @@ describe("duty slot scope and availability", () => {
         expect(cancelled.status).toBe(200);
       }
 
+      const refusedCreate = await app.handle("POST", slotPath(fixture), {
+        headers: { ...sameOrigin, cookie: ownerCookie },
+        body: { label: "Must not be created" },
+      });
+      expect(refusedCreate.status).toBe(409);
+      expect(json(refusedCreate)).toMatchObject({ code: "event_occurrence_unavailable" });
+
       for (const response of [
         await release(parentCookie, fixture, slotId),
         await assign(ownerCookie, fixture, slotId, null),
@@ -357,6 +373,51 @@ describe("duty slot scope and availability", () => {
     });
     expect(hiddenTeam.status).toBe(404);
     expect(json(hiddenTeam)).toEqual({ error: "team not found" });
+
+    // The denormalized occurrence team is an index key, not authority. Even
+    // if a corrupt row points at another team's series, the joined scope hides it.
+    await config.db
+      .prepare(
+        "UPDATE event_occurrences SET local_date = '2099-01-01', series_id = (SELECT series_id FROM event_occurrences WHERE id = ?) WHERE id = ?",
+      )
+      .run([second.occurrenceId, first.occurrenceId]);
+    const mismatchedSeries = await claim(ownerCookie, first, slotId);
+    expect(mismatchedSeries.status).toBe(404);
+    expect(json(mismatchedSeries)).toEqual({ error: "event not found" });
+  });
+
+  it("hides duty reads and denies every duty mutation after season archive", async () => {
+    const ownerCookie = await signIn();
+    const fixture = await createTeamWithOccurrence(ownerCookie, "Archived Duty Falcons");
+    const parentCookie = await joinTeam(ownerCookie, fixture.teamId);
+    const slotId = await createSlot(ownerCookie, fixture);
+    await config.db
+      .prepare("UPDATE seasons SET status = 'archived' WHERE id = ?")
+      .run([fixture.seasonId]);
+
+    const responses = [
+      await app.handle("GET", slotPath(fixture), { headers: { cookie: parentCookie } }),
+      await app.handle("POST", slotPath(fixture), {
+        headers: { ...sameOrigin, cookie: ownerCookie },
+        body: { label: "Late snack" },
+      }),
+      await claim(parentCookie, fixture, slotId),
+      await release(parentCookie, fixture, slotId),
+      await assign(ownerCookie, fixture, slotId, DEV_PERSONAS["second-adult"].personId),
+    ];
+    for (const response of responses) {
+      expect(response.status).toBe(404);
+      expect(json(response)).toEqual({ error: "event not found" });
+    }
+
+    expect(
+      await config.db
+        .prepare("SELECT assignee_person_id FROM duty_slots WHERE id = ?")
+        .get([slotId]),
+    ).toEqual({ assignee_person_id: null });
+    expect(await config.db.prepare("SELECT COUNT(*) AS count FROM duty_slots").get()).toEqual({
+      count: 1,
+    });
   });
 
   it("refuses new claims for cancelled and past occurrences", async () => {

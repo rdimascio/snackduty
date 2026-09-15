@@ -1,25 +1,23 @@
+import { bindAppServices } from "../app/lib/server/app-services";
 import { createApp } from "@lesto/kernel";
 import { Context } from "@lesto/web";
 import type { PageProps } from "@lesto/web";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { appServices } from "../app/lib/server/app-services";
-import { DEV_PERSON_ID } from "../app/lib/server/identity";
+import { DEV_PERSON_ID, ensureDevelopmentPersona } from "../app/lib/server/identity";
 import { invitationAcceptedBy, previewInvitation } from "../app/lib/server/invitations";
 import invitePage from "../app/routes/invite/page";
 
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config } = await import("../lesto.app");
+const { default: config, services } = await import("./support/application").then((module) =>
+  module.testApplication(),
+);
 
 const app = await createApp(config);
 
-// `lesto.app.ts` registers the live services on import — the same registry the
-// page loader reads; the preview tests reach the typed Db through it.
-const services = appServices();
-if (services === undefined) throw new Error("lesto.app must register the app services.");
 const db = services.db;
 
 const TEAM_NAME = "Invite Landing Falcons";
@@ -33,7 +31,7 @@ async function clearState() {
   // accumulated API calls would trip 429s here, which is the limiter working,
   // not the page — so reset it alongside the domain state.
   await config.db.exec(
-    "DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -113,6 +111,7 @@ async function createInvitation(
   teamId: string,
   participantId: string,
 ): Promise<{ token: string; invitationId: string }> {
+  await ensureDevelopmentPersona(db, "second-adult");
   const created = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
     headers: { ...sameOrigin, cookie },
     body: {
@@ -120,12 +119,19 @@ async function createInvitation(
       inviteeLabel: INVITEE_LABEL,
       participantId,
       relationship: "parent",
+      recipientBinding: {
+        kind: "confirmed_person",
+        personId: "person_dev_second_adult",
+      },
     },
   });
   expect(created.status).toBe(201);
   const invitation = (json(created) as { invitation: { id: string; inviteUrl?: string } })
     .invitation;
-  return { token: tokenOf(invitation.inviteUrl ?? ""), invitationId: invitation.id };
+  return {
+    token: tokenOf(invitation.inviteUrl ?? ""),
+    invitationId: invitation.id,
+  };
 }
 
 async function acceptAs(cookie: string, token: string): Promise<void> {
@@ -160,6 +166,7 @@ async function loadInvite(cookie?: string): Promise<Loaded> {
     headers: cookie === undefined ? {} : { cookie },
     body: undefined,
   });
+  bindAppServices(context, services);
   // The page declares no `params` schema, so the loader's `search` argument is
   // unused; `null` stands in for "no validated search value".
   const loaded = await invitePage.load?.(context, null);
@@ -191,6 +198,14 @@ function expectNoPrivateLeaks(text: string): void {
 }
 
 describe("the invitation link shape", () => {
+  it("does not offer the development sign-in endpoint from the shipped landing island", async () => {
+    const source = await readFile(
+      new URL("../app/islands/invite-landing.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toContain("/api/dev/sign-in");
+  });
+
   it("carries the token in the fragment, so the request line holds no credential", async () => {
     const { token } = await seedInvitation();
 
@@ -303,7 +318,11 @@ describe("POST /api/invitations/preview", () => {
 
     const mine = await previewOverHttp(token, memberCookie);
     expect(mine.status).toBe(200);
-    expect(json(mine)).toEqual({ state: "accepted", teamName: TEAM_NAME, grantedRole: "adult" });
+    expect(json(mine)).toEqual({
+      state: "accepted",
+      teamName: TEAM_NAME,
+      grantedRole: "adult",
+    });
     expect(Object.keys(json(mine) as object).toSorted()).toEqual([
       "grantedRole",
       "state",
@@ -327,7 +346,14 @@ describe("POST /api/invitations/preview", () => {
 
     const promotion = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
       headers: { ...sameOrigin, cookie: ownerCookie },
-      body: { invitedRole: "owner", inviteeLabel: "promotion" },
+      body: {
+        invitedRole: "owner",
+        inviteeLabel: "promotion",
+        recipientBinding: {
+          kind: "confirmed_person",
+          personId: "person_dev_second_adult",
+        },
+      },
     });
     expect(promotion.status).toBe(201);
     const ownerToken = tokenOf(
@@ -434,14 +460,20 @@ describe("/invite page loader", () => {
   it("reports no session for a signed-out visitor", async () => {
     await seedInvitation();
 
-    expect(await loadInvite()).toEqual({ state: "in-browser", signedIn: false });
+    expect(await loadInvite()).toEqual({
+      state: "in-browser",
+      signedIn: false,
+    });
   });
 
   it("reports a session for a signed-in adult", async () => {
     await seedInvitation();
     const memberCookie = await signIn("second-adult");
 
-    expect(await loadInvite(memberCookie)).toEqual({ state: "in-browser", signedIn: true });
+    expect(await loadInvite(memberCookie)).toEqual({
+      state: "in-browser",
+      signedIn: true,
+    });
   });
 
   it("renders no invitation data server-side — the fragment never reaches it", async () => {
@@ -459,3 +491,4 @@ describe("/invite page loader", () => {
     expectNoPrivateLeaks(html);
   });
 });
+import { readFile } from "node:fs/promises";

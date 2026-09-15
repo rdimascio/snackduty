@@ -5,7 +5,7 @@ process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
 const [{ default: config }, { hashInviteToken }] = await Promise.all([
-  import("../lesto.app"),
+  import("./support/application").then((module) => module.testApplication()),
   import("../app/lib/server/invitations"),
 ]);
 const SECOND_PERSON_ID = "person_dev_second_adult";
@@ -15,7 +15,7 @@ const app = await createApp(config);
 
 async function clearState() {
   await config.db.exec(
-    "DELETE FROM duty_slots; DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM duty_slots; DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -132,7 +132,7 @@ async function seedAcceptedAdultInvitation(teamId: string, token: string) {
   const now = new Date().toISOString();
   await config.db
     .prepare(
-      "INSERT INTO invitations (id, team_id, invited_role, participant_id, relationship, invitee_label, token_hash, status, created_by_person_id, accepted_by_person_id, created_at, updated_at, expires_at) VALUES (?, ?, 'adult', NULL, NULL, 'accepted adult', ?, 'accepted', ?, ?, ?, ?, ?)",
+      "INSERT INTO invitations (id, team_id, invited_role, participant_id, relationship, invitee_label, token_hash, status, created_by_person_id, accepted_by_person_id, created_at, updated_at, expires_at, recipient_kind, recipient_person_id) VALUES (?, ?, 'adult', NULL, NULL, 'accepted adult', ?, 'accepted', ?, ?, ?, ?, ?, 'confirmed_person', ?)",
     )
     .run([
       `invitation_${crypto.randomUUID()}`,
@@ -143,6 +143,7 @@ async function seedAcceptedAdultInvitation(teamId: string, token: string) {
       now,
       now,
       new Date(Date.now() + 86_400_000).toISOString(),
+      SECOND_PERSON_ID,
     ]);
 }
 
@@ -181,7 +182,11 @@ describe("owner-authorized co-coach capabilities", () => {
 
     const deniedInvitation = await restartedApp.handle("POST", `/api/teams/${teamId}/invitations`, {
       headers: { ...sameOrigin, cookie: coachCookie },
-      body: { invitedRole: "owner", inviteeLabel: "Privilege escalation" },
+      body: {
+        invitedRole: "owner",
+        inviteeLabel: "Privilege escalation",
+        recipientBinding: { kind: "confirmed_person", personId: OWNER_PERSON_ID },
+      },
     });
     expect(deniedInvitation.status).toBe(404);
     expect(json(deniedInvitation)).toEqual({ error: "team not found" });
@@ -214,14 +219,22 @@ describe("owner-authorized co-coach capabilities", () => {
 
     const invitation = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
       headers: { ...sameOrigin, cookie: ownerMemberCookie },
-      body: { invitedRole: "adult", inviteeLabel: "Existing parent" },
+      body: {
+        invitedRole: "adult",
+        inviteeLabel: "Existing parent",
+        recipientBinding: { kind: "confirmed_person", personId: thirdPersonId },
+      },
     });
     expect(invitation.status).toBe(201);
 
     await expect(
       app.handle("POST", `/api/teams/${teamId}/invitations`, {
         headers: { ...sameOrigin, cookie: ownerMemberCookie },
-        body: { invitedRole: "coach", inviteeLabel: "Unverified coach" },
+        body: {
+          invitedRole: "coach",
+          inviteeLabel: "Unverified coach",
+          recipientBinding: { kind: "confirmed_person", personId: thirdPersonId },
+        },
       }),
     ).rejects.toMatchObject({ code: "WEB_VALIDATION_FAILED" });
     expect(

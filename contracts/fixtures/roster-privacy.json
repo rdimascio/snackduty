@@ -1,0 +1,30 @@
+{
+  "roster": [
+    {
+      "participantId": "participant_own",
+      "displayName": "Own Fixture Player",
+      "birthDate": "2018-04-09",
+      "status": "active",
+      "guardians": [
+        {
+          "guardianId": "guardian_fixture",
+          "displayName": "Fixture Adult",
+          "relationship": "parent",
+          "permissions": ["participant.read", "participant.manage"],
+          "status": "active"
+        }
+      ],
+      "guardianInvitations": {
+        "pending": 0,
+        "expired": 0,
+        "accepted": 1
+      }
+    },
+    {
+      "participantId": "participant_peer",
+      "displayName": "Peer Fixture Player",
+      "status": "active",
+      "guardians": []
+    }
+  ]
+}

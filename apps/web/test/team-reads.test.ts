@@ -4,9 +4,12 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config } = await import("../lesto.app");
+const { default: config, services } = await import("./support/application").then((module) =>
+  module.testApplication(),
+);
 
 const app = await createApp(config);
+const { loadRoster } = await import("../app/lib/server/team-reads");
 
 async function clearState() {
   await config.db.exec(
@@ -115,6 +118,24 @@ async function insertForeignTeamAndSeason(): Promise<{ teamId: string; seasonId:
 }
 
 describe("authorized team reads", () => {
+  it("reauthorizes direct roster reads instead of trusting a forged access hint", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    await addChild(cookie, teamId, seasonId);
+    expect(
+      await loadRoster(services.db, teamId, seasonId, {
+        personId: "person_stranger",
+        access: "manage",
+      }),
+    ).toEqual([]);
+    await config.db.exec("UPDATE accounts SET status = 'suspended'");
+    expect(
+      await loadRoster(services.db, teamId, seasonId, {
+        personId: "person_dev_adult",
+        access: "manage",
+      }),
+    ).toEqual([]);
+  });
   it("loads the real team roster and team list through the full journey", async () => {
     const cookie = await signIn();
     const { teamId, seasonId } = await createTeamAndSeason(cookie);
@@ -169,7 +190,13 @@ describe("authorized team reads", () => {
     const listRead = await app.handle("GET", "/api/teams", { headers: { cookie } });
     expect(listRead.status).toBe(200);
     expect(json(listRead)).toEqual({
-      teams: [{ ...(json(singleRead) as Record<string, unknown>), access: "manage" }],
+      teams: [
+        {
+          ...(json(singleRead) as Record<string, unknown>),
+          access: "manage",
+          capabilities: { read: true, manage: true, delegate: true },
+        },
+      ],
     });
     const listedTeam = (json(listRead) as { teams: { team: { id: string } }[] }).teams;
     expect(listedTeam).toHaveLength(1);
@@ -207,6 +234,74 @@ describe("authorized team reads", () => {
 
     expect(response.status).toBe(200);
     expect(json(response)).toEqual({ teams: [] });
+  });
+
+  it("exposes only active seasons and hides inactive season rosters", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId: activeSeasonId } = await createTeamAndSeason(cookie);
+    await addChild(cookie, teamId, activeSeasonId);
+    const now = new Date().toISOString();
+    for (const [seasonId, status] of [
+      ["season_archived", "archived"],
+      ["season_unknown_status", "future"],
+    ] as const) {
+      await config.db
+        .prepare(
+          "INSERT INTO seasons (id, team_id, label, start_date, end_date, time_zone, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run([
+          seasonId,
+          teamId,
+          `${status} season`,
+          "2025-03-01",
+          "2025-06-01",
+          "America/Los_Angeles",
+          status,
+          now,
+          now,
+        ]);
+    }
+
+    for (const seasonId of ["season_archived", "season_unknown_status"]) {
+      const roster = await app.handle("GET", `/api/teams/${teamId}/seasons/${seasonId}/roster`, {
+        headers: { cookie },
+      });
+      expect(roster.status).toBe(404);
+      expect(json(roster)).toEqual({ error: "team not found" });
+    }
+
+    const list = await app.handle("GET", "/api/teams", { headers: { cookie } });
+    const single = await app.handle("GET", `/api/teams/${teamId}`, { headers: { cookie } });
+    expect(list.status).toBe(200);
+    expect(single.status).toBe(200);
+    expect(
+      (json(list) as { teams: { seasons: { id: string }[] }[] }).teams[0]?.seasons.map(
+        (season) => season.id,
+      ),
+    ).toEqual([activeSeasonId]);
+    expect(
+      (json(single) as { seasons: { id: string }[] }).seasons.map((season) => season.id),
+    ).toEqual([activeSeasonId]);
+
+    const activeRoster = await app.handle(
+      "GET",
+      `/api/teams/${teamId}/seasons/${activeSeasonId}/roster`,
+      { headers: { cookie } },
+    );
+    expect(activeRoster.status).toBe(200);
+    expect((json(activeRoster) as { roster: unknown[] }).roster).toHaveLength(1);
+
+    await config.db
+      .prepare("UPDATE seasons SET status = 'archived' WHERE id = ?")
+      .run([activeSeasonId]);
+    const noActiveList = await app.handle("GET", "/api/teams", { headers: { cookie } });
+    const noActiveSingle = await app.handle("GET", `/api/teams/${teamId}`, {
+      headers: { cookie },
+    });
+    expect((json(noActiveList) as { teams: { seasons: unknown[] }[] }).teams[0]?.seasons).toEqual(
+      [],
+    );
+    expect((json(noActiveSingle) as { seasons: unknown[] }).seasons).toEqual([]);
   });
 });
 

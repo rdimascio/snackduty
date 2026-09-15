@@ -7,7 +7,10 @@ process.env.SNACKDAY_DEV_SIGN_IN = "true";
 const [
   { buildApp, default: config },
   { DEV_ACCOUNT_ID, DEV_PERSON_ID, developmentIdentityServices },
-] = await Promise.all([import("../lesto.app"), import("../app/lib/server/identity")]);
+] = await Promise.all([
+  import("./support/application").then((module) => module.testApplication()),
+  import("../app/lib/server/identity"),
+]);
 
 const app = await createApp(config);
 

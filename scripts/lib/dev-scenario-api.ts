@@ -186,6 +186,18 @@ export class DevScenarioApi {
     return body.participant.participantId;
   }
 
+  private async personId(cookie: string): Promise<string> {
+    const step = "resolve-session-identity";
+    const identity = await this.json<IdentityResponse>(
+      step,
+      "/api/session",
+      { headers: { Cookie: cookie } },
+      200,
+    );
+    ensure(step, typeof identity.person?.id === "string", "session carries no stable person id");
+    return identity.person.id;
+  }
+
   async joinParent(
     ownerCookie: string,
     memberCookie: string,
@@ -193,6 +205,7 @@ export class DevScenarioApi {
     participantId: string,
     inviteeLabel: string,
   ): Promise<void> {
+    const memberPersonId = await this.personId(memberCookie);
     const created = await this.json<{ invitation?: { inviteUrl?: string } }>(
       "create-parent-invitation",
       `/api/teams/${teamId}/invitations`,
@@ -204,6 +217,7 @@ export class DevScenarioApi {
           inviteeLabel,
           participantId,
           relationship: "parent",
+          recipientBinding: { kind: "confirmed_person", personId: memberPersonId },
         }),
       },
       201,

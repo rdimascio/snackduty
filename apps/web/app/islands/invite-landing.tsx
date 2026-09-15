@@ -19,12 +19,21 @@ type Landing =
       readonly inviterDisplayName: string;
       readonly invitedRole: string;
     }
-  | { readonly status: "accepted"; readonly teamName: string; readonly grantedRole: string }
+  | {
+      readonly status: "accepted";
+      readonly teamName: string;
+      readonly grantedRole: string;
+    }
   | { readonly status: "invalid" };
 
 /** The two 200 shapes `POST /api/invitations/preview` answers with. */
 type PreviewResponse =
-  | { state: "preview"; teamName: string; inviterDisplayName: string; invitedRole: string }
+  | {
+      state: "preview";
+      teamName: string;
+      inviterDisplayName: string;
+      invitedRole: string;
+    }
   | { state: "accepted"; teamName: string; grantedRole: string };
 
 // `membership.role` is the role the server GRANTED — which is not always the
@@ -62,7 +71,11 @@ async function resolveToken(token: string): Promise<Landing> {
     const body = (await response.json()) as PreviewResponse;
 
     return body.state === "accepted"
-      ? { status: "accepted", teamName: body.teamName, grantedRole: body.grantedRole }
+      ? {
+          status: "accepted",
+          teamName: body.teamName,
+          grantedRole: body.grantedRole,
+        }
       : {
           status: "preview",
           teamName: body.teamName,
@@ -140,17 +153,16 @@ const actionClassName =
  * it only in POST request bodies. It lives in ONE island rather than three
  * because the token is state, not a prop: a server loader cannot see it, and an
  * island that re-entered through a page reload would find the fragment already
- * gone. That is also why signing in re-resolves in place instead of reloading.
+ * gone. A signed-out visitor is directed to sign in and paste their original
+ * invitation in the native app; this surface never invokes dev auth.
  *
  * `signedIn` is the only thing the server loader could still resolve, and it
  * chooses which affordance a valid preview offers.
  */
 function InviteLanding({ signedIn: sessionAtLoad }: { signedIn: boolean }): ReactNode {
   const [token, setToken] = useState("");
-  const [signedIn, setSignedIn] = useState(sessionAtLoad);
   const [landing, setLanding] = useState<Landing>({ status: "resolving" });
-  const [pending, setPending] = useState<"idle" | "accepting" | "signing-in">("idle");
-  const [signInFailed, setSignInFailed] = useState(false);
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     const fragment = window.location.hash.slice(1);
@@ -168,7 +180,7 @@ function InviteLanding({ signedIn: sessionAtLoad }: { signedIn: boolean }): Reac
   }, []);
 
   async function accept(): Promise<void> {
-    setPending("accepting");
+    setPending(true);
     try {
       const response = await fetch("/api/invitations/accept", {
         ...jsonPost,
@@ -187,67 +199,31 @@ function InviteLanding({ signedIn: sessionAtLoad }: { signedIn: boolean }): Reac
     } catch {
       setLanding({ status: "invalid" });
     } finally {
-      setPending("idle");
-    }
-  }
-
-  async function signIn(): Promise<void> {
-    setPending("signing-in");
-    setSignInFailed(false);
-    try {
-      const response = await fetch("/api/dev/sign-in", {
-        credentials: "same-origin",
-        method: "POST",
-      });
-      if (!response.ok) {
-        setSignInFailed(true);
-        return;
-      }
-      // NOT a reload: the fragment is already gone from the URL, so a reload
-      // would land on a bare `/invite` and lose the invitation. The token is
-      // still in memory, so re-resolve it against the new session instead.
-      setSignedIn(true);
-      setLanding(await resolveToken(token));
-    } catch {
-      setSignInFailed(true);
-    } finally {
-      setPending("idle");
+      setPending(false);
     }
   }
 
   /** What a valid preview offers: accept it, or get a session that can. */
   function affordance(): ReactNode {
-    if (signedIn) {
+    if (sessionAtLoad) {
       return (
         <button
           className={actionClassName}
-          disabled={pending === "accepting"}
+          disabled={pending}
           onClick={() => void accept()}
           type="button"
         >
-          {pending === "accepting" ? "Accepting…" : "Accept invitation"}
+          {pending ? "Accepting…" : "Accept invitation"}
         </button>
-      );
-    }
-    if (signInFailed) {
-      return (
-        <p className="text-sm text-muted-foreground">
-          Sign-in didn&apos;t work here. Open this link in the Snackday app instead.
-        </p>
       );
     }
 
     return (
       <>
-        <p className="text-sm text-muted-foreground">Sign in to accept this invitation.</p>
-        <button
-          className={actionClassName}
-          disabled={pending === "signing-in"}
-          onClick={() => void signIn()}
-          type="button"
-        >
-          {pending === "signing-in" ? "Signing in…" : "Sign in to accept"}
-        </button>
+        <p className="text-sm text-muted-foreground">
+          Sign in to the Snackday app, choose Join Team from your account menu, and paste the
+          original invitation link you received. Only the intended recipient can accept it.
+        </p>
       </>
     );
   }

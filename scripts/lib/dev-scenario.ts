@@ -191,7 +191,7 @@ export function formatDevScenarioInstructions(manifest: DevScenarioManifest): st
     "Co-coach + parent: await fetch('/api/dev/sign-in', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({persona: 'second-adult'})}); location.assign('/app')",
     "The server stores the session in an HttpOnly cookie; no credential needs to be copied.",
     "",
-    `Native simulator scheme environment: SNACKDAY_API_BASE_URL=${manifest.nativeApiBaseUrl}`,
+    `Native simulator scheme environment: SNACKDAY_API_BASE_URL=${manifest.nativeApiBaseUrl} SNACKDAY_DEV_SIGN_IN=true`,
     `Native live tests: SNACKDAY_LIVE_API=${manifest.nativeApiBaseUrl} bash scripts/ios-live-test.sh`,
     "The current native launch flow signs in as the default development owner.",
     "",

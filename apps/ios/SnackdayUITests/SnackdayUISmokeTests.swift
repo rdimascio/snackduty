@@ -7,9 +7,20 @@ final class SnackdayUISmokeTests: XCTestCase {
 
     @MainActor
     func testHomeRosterPrivacyAndTabNavigation() throws {
-        let app = XCUIApplication()
-        app.launchArguments.append("-SNACKDAY_UI_TEST_FIXTURE")
-        app.launch()
+        let app = launchFixture()
+
+        XCTAssertTrue(app.staticTexts["Fixture Team"].waitForExistence(timeout: 2))
+        for misleadingClaim in [
+            "Assignments", "2 open", "Snack duty", "You’re up May 9", "Photos", "18 new",
+            "Forms", "All signed", "Coach Mia",
+        ] {
+            XCTAssertFalse(app.staticTexts[misleadingClaim].exists)
+        }
+
+        let teamTab = app.tabBars.buttons["Team"]
+        XCTAssertTrue(teamTab.waitForExistence(timeout: 2))
+        teamTab.tap()
+        XCTAssertTrue(app.navigationBars["Team"].waitForExistence(timeout: 2))
 
         let privateGuardians = app.descendants(matching: .any)["roster-guardians-private"]
         reveal(privateGuardians, in: app)
@@ -26,11 +37,92 @@ final class SnackdayUISmokeTests: XCTestCase {
         rosterAttachment.lifetime = .keepAlways
         add(rosterAttachment)
 
-        let teamTab = app.tabBars.buttons["Team"]
-        XCTAssertTrue(teamTab.waitForExistence(timeout: 2))
-        teamTab.tap()
-        XCTAssertTrue(app.navigationBars["Team"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Coming next."].waitForExistence(timeout: 2))
+        app.tabBars.buttons["Schedule"].tap()
+        XCTAssertTrue(app.navigationBars["Schedule"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["Schedule details are not available in this beta yet."].exists)
+    }
+
+    @MainActor
+    func testSignedOutRequiresAdultConsent() throws {
+        let app = launchFixture(state: "signed-out")
+        XCTAssertTrue(app.navigationBars["Sign In"].waitForExistence(timeout: 2))
+        let signIn = app.buttons["apple-sign-in-button"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 2))
+        XCTAssertFalse(signIn.isEnabled)
+        let consent = app.switches["adult-consent-toggle"]
+        XCTAssertTrue(consent.exists)
+        // SwiftUI exposes the labelled row and its UISwitch separately. Tap
+        // the actual switch; the row's centre lands on the noninteractive label.
+        consent.switches.firstMatch.tap()
+        let consentScreenshot = XCTAttachment(screenshot: app.screenshot())
+        consentScreenshot.name = "Synthetic adult consent state"
+        consentScreenshot.lifetime = .keepAlways
+        add(consentScreenshot)
+        let enabledSignIn = app.buttons["apple-sign-in-button"]
+        XCTAssertTrue(enabledSignIn.waitForExistence(timeout: 2))
+        XCTAssertTrue(enabledSignIn.isEnabled)
+    }
+
+    @MainActor
+    func testLoadingEmptyAndFailureRecovery() throws {
+        var app = launchFixture(state: "loading")
+        XCTAssertTrue(app.descendants(matching: .any)["team-loading"].waitForExistence(timeout: 2))
+        app.terminate()
+
+        app = launchFixture(state: "empty-teams")
+        XCTAssertTrue(app.staticTexts["No teams yet"].waitForExistence(timeout: 2))
+        app.terminate()
+
+        app = launchFixture(state: "empty-seasons")
+        XCTAssertTrue(app.staticTexts["No seasons yet"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["team-picker"].exists)
+        app.terminate()
+
+        app = launchFixture(state: "error")
+        XCTAssertTrue(app.staticTexts["You’re offline"].waitForExistence(timeout: 2))
+        let retry = app.buttons["state-retry"]
+        XCTAssertTrue(retry.exists)
+        retry.tap()
+        XCTAssertTrue(app.staticTexts["No teams yet"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor
+    func testTeamSeasonSwitchingAndLogout() throws {
+        let app = launchFixture()
+        let seasonPicker = app.buttons["season-picker"]
+        XCTAssertTrue(seasonPicker.waitForExistence(timeout: 2))
+        seasonPicker.tap()
+        app.buttons["Fixture Fall"].tap()
+        XCTAssertTrue(app.staticTexts["Fixture Fall"].waitForExistence(timeout: 2))
+
+        let teamPicker = app.buttons["team-picker"]
+        teamPicker.tap()
+        app.buttons["Second Fixture Team"].tap()
+        XCTAssertTrue(app.staticTexts["Second Fixture Team"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts["Second Season"].waitForExistence(timeout: 2))
+
+        teamPicker.tap()
+        app.buttons["Seasonless Fixture Team"].tap()
+        XCTAssertTrue(app.staticTexts["No seasons yet"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["team-picker"].label.contains("Seasonless Fixture Team"))
+        XCTAssertFalse(app.buttons["season-picker"].isEnabled)
+
+        let accountMenu = app.buttons["account-menu"]
+        XCTAssertTrue(accountMenu.waitForExistence(timeout: 2))
+        accountMenu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.buttons["Sign Out"].tap()
+        XCTAssertTrue(app.navigationBars["Sign In"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor
+    private func launchFixture(state: String? = nil) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments.append("-SNACKDAY_UI_TEST_FIXTURE")
+        if let state {
+            app.launchArguments.append(contentsOf: ["-SNACKDAY_UI_TEST_STATE", state])
+        }
+        app.launch()
+        return app
     }
 
     @MainActor

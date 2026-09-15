@@ -1,12 +1,20 @@
-import type { Sessions } from "@lesto/auth";
+import type { Clock } from "./application-contracts";
+import type { SessionService as Sessions } from "./application-contracts";
 import { and, createTableSql, defineTable, dropTableSql, eq, inList, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
-import { seasonSchema, teamSchema } from "@snackday/domain";
+import {
+  evaluatePolicy,
+  strongestTeamRole,
+  teamRoleCapabilities,
+  seasonSchema,
+  teamSchema,
+} from "@snackday/domain";
 import { z } from "zod";
 
 import { accounts, authenticatedAdult, people } from "./identity";
+import { authorizationContext } from "./authorization";
 
 export const teams = defineTable("teams", {
   id: text("id").primaryKey(),
@@ -80,45 +88,18 @@ export type TeamRole = "owner" | "coach" | "adult";
  * implies permission to delegate another person's access.
  */
 export function accessLevelForRole(role: string): TeamAccessLevel | undefined {
-  if (role === "owner" || role === "coach") return "manage";
-  return role === "adult" ? "read" : undefined;
+  const capabilities = teamRoleCapabilities(role);
+  return capabilities.manage ? "manage" : capabilities.read ? "read" : undefined;
 }
-
-const ROLE_RANK: Record<TeamRole, number> = { adult: 1, coach: 2, owner: 3 };
-
-function isTeamRole(role: string): role is TeamRole {
-  return role === "owner" || role === "coach" || role === "adult";
-}
-
-/**
- * Whether `role` grants strictly MORE than `held` (`undefined` = holds
- * nothing). The independent role rank preserves owner > coach > adult even
- * though owners and coaches both manage operational records.
- */
 export function roleOutranks(role: string, held: string | undefined): boolean {
-  if (!isTeamRole(role)) return false;
-  if (held === undefined || !isTeamRole(held)) return true;
-  return ROLE_RANK[role] > ROLE_RANK[held];
+  return role !== held && strongestTeamRole(held === undefined ? [role] : [role, held]) === role;
 }
-
-/**
- * Fold ACTIVE membership roles into the single grant they add up to: the
- * strongest role (owner outranks coach, which outranks adult) and its level, or undefined
- * when none of them grants anything. Every reader folds duplicate rows the same
- * way, so the authorization seam, the team list, and the role acceptance
- * reports can never disagree about one person's standing on one team.
- */
 export function grantedAccess(
   roles: readonly string[],
 ): { role: TeamRole; level: TeamAccessLevel } | undefined {
-  let held: TeamRole | undefined;
-  for (const role of roles) {
-    if (isTeamRole(role) && roleOutranks(role, held)) held = role;
-  }
-  if (held === undefined) return undefined;
-
-  const level = accessLevelForRole(held);
-  return level === undefined ? undefined : { role: held, level };
+  const role = strongestTeamRole(roles);
+  const level = role === undefined ? undefined : accessLevelForRole(role);
+  return role === undefined || level === undefined ? undefined : { role, level };
 }
 
 /**
@@ -135,71 +116,31 @@ export function grantedAccess(
  *   missing team gets: existence itself is never disclosed, never a 403.
  */
 export async function teamAccess(tx: Db, teamId: string, personId: string) {
-  const team = await tx
-    .select()
-    .from(teams)
-    .where(and(eq(teams.id, teamId), eq(teams.status, "active")))
-    .get();
-  if (team === undefined) return undefined;
-  if (team.createdByPersonId === personId) return { team, level: "manage" as const };
-
-  const membershipRows = await tx
-    .select()
-    .from(adultMemberships)
-    .where(
-      and(
-        eq(adultMemberships.teamId, team.id),
-        eq(adultMemberships.personId, personId),
-        eq(adultMemberships.status, "active"),
-      ),
-    )
-    .all();
-  const granted = grantedAccess(membershipRows.map((membership) => membership.role));
-
-  return granted === undefined ? undefined : { team, level: granted.level };
+  const evidence = await authorizationContext(tx, personId, { teamId });
+  if (evidence === undefined) return undefined;
+  const permits = (permission: import("@snackday/domain").DomainPermission) =>
+    evaluatePolicy(evidence.actor, permission, evidence.context).allowed;
+  if (!permits("team.read")) return undefined;
+  const capabilities = {
+    read: true,
+    manage: permits("team.operations.manage"),
+    delegate: permits("memberships.manage"),
+  };
+  return {
+    team: evidence.team,
+    level: capabilities.manage ? ("manage" as const) : ("read" as const),
+    capabilities,
+  };
 }
 
-/**
- * The active team when `personId` may manage team operations (creator, owner,
- * or coach), or undefined. Roster, schedule, and duty mutations authorize
- * here; delegation and invitations use the narrower `ownedActiveTeam` seam.
- */
 export async function manageableActiveTeam(tx: Db, teamId: string, personId: string) {
   const access = await teamAccess(tx, teamId, personId);
-  return access?.level === "manage" ? access.team : undefined;
+  return access?.capabilities.manage ? access.team : undefined;
 }
-
-/**
- * The active team when `personId` owns it, either as its creator or through an
- * active owner membership. Delegation and invitations authorize here so a
- * coach can manage team operations without escalating anybody's access.
- */
 export async function ownedActiveTeam(tx: Db, teamId: string, personId: string) {
-  const team = await tx
-    .select()
-    .from(teams)
-    .where(and(eq(teams.id, teamId), eq(teams.status, "active")))
-    .get();
-  if (team === undefined) return undefined;
-  if (team.createdByPersonId === personId) return team;
-
-  const membershipRows = await tx
-    .select()
-    .from(adultMemberships)
-    .where(
-      and(
-        eq(adultMemberships.teamId, team.id),
-        eq(adultMemberships.personId, personId),
-        eq(adultMemberships.status, "active"),
-      ),
-    )
-    .all();
-  return grantedAccess(membershipRows.map((membership) => membership.role))?.role === "owner"
-    ? team
-    : undefined;
+  const access = await teamAccess(tx, teamId, personId);
+  return access?.capabilities.delegate ? access.team : undefined;
 }
-
-/** The active team when `personId` may at least READ it, or undefined. */
 export async function readableActiveTeam(tx: Db, teamId: string, personId: string) {
   return (await teamAccess(tx, teamId, personId))?.team;
 }
@@ -241,12 +182,12 @@ export function projectTeam(row: {
   });
 }
 
-async function createTeam(c: Context<"/api/teams">, db: Db, sessions: Sessions) {
+async function createTeam(c: Context<"/api/teams">, db: Db, sessions: Sessions, clock: Clock) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const input = c.valid(createTeamInputSchema);
-  const now = new Date().toISOString();
+  const now = new Date(clock()).toISOString();
   const row = await db
     .insert(teams)
     .values({
@@ -263,7 +204,12 @@ async function createTeam(c: Context<"/api/teams">, db: Db, sessions: Sessions) 
   return c.json({ team: projectTeam(row) }, 201);
 }
 
-async function createSeason(c: Context<"/api/teams/:teamId/seasons">, db: Db, sessions: Sessions) {
+async function createSeason(
+  c: Context<"/api/teams/:teamId/seasons">,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock,
+) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
@@ -272,7 +218,7 @@ async function createSeason(c: Context<"/api/teams/:teamId/seasons">, db: Db, se
     const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const row = await tx
       .insert(seasons)
       .values({
@@ -305,7 +251,7 @@ async function readTeam(c: Context<"/api/teams/:teamId">, db: Db, sessions: Sess
   const seasonRows = await db
     .select()
     .from(seasons)
-    .where(eq(seasons.teamId, team.id))
+    .where(and(eq(seasons.teamId, team.id), eq(seasons.status, "active")))
     .orderBy(seasons.startDate, "asc")
     .all();
   seasonRows.sort(
@@ -327,6 +273,7 @@ async function setCoCoachRole(
   db: Db,
   sessions: Sessions,
   role: "coach" | "adult",
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -365,7 +312,7 @@ async function setCoCoachRole(
     if (held === undefined) return "no-member" as const;
     if (held.role === "owner") return "owner" as const;
 
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     await tx
       .update(adultMemberships)
       .set({ role, updatedAt: now })
@@ -388,15 +335,20 @@ async function setCoCoachRole(
   return c.json({ membership: { ...outcome, status: "active" as const } });
 }
 
-export function registerTeamRoutes(app: Lesto, db: Db, sessions: Sessions) {
+export function registerTeamRoutes(
+  app: Lesto,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock = Date.now,
+) {
   return app
-    .post("/api/teams", (c) => createTeam(c, db, sessions))
-    .post("/api/teams/:teamId/seasons", (c) => createSeason(c, db, sessions))
+    .post("/api/teams", (c) => createTeam(c, db, sessions, clock))
+    .post("/api/teams/:teamId/seasons", (c) => createSeason(c, db, sessions, clock))
     .post("/api/teams/:teamId/adult-members/:personId/co-coach/grant", (c) =>
-      setCoCoachRole(c, db, sessions, "coach"),
+      setCoCoachRole(c, db, sessions, "coach", clock),
     )
     .post("/api/teams/:teamId/adult-members/:personId/co-coach/revoke", (c) =>
-      setCoCoachRole(c, db, sessions, "adult"),
+      setCoCoachRole(c, db, sessions, "adult", clock),
     )
     .get("/api/teams/:teamId", (c) => readTeam(c, db, sessions));
 }

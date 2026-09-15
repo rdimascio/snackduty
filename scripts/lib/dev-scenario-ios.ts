@@ -45,7 +45,9 @@ export function selectScenarioSimulator(list: SimulatorList, requested?: string)
   return selected;
 }
 
-function xcodeEnvironment(extra: Record<string, string> = {}): Record<string, string | undefined> {
+export function xcodeEnvironment(
+  extra: Record<string, string> = {},
+): Record<string, string | undefined> {
   return {
     ...process.env,
     ...(process.env["DEVELOPER_DIR"] === undefined
@@ -76,7 +78,7 @@ async function run(
   if (exitCode !== 0) throw devScenarioError(step, `${command[0]} exited ${exitCode}`);
 }
 
-async function simulatorList(signal?: AbortSignal): Promise<SimulatorList> {
+export async function simulatorList(signal?: AbortSignal): Promise<SimulatorList> {
   signal?.throwIfAborted();
   const child = Bun.spawn({
     cmd: ["xcrun", "simctl", "list", "devices", "available", "--json"],
@@ -131,7 +133,10 @@ export async function launchScenarioIos(
     ["xcrun", "simctl", "launch", "--terminate-running-process", simulator.udid, BUNDLE_ID],
     "launch-ios-app",
     signal,
-    { SIMCTL_CHILD_SNACKDAY_API_BASE_URL: nativeApiBaseUrl },
+    {
+      SIMCTL_CHILD_SNACKDAY_API_BASE_URL: nativeApiBaseUrl,
+      SIMCTL_CHILD_SNACKDAY_DEV_SIGN_IN: "true",
+    },
   );
   return simulator;
 }

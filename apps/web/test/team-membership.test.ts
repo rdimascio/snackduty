@@ -4,7 +4,9 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config } = await import("../lesto.app");
+const { default: config } = await import("./support/application").then((module) =>
+  module.testApplication(),
+);
 
 const app = await createApp(config);
 
@@ -12,7 +14,7 @@ async function clearState() {
   // `lesto_rate_limits` is the kernel's shared per-client budget — this suite
   // makes many API calls, so reset it alongside the domain state.
   await config.db.exec(
-    "DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM adult_memberships; DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -30,6 +32,7 @@ function header(response: { headers: Record<string, string | string[]> }, name: 
 
 const sameOrigin = { "sec-fetch-site": "same-origin" };
 const SECOND_PERSON_ID = "person_dev_second_adult";
+const OWNER_PERSON_ID = "person_dev_adult";
 
 async function signIn(persona?: "second-adult"): Promise<string> {
   const response = await app.handle("POST", "/api/dev/sign-in", {
@@ -146,6 +149,7 @@ async function joinTeam(ownerCookie: string, teamId: string, role: "owner" | "ad
   const created = await invite(ownerCookie, teamId, {
     invitedRole: role,
     inviteeLabel: `joining ${role}`,
+    recipientBinding: { kind: "confirmed_person", personId: SECOND_PERSON_ID },
   });
   expect(created.status).toBe(201);
   expect((await accept(memberCookie, tokenOf(invitationOf(created)))).status).toBe(200);
@@ -207,6 +211,7 @@ describe("owner-role membership: full management parity", () => {
     const created = await invite(memberCookie, teamId, {
       invitedRole: "adult",
       inviteeLabel: "Kai's mom",
+      recipientBinding: { kind: "confirmed_person", personId: OWNER_PERSON_ID },
     });
     expect(created.status).toBe(201);
     const invitation = invitationOf(created);
@@ -284,7 +289,11 @@ describe("adult-role membership: reads only", () => {
     const participantId = (json(addedChild) as { participant: { participantId: string } })
       .participant.participantId;
     const pending = invitationOf(
-      await invite(ownerCookie, teamId, { invitedRole: "adult", inviteeLabel: "stays pending" }),
+      await invite(ownerCookie, teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "stays pending",
+        recipientBinding: { kind: "confirmed_person", personId: OWNER_PERSON_ID },
+      }),
     );
     const memberCookie = await joinTeam(ownerCookie, teamId, "adult");
 
@@ -293,7 +302,11 @@ describe("adult-role membership: reads only", () => {
     const hidden = [
       await createSeason(memberCookie, teamId, { ...seasonInput, label: "Member Season" }),
       await addChild(memberCookie, teamId, seasonId),
-      await invite(memberCookie, teamId, { invitedRole: "adult", inviteeLabel: "intruder" }),
+      await invite(memberCookie, teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "intruder",
+        recipientBinding: { kind: "confirmed_person", personId: OWNER_PERSON_ID },
+      }),
       await resendInvitation(memberCookie, teamId, pending.id),
       await revokeInvitation(memberCookie, teamId, pending.id),
       await listInvitations(memberCookie, teamId),
@@ -329,6 +342,7 @@ describe("membership upgrades: a later invitation that outranks the role in forc
     const promotion = await invite(ownerCookie, teamId, {
       invitedRole: "owner",
       inviteeLabel: "promotion",
+      recipientBinding: { kind: "confirmed_person", personId: SECOND_PERSON_ID },
     });
     expect(promotion.status).toBe(201);
     const accepted = await accept(memberCookie, tokenOf(invitationOf(promotion)));
@@ -353,6 +367,7 @@ describe("membership upgrades: a later invitation that outranks the role in forc
         await invite(memberCookie, teamId, {
           invitedRole: "adult",
           inviteeLabel: "invited by them",
+          recipientBinding: { kind: "confirmed_person", personId: OWNER_PERSON_ID },
         })
       ).status,
     ).toBe(201);
@@ -370,6 +385,7 @@ describe("membership upgrades: a later invitation that outranks the role in forc
     const demotion = await invite(ownerCookie, teamId, {
       invitedRole: "adult",
       inviteeLabel: "demotion",
+      recipientBinding: { kind: "confirmed_person", personId: SECOND_PERSON_ID },
     });
     expect(demotion.status).toBe(201);
     const invitation = invitationOf(demotion);
@@ -410,7 +426,11 @@ describe("membership lifecycle", () => {
       await readTeam(memberCookie, teamId),
       await readRoster(memberCookie, teamId, seasonId),
       await createSeason(memberCookie, teamId, { ...seasonInput, label: "After Revoke" }),
-      await invite(memberCookie, teamId, { invitedRole: "adult", inviteeLabel: "after revoke" }),
+      await invite(memberCookie, teamId, {
+        invitedRole: "adult",
+        inviteeLabel: "after revoke",
+        recipientBinding: { kind: "confirmed_person", personId: OWNER_PERSON_ID },
+      }),
       await listInvitations(memberCookie, teamId),
     ];
     for (const response of hidden) {

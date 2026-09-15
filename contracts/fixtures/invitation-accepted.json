@@ -1,0 +1,11 @@
+{
+  "invitation": { "id": "invitation_fixture", "status": "accepted" },
+  "membership": { "role": "adult" },
+  "team": {
+    "id": "team_fixture",
+    "name": "Fixture Falcons",
+    "status": "active",
+    "createdAt": "2026-09-14T00:00:00.000Z",
+    "updatedAt": "2026-09-14T00:00:00.000Z"
+  }
+}

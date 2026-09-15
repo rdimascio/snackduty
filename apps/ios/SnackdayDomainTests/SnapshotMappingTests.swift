@@ -49,7 +49,7 @@ private func team(id: String, name: String) -> TeamDTO {
     #expect(selection.season.label == "Spring 2026")
 }
 
-@Test func primarySelectionFallsBackToFirstSeasonAndSkipsSeasonlessTeams() throws {
+@Test func primarySelectionRejectsArchivedAndUnrelatedSeasons() throws {
     let response = TeamsResponse(teams: [
         TeamWithSeasonsDTO(team: team(id: "team_1", name: "No Seasons Yet"), seasons: []),
         TeamWithSeasonsDTO(
@@ -61,14 +61,13 @@ private func team(id: String, name: String) -> TeamDTO {
                     label: "Fall 2025",
                     startDate: "2025-09-01",
                     status: "archived"
-                )
+                ),
+                season(id: "foreign", teamId: "another-team", label: "Wrong team", startDate: "2026-01-01", status: "active"),
             ]
         ),
     ])
 
-    let selection = try #require(response.primarySelection)
-    #expect(selection.team.id == "team_2")
-    #expect(selection.season.id == "season_9")
+    #expect(response.primarySelection == nil)
 }
 
 @Test func primarySelectionIsNilWithoutTeams() {
