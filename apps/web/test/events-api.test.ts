@@ -1,4 +1,5 @@
 import { createApp } from "@lesto/kernel";
+import { createEventResponseSchema, seasonEventsResponseSchema } from "@snackday/domain";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 process.env.LESTO_DB = ":memory:";
@@ -15,7 +16,7 @@ const app = await createApp(config);
 
 async function clearState() {
   await config.db.exec(
-    "DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM event_creation_receipts; DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM duty_slots; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -175,6 +176,50 @@ async function joinReadOnlyMember(ownerCookie: string, teamId: string): Promise<
 }
 
 describe("event series creation", () => {
+  it("atomically creates and replays a single event with its snack duty", async () => {
+    const cookie = await signIn();
+    const { teamId, seasonId } = await createTeamAndSeason(cookie);
+    const input = {
+      title: "Saturday game",
+      kind: "game",
+      schedule: {
+        timeZone: "America/Los_Angeles",
+        localTime: "12:00",
+        durationMinutes: 60,
+        frequency: "once",
+        startDate: "2030-05-04",
+      },
+      requestId: "0310fe1e-0674-40a6-a616-d222d49835ec",
+      snackDuty: { label: "Bring oranges" },
+    };
+    const first = await createSeries(cookie, teamId, seasonId, input);
+    const retry = await createSeries(cookie, teamId, seasonId, input);
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(201);
+    expect(createEventResponseSchema.parse(json(retry))).toEqual(
+      createEventResponseSchema.parse(json(first)),
+    );
+
+    const selected = await app.handle("GET", `/api/teams/${teamId}/seasons/${seasonId}/events`, {
+      headers: { cookie },
+    });
+    expect(selected.status).toBe(200);
+    expect(seasonEventsResponseSchema.parse(json(selected)).events).toHaveLength(1);
+
+    const conflict = await createSeries(cookie, teamId, seasonId, {
+      ...input,
+      title: "Different game",
+    });
+    expect(conflict.status).toBe(409);
+    expect(json(conflict)).toMatchObject({ code: "request_id_conflict" });
+    expect(await config.db.prepare("SELECT COUNT(*) AS count FROM event_series").get()).toEqual({
+      count: 1,
+    });
+    expect(await config.db.prepare("SELECT COUNT(*) AS count FROM duty_slots").get()).toEqual({
+      count: 1,
+    });
+  });
+
   it("materializes every occurrence with wall-time-correct instants across DST", async () => {
     const cookie = await signIn();
     const { teamId, seasonId } = await createTeamAndSeason(cookie);
