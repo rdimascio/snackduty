@@ -1,129 +1,346 @@
+import Observation
 import SnackdayDomain
 import SwiftUI
 
-/// Composition seam for launch data. When `SNACKDAY_API_BASE_URL` is present in
-/// the process environment (for example `http://localhost:3000` while
-/// `SNACKDAY_DEV_SIGN_IN=true bun run --filter web dev` is running), the app
-/// signs in to the development session and loads the real team through the
-/// authorized read APIs. Without it, the app renders the preview snapshot
-/// exactly as before.
 struct AppLaunchView: View {
-    static let baseURLEnvironmentKey = "SNACKDAY_API_BASE_URL"
+    @State private var model: NativeAppViewModel
 
-    private let liveBaseURL: URL?
-    private let uiTestSnapshot: HomeSnapshot?
+    @MainActor init(controller: any SnackdayApplicationControlling) {
+        _model = State(initialValue: NativeAppViewModel(controller: controller))
+    }
 
-    init(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        arguments: [String] = ProcessInfo.processInfo.arguments
-    ) {
+    @MainActor init(arguments: [String] = ProcessInfo.processInfo.arguments) {
 #if DEBUG
-        uiTestSnapshot = arguments.contains("-SNACKDAY_UI_TEST_FIXTURE")
-            ? Self.uiTestFixture
-            : nil
-#else
-        uiTestSnapshot = nil
+        if let controller = UITestApplicationController(arguments: arguments) {
+            self.init(controller: controller)
+            return
+        }
 #endif
-        liveBaseURL = uiTestSnapshot == nil ? Self.liveBaseURL(from: environment) : nil
+        self.init(controller: UnavailableApplicationController())
     }
 
     var body: some View {
-        if let uiTestSnapshot {
-            AppRootView(snapshot: uiTestSnapshot)
-        } else if let liveBaseURL {
-            LiveHomeView(client: SnackdayAPIClient(baseURL: liveBaseURL))
-        } else {
-            AppRootView(snapshot: .preview)
-        }
+        NativeAppStateView(
+            state: model.state,
+            challenge: model.challenge,
+            isPreparingSignIn: model.isPreparingSignIn,
+            signInPreparationFailed: model.signInPreparationFailed,
+            prepareSignIn: { await model.prepareSignIn() },
+            completeSignIn: { challengeID, token, displayName, consent in
+                await model.completeSignIn(
+                    challengeID: challengeID,
+                    identityToken: token,
+                    displayName: displayName,
+                    adultConsent: consent
+                )
+            },
+            selectTeam: { teamID in Task { await model.selectTeam(teamID) } },
+            selectSeason: { seasonID in Task { await model.selectSeason(seasonID) } },
+            retry: { Task { await model.retry() } },
+            signOut: { Task { await model.signOut() } }
+        )
+        .task { await model.observeState() }
+        .task { await model.restoreOnce() }
     }
-
-    static func liveBaseURL(from environment: [String: String]) -> URL? {
-        guard
-            let raw = environment[baseURLEnvironmentKey]?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !raw.isEmpty
-        else {
-            return nil
-        }
-        return URL(string: raw)
-    }
-
-#if DEBUG
-    /// Synthetic, deterministic content for XCUITest. Keeping this behind the
-    /// Debug compilation condition prevents test-success state from entering a
-    /// release build, and the values contain no account or participant data.
-    private static let uiTestFixture = HomeSnapshot(
-        greeting: "UI test fixture",
-        team: TeamSummary(name: "Fixture Team", season: "Fixture Season"),
-        nextEvent: "Fixture practice",
-        roster: [
-            RosterMember(
-                id: "fixture_private_guardians",
-                displayName: "Private Fixture Player",
-                guardians: [],
-                guardianDetailsVisible: false
-            ),
-            RosterMember(
-                id: "fixture_empty_guardians",
-                displayName: "Empty Fixture Player",
-                guardians: [],
-                guardianDetailsVisible: true
-            ),
-        ]
-    )
-#endif
 }
 
-private struct LiveHomeView: View {
-    enum Phase {
-        case loading
-        case loaded(HomeSnapshot)
-        case failed(String)
+@MainActor @Observable
+final class NativeAppViewModel {
+    private let controller: any SnackdayApplicationControlling
+    private var didRestore = false
+    var state: NativeAppState
+    var challenge: AppleChallengeDTO?
+    var isPreparingSignIn = false
+    var signInPreparationFailed = false
+
+    init(controller: any SnackdayApplicationControlling) {
+        self.controller = controller
+        state = controller.state
     }
 
-    let client: SnackdayAPIClient
-    @State private var phase = Phase.loading
-
-    var body: some View {
-        switch phase {
-        case .loading:
-            ProgressView("Loading your team…")
-                .task { await load() }
-        case .loaded(let snapshot):
-            AppRootView(snapshot: snapshot)
-        case .failed(let message):
-            ContentUnavailableView {
-                Label("Couldn’t load your team", systemImage: "wifi.exclamationmark")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Try Again") { phase = .loading }
+    func observeState() async {
+        for await update in controller.stateUpdates() {
+            guard !Task.isCancelled else { return }
+            state = update
+            if case .signedOut = update {
+                continue
             }
+            challenge = nil
+            signInPreparationFailed = false
         }
     }
 
-    private func load() async {
+    func restoreOnce() async {
+        guard !didRestore else { return }
+        didRestore = true
+        await controller.restore()
+        state = controller.state
+    }
+
+    func prepareSignIn() async {
+        guard challenge == nil, !isPreparingSignIn else { return }
+        isPreparingSignIn = true
+        defer { isPreparingSignIn = false }
         do {
-            phase = .loaded(try await client.loadHomeSnapshot())
+            challenge = try await controller.beginAppleSignIn()
+            signInPreparationFailed = false
         } catch {
-            // Static copy only — failure messages never carry response payloads,
-            // so no roster or child data can surface here.
-            phase = .failed(Self.failureMessage(for: error))
+            challenge = nil
+            signInPreparationFailed = true
         }
     }
 
-    static func failureMessage(for error: any Error) -> String {
-        switch error {
-        case SnackdayAPIError.unauthorized:
-            "The development session was refused. Restart the server with SNACKDAY_DEV_SIGN_IN=true."
-        case SnackdayAPIError.noTeamAvailable:
-            "Signed in, but no team with a season exists yet. Create one in the web app first."
-        case SnackdayAPIError.requestFailed(let statusCode):
-            "The server responded with status \(statusCode)."
-        case SnackdayAPIError.invalidResponse:
-            "The server response could not be read."
-        default:
-            "The server could not be reached. Is it running at the configured URL?"
-        }
+    func completeSignIn(
+        challengeID: String,
+        identityToken: String,
+        displayName: String?,
+        adultConsent: Bool
+    ) async {
+        challenge = nil
+        await controller.completeAppleSignIn(
+            challengeID: challengeID,
+            identityToken: identityToken,
+            displayName: displayName,
+            adultConsent: adultConsent
+        )
+    }
+
+    func selectTeam(_ teamID: String) async { await controller.selectTeam(teamID) }
+    func selectSeason(_ seasonID: String) async { await controller.selectSeason(seasonID) }
+    func retry() async { await controller.retry() }
+
+    func signOut() async {
+        challenge = nil
+        await controller.signOut()
     }
 }
+
+private enum UnavailableApplicationError: Error {
+    case notConfigured
+}
+
+@MainActor
+private final class UnavailableApplicationController: SnackdayApplicationControlling {
+    private let updates: AsyncStream<NativeAppState>
+    private let continuation: AsyncStream<NativeAppState>.Continuation
+    let state = NativeAppState.failed(identity: nil, directory: nil, failure: .unavailable)
+
+    init() {
+        let channel = AsyncStream<NativeAppState>.makeStream()
+        updates = channel.stream
+        continuation = channel.continuation
+        continuation.yield(state)
+    }
+
+    func stateUpdates() -> AsyncStream<NativeAppState> { updates }
+    func restore() async {}
+    func beginAppleSignIn() async throws -> AppleChallengeDTO {
+        throw UnavailableApplicationError.notConfigured
+    }
+    func completeAppleSignIn(
+        challengeID _: String,
+        identityToken _: String,
+        displayName _: String?,
+        adultConsent _: Bool
+    ) async {}
+    func selectTeam(_: String) async {}
+    func selectSeason(_: String) async {}
+    func retry() async {}
+    func signOut() async {}
+}
+
+#if DEBUG
+@MainActor
+private final class UITestApplicationController: SnackdayApplicationControlling {
+    private let updates: AsyncStream<NativeAppState>
+    private let continuation: AsyncStream<NativeAppState>.Continuation
+    private(set) var state: NativeAppState
+
+    init?(arguments: [String]) {
+        guard arguments.contains("-SNACKDAY_UI_TEST_FIXTURE") else { return nil }
+        let requestedState: String
+        if
+            let index = arguments.firstIndex(of: "-SNACKDAY_UI_TEST_STATE"),
+            arguments.indices.contains(index + 1)
+        {
+            requestedState = arguments[index + 1]
+        } else {
+            requestedState = "ready"
+        }
+        guard let initialState = Self.fixtureState(named: requestedState) else { return nil }
+        let channel = AsyncStream<NativeAppState>.makeStream()
+        updates = channel.stream
+        continuation = channel.continuation
+        state = initialState
+        continuation.yield(initialState)
+    }
+
+    func stateUpdates() -> AsyncStream<NativeAppState> { updates }
+    func restore() async { continuation.yield(state) }
+    func beginAppleSignIn() async throws -> AppleChallengeDTO {
+        AppleChallengeDTO(challengeId: "ui-test-challenge", nonce: "ui-test-raw-nonce")
+    }
+    func completeAppleSignIn(
+        challengeID _: String,
+        identityToken _: String,
+        displayName _: String?,
+        adultConsent _: Bool
+    ) async {
+        transition(to: Self.readyState())
+    }
+
+    func selectTeam(_ teamID: String) async {
+        guard let entry = Self.directory.teams.first(where: { $0.team.id == teamID }) else { return }
+        guard let season = entry.seasons.first else {
+            transition(
+                to: .emptySeasons(
+                    identity: Self.identity,
+                    directory: TeamDirectory(teams: Self.directory.teams, selection: nil),
+                    teamID: entry.team.id
+                )
+            )
+            return
+        }
+        show(team: entry.team, season: season)
+    }
+
+    func selectSeason(_ seasonID: String) async {
+        guard
+            let selection = directory(from: state)?.selection,
+            let entry = Self.directory.teams.first(where: { $0.team.id == selection.teamID }),
+            let season = entry.seasons.first(where: { $0.id == seasonID })
+        else { return }
+        show(team: entry.team, season: season)
+    }
+
+    func retry() async { transition(to: .emptyTeams(identity: Self.identity)) }
+    func signOut() async { transition(to: .signedOut) }
+
+    private func show(team: TeamDTO, season: SeasonDTO) {
+        let selection = TeamSeasonSelection(teamID: team.id, seasonID: season.id)
+        let nextDirectory = TeamDirectory(teams: Self.directory.teams, selection: selection)
+        let roster = team.id == "team-fixture-a" ? Self.roster : []
+        transition(
+            to: .ready(
+                identity: Self.identity,
+                directory: nextDirectory,
+                snapshot: HomeSnapshot(
+                    greeting: "Welcome back",
+                    team: TeamSummary(name: team.name, season: season.label),
+                    nextEvent: "No schedule details are available.",
+                    roster: roster
+                )
+            )
+        )
+    }
+
+    private func transition(to next: NativeAppState) {
+        state = next
+        continuation.yield(next)
+    }
+
+    private func directory(from state: NativeAppState) -> TeamDirectory? {
+        switch state {
+        case .ready(_, let directory, _), .emptySeasons(_, let directory, _): directory
+        case .loading(_, let directory), .failed(_, let directory, _): directory
+        default: nil
+        }
+    }
+
+    private static func fixtureState(named name: String) -> NativeAppState? {
+        switch name {
+        case "ready": readyState()
+        case "signed-out": .signedOut
+        case "loading": .loading(identity: identity, directory: nil)
+        case "empty-teams": .emptyTeams(identity: identity)
+        case "empty-seasons":
+            .emptySeasons(identity: identity, directory: emptySeasonDirectory, teamID: "team-empty")
+        case "error": .failed(identity: identity, directory: directory, failure: .offline)
+        default: nil
+        }
+    }
+
+    private static func readyState() -> NativeAppState {
+        let team = directory.teams[0].team
+        let season = directory.teams[0].seasons[0]
+        return .ready(
+            identity: identity,
+            directory: directory,
+            snapshot: HomeSnapshot(
+                greeting: "Welcome back",
+                team: TeamSummary(name: team.name, season: season.label),
+                nextEvent: "No schedule details are available.",
+                roster: roster
+            )
+        )
+    }
+
+    private static let identity = AdultIdentityDTO(
+        account: DevAccountDTO(id: "account-ui-test"),
+        person: DevPersonDTO(id: "person-ui-test", displayName: "UI Test Adult")
+    )
+    private static let roster = [
+        RosterMember(
+            id: "fixture-private-guardians",
+            displayName: "Private Fixture Player",
+            guardians: [],
+            guardianDetailsVisible: false
+        ),
+        RosterMember(
+            id: "fixture-empty-guardians",
+            displayName: "Empty Fixture Player",
+            guardians: [],
+            guardianDetailsVisible: true
+        ),
+    ]
+    private static let directory = TeamDirectory(
+        teams: [
+            TeamWithSeasonsDTO(
+                team: team(id: "team-fixture-a", name: "Fixture Team"),
+                seasons: [
+                    season(id: "season-fixture-spring", teamID: "team-fixture-a", label: "Fixture Spring"),
+                    season(id: "season-fixture-fall", teamID: "team-fixture-a", label: "Fixture Fall"),
+                ]
+            ),
+            TeamWithSeasonsDTO(
+                team: team(id: "team-fixture-b", name: "Second Fixture Team"),
+                seasons: [season(id: "season-fixture-b", teamID: "team-fixture-b", label: "Second Season")]
+            ),
+        ],
+        selection: TeamSeasonSelection(teamID: "team-fixture-a", seasonID: "season-fixture-spring")
+    )
+    private static let emptySeasonDirectory = TeamDirectory(
+        teams: [
+            TeamWithSeasonsDTO(
+                team: team(id: "team-empty", name: "Seasonless Fixture Team"),
+                seasons: []
+            ),
+        ],
+        selection: nil
+    )
+
+    private static func team(id: String, name: String) -> TeamDTO {
+        TeamDTO(
+            id: id,
+            name: name,
+            status: "active",
+            createdAt: "2026-09-14T18:00:00.000Z",
+            updatedAt: "2026-09-14T18:00:00.000Z"
+        )
+    }
+
+    private static func season(id: String, teamID: String, label: String) -> SeasonDTO {
+        SeasonDTO(
+            id: id,
+            teamId: teamID,
+            label: label,
+            startDate: "2026-09-01",
+            endDate: "2026-12-01",
+            timeZone: "America/Los_Angeles",
+            status: "active",
+            createdAt: "2026-09-14T18:00:00.000Z",
+            updatedAt: "2026-09-14T18:00:00.000Z"
+        )
+    }
+}
+#endif
