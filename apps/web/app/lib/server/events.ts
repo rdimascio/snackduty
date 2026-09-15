@@ -29,16 +29,7 @@ import type { Clock } from "./application-contracts";
  * history.
  */
 
-import {
-  and,
-  createTableSql,
-  defineTable,
-  dropTableSql,
-  eq,
-  inList,
-  integer,
-  text,
-} from "@lesto/db";
+import { and, createTableSql, defineTable, dropTableSql, eq, inList, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
@@ -55,52 +46,17 @@ import { z } from "zod";
 import type { SessionService as Sessions } from "./application-contracts";
 import { instantFromWallTime, isValidTimeZone, scheduleDates } from "./event-time";
 import { authenticatedAdult, people } from "./identity";
+import {
+  activeOccurrenceForOperation,
+  activeSeasonForOperation,
+  activeSeriesForOperation,
+  eventOccurrences,
+  eventSeries,
+} from "./occurrence-access";
 import { participants } from "./roster";
-import { manageableActiveTeam, readableActiveTeam, seasons, teams } from "./teams";
+import { manageableActiveTeam, readableActiveTeam } from "./teams";
 
-export const eventSeries = defineTable("event_series", {
-  id: text("id").primaryKey(),
-  teamId: text("team_id")
-    .notNull()
-    .references(() => teams.id),
-  seasonId: text("season_id")
-    .notNull()
-    .references(() => seasons.id),
-  title: text("title").notNull(),
-  kind: text("kind").notNull(),
-  location: text("location"),
-  notes: text("notes"),
-  timeZone: text("time_zone").notNull(),
-  localTime: text("local_time").notNull(),
-  durationMinutes: integer("duration_minutes").notNull(),
-  frequency: text("frequency").notNull(),
-  byWeekday: text("by_weekday"),
-  startDate: text("start_date").notNull(),
-  untilDate: text("until_date"),
-  status: text("status").notNull(),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
-
-export const eventOccurrences = defineTable("event_occurrences", {
-  id: text("id").primaryKey(),
-  seriesId: text("series_id")
-    .notNull()
-    .references(() => eventSeries.id),
-  // Denormalized from the series so team-scoped reads (the feed, the cancel
-  // authorization) need no join to answer "is this occurrence this team's".
-  teamId: text("team_id")
-    .notNull()
-    .references(() => teams.id),
-  localDate: text("local_date").notNull(),
-  startsAtUtc: text("starts_at_utc").notNull(),
-  durationMinutes: integer("duration_minutes").notNull(),
-  status: text("status").notNull(),
-  cancelledReason: text("cancelled_reason"),
-  cancelledAt: text("cancelled_at"),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
+export { eventOccurrences, eventSeries } from "./occurrence-access";
 
 // One row per (occurrence, child): the child's current answer, upserted.
 // `recorded_by_person_id` is an AUDIT column — which adult wrote the row —
@@ -376,11 +332,12 @@ async function createSeries(
     const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
-    const season = await tx
-      .select()
-      .from(seasons)
-      .where(and(eq(seasons.id, c.param("seasonId")), eq(seasons.teamId, team.id)))
-      .get();
+    const season = await activeSeasonForOperation(
+      tx,
+      identity.person.id,
+      "team.operations.manage",
+      { teamId: team.id, seasonId: c.param("seasonId") },
+    );
     if (season === undefined) return null;
 
     const now = new Date(clock()).toISOString();
@@ -515,18 +472,14 @@ async function updateSeries(
     const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
-    const row = await tx
-      .select()
-      .from(eventSeries)
-      .where(
-        and(
-          eq(eventSeries.id, c.param("seriesId")),
-          eq(eventSeries.teamId, team.id),
-          eq(eventSeries.status, "active"),
-        ),
-      )
-      .get();
-    if (row === undefined) return "no-series" as const;
+    const resolved = await activeSeriesForOperation(
+      tx,
+      identity.person.id,
+      "team.operations.manage",
+      { teamId: team.id, seriesId: c.param("seriesId") },
+    );
+    if (resolved === undefined) return "no-series" as const;
+    const row = resolved.series;
 
     const now = new Date(clock()).toISOString();
     await tx
@@ -576,14 +529,14 @@ async function cancelOccurrence(
     const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
-    const row = await tx
-      .select()
-      .from(eventOccurrences)
-      .where(
-        and(eq(eventOccurrences.id, c.param("occurrenceId")), eq(eventOccurrences.teamId, team.id)),
-      )
-      .get();
-    if (row === undefined) return "no-occurrence" as const;
+    const resolved = await activeOccurrenceForOperation(
+      tx,
+      identity.person.id,
+      "team.operations.manage",
+      { teamId: team.id, occurrenceId: c.param("occurrenceId") },
+    );
+    if (resolved === undefined) return "no-occurrence" as const;
+    const row = resolved.occurrence;
     // Cancelling an already-cancelled occurrence is an idempotent no-op that
     // PRESERVES a human's original reason: the caller's intent ("this must not
     // happen") already holds, and history is not rewritten. OUR marker is the
@@ -655,16 +608,29 @@ export async function attendanceCountsByOccurrence(
 /**
  * The one events projection: every ACTIVE series on the team with its
  * occurrences (cancelled ones included — they are history, not absence) and
- * per-occurrence attendance COUNTS. Callers MUST have verified the caller may
- * READ `teamId` — this helper does no authorization of its own, mirroring
- * `loadRoster`.
+ * per-occurrence attendance COUNTS. Each distinct season is resolved through
+ * the canonical policy. A caller's team selection is never authority.
  */
-export async function loadTeamEvents(db: Db, teamId: string) {
-  const seriesRows = await db
+export async function loadTeamEvents(db: Db, teamId: string, personId: string) {
+  const candidateSeriesRows = await db
     .select()
     .from(eventSeries)
     .where(and(eq(eventSeries.teamId, teamId), eq(eventSeries.status, "active")))
     .all();
+  const readableSeason = new Map<string, boolean>();
+  const seriesRows = [];
+  for (const row of candidateSeriesRows) {
+    let allowed = readableSeason.get(row.seasonId);
+    if (allowed === undefined) {
+      allowed =
+        (await activeSeasonForOperation(db, personId, "season.read", {
+          teamId,
+          seasonId: row.seasonId,
+        })) !== undefined;
+      readableSeason.set(row.seasonId, allowed);
+    }
+    if (allowed) seriesRows.push(row);
+  }
   seriesRows.sort(
     (left, right) =>
       left.startDate.localeCompare(right.startDate) || left.id.localeCompare(right.id),
@@ -675,9 +641,12 @@ export async function loadTeamEvents(db: Db, teamId: string) {
     .select()
     .from(eventOccurrences)
     .where(
-      inList(
-        eventOccurrences.seriesId,
-        seriesRows.map((row) => row.id),
+      and(
+        eq(eventOccurrences.teamId, teamId),
+        inList(
+          eventOccurrences.seriesId,
+          seriesRows.map((row) => row.id),
+        ),
       ),
     )
     .all();
@@ -705,10 +674,14 @@ async function listTeamEvents(c: Context<"/api/teams/:teamId/events">, db: Db, s
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const team = await readableActiveTeam(db, c.param("teamId"), identity.person.id);
-  if (team === undefined) return c.json(teamNotFound, 404);
+  const events = await db.transaction(async (tx) => {
+    const team = await readableActiveTeam(tx, c.param("teamId"), identity.person.id);
+    if (team === undefined) return null;
+    return loadTeamEvents(tx, team.id, identity.person.id);
+  });
+  if (events === null) return c.json(teamNotFound, 404);
 
-  return c.json({ events: await loadTeamEvents(db, team.id) });
+  return c.json({ events });
 }
 
 export function registerEventRoutes(
