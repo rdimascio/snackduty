@@ -77,9 +77,12 @@ export async function listAccessibleTeams(db: Db, personId: string) {
           .select()
           .from(seasons)
           .where(
-            inList(
-              seasons.teamId,
-              teamRows.map((team) => team.id),
+            and(
+              inList(
+                seasons.teamId,
+                teamRows.map((team) => team.id),
+              ),
+              eq(seasons.status, "active"),
             ),
           )
           .all();
@@ -306,7 +309,13 @@ async function readRoster(
   const season = await db
     .select()
     .from(seasons)
-    .where(and(eq(seasons.id, c.param("seasonId")), eq(seasons.teamId, access.team.id)))
+    .where(
+      and(
+        eq(seasons.id, c.param("seasonId")),
+        eq(seasons.teamId, access.team.id),
+        eq(seasons.status, "active"),
+      ),
+    )
     .get();
   if (season === undefined) return c.json(teamNotFound, 404);
 

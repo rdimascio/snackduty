@@ -251,7 +251,7 @@ async function readTeam(c: Context<"/api/teams/:teamId">, db: Db, sessions: Sess
   const seasonRows = await db
     .select()
     .from(seasons)
-    .where(eq(seasons.teamId, team.id))
+    .where(and(eq(seasons.teamId, team.id), eq(seasons.status, "active")))
     .orderBy(seasons.startDate, "asc")
     .all();
   seasonRows.sort(
