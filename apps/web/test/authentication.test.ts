@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { VerifiedProviderIdentity } from "../app/lib/server/application-contracts";
 import {
+  authenticationChallenges,
   createAuthentication,
   createAuthenticationSchema,
   verifiedRecipientEmails,
@@ -124,6 +125,56 @@ describe("Apple authentication operations", () => {
     ).rejects.toThrow();
   });
 
+  it("prunes expired Apple challenges while retaining every live challenge", async () => {
+    const expiredPending = await setup.authentication.challenge();
+    const expiredConsumed = await setup.authentication.challenge();
+    const livePending = await setup.authentication.challenge();
+    const liveConsumed = await setup.authentication.challenge();
+    expect(
+      await setup.authentication.signIn({
+        challengeId: expiredConsumed.challengeId,
+        identityToken: "provider-token",
+        adultConsent: true,
+      }),
+    ).toBeDefined();
+    expect(
+      await setup.authentication.signIn({
+        challengeId: liveConsumed.challengeId,
+        identityToken: "provider-token",
+        adultConsent: true,
+      }),
+    ).toBeDefined();
+
+    await setup.services.db
+      .update(authenticationChallenges)
+      .set({ expiresAt: new Date(start).toISOString() })
+      .where(eq(authenticationChallenges.id, expiredPending.challengeId))
+      .run();
+    await setup.services.db
+      .update(authenticationChallenges)
+      .set({ expiresAt: new Date(start).toISOString() })
+      .where(eq(authenticationChallenges.id, expiredConsumed.challengeId))
+      .run();
+
+    const fresh = await setup.authentication.challenge();
+    expect(
+      await setup.sql.prepare("SELECT id, status FROM authentication_challenges ORDER BY id").all(),
+    ).toEqual(
+      [
+        { id: livePending.challengeId, status: "pending" },
+        { id: liveConsumed.challengeId, status: "consumed" },
+        { id: fresh.challengeId, status: "pending" },
+      ].toSorted((left, right) => left.id.localeCompare(right.id)),
+    );
+    await expect(
+      setup.authentication.signIn({
+        challengeId: expiredPending.challengeId,
+        identityToken: "provider-token",
+        adultConsent: true,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it("links by issuer and subject without changing identity from name or email", async () => {
     const firstChallenge = await setup.authentication.challenge();
     const first = await setup.authentication.signIn({
@@ -159,6 +210,38 @@ describe("Apple authentication operations", () => {
     expect(await setup.sql.prepare("SELECT COUNT(*) AS count FROM accounts").get()).toEqual({
       count: 2,
     });
+  });
+
+  it("serializes concurrent first sign-ins for the same provider subject", async () => {
+    const [firstChallenge, secondChallenge] = await Promise.all([
+      setup.authentication.challenge(),
+      setup.authentication.challenge(),
+    ]);
+
+    const [first, second] = await Promise.all([
+      setup.authentication.signIn({
+        challengeId: firstChallenge.challengeId,
+        identityToken: "provider-token-a",
+        displayName: "First submitted name",
+        adultConsent: true,
+      }),
+      setup.authentication.signIn({
+        challengeId: secondChallenge.challengeId,
+        identityToken: "provider-token-b",
+        displayName: "Second submitted name",
+        adultConsent: true,
+      }),
+    ]);
+
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(second?.identity).toEqual(first?.identity);
+    expect(await setup.sql.prepare("SELECT COUNT(*) AS count FROM accounts").get()).toEqual({
+      count: 1,
+    });
+    expect(
+      await setup.sql.prepare("SELECT COUNT(*) AS count FROM provider_identity_links").get(),
+    ).toEqual({ count: 1 });
   });
 
   it("keeps only current provider-verified email claims active", async () => {

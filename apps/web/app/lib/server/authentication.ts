@@ -1,4 +1,4 @@
-import { and, createTableSql, defineTable, dropTableSql, eq, ne, text } from "@lesto/db";
+import { and, createTableSql, defineTable, dropTableSql, eq, lte, ne, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import { appleSignInInputSchema } from "@snackday/domain";
@@ -264,18 +264,31 @@ export function createAuthentication(options: AuthenticationOptions): Authentica
       const nonce = randomToken();
       const challengeId = `auth_challenge_${crypto.randomUUID()}`;
       const now = options.clock();
-      await options.db
-        .insert(authenticationChallenges)
-        .values({
-          id: challengeId,
-          provider: "apple",
-          nonceHash: await sha256(nonce),
-          status: "pending",
-          createdAt: new Date(now).toISOString(),
-          expiresAt: new Date(now + CHALLENGE_TTL_MS).toISOString(),
-          consumedAt: null,
-        })
-        .run();
+      const nowIso = new Date(now).toISOString();
+      const nonceHash = await sha256(nonce);
+      await options.db.transaction(async (tx) => {
+        await tx
+          .delete(authenticationChallenges)
+          .where(
+            and(
+              eq(authenticationChallenges.provider, "apple"),
+              lte(authenticationChallenges.expiresAt, nowIso),
+            ),
+          )
+          .run();
+        await tx
+          .insert(authenticationChallenges)
+          .values({
+            id: challengeId,
+            provider: "apple",
+            nonceHash,
+            status: "pending",
+            createdAt: nowIso,
+            expiresAt: new Date(now + CHALLENGE_TTL_MS).toISOString(),
+            consumedAt: null,
+          })
+          .run();
+      });
       return { challengeId, nonce };
     },
 
