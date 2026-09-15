@@ -168,13 +168,27 @@ private actor ImmediateInvitationTransport: SnackdayInvitationTransport {
 
 private actor ControlledPreviewTransport: SnackdayInvitationTransport {
     private var pending: [String: CheckedContinuation<InvitationPreviewDTO, any Error>] = [:]
+    private var pendingWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
 
     func previewInvitation(token: String) async throws -> InvitationPreviewDTO {
-        try await withCheckedThrowingContinuation { pending[token] = $0 }
+        try await withCheckedThrowingContinuation { continuation in
+            pending[token] = continuation
+            pendingWaiters.removeValue(forKey: token)?.forEach { $0.resume() }
+        }
     }
 
     func acceptInvitation(token _: String) -> InvitationAcceptanceDTO { acceptedFixture() }
-    func isPending(_ token: String) -> Bool { pending[token] != nil }
+
+    func waitUntilPending(_ token: String) async {
+        if pending[token] != nil { return }
+        await withCheckedContinuation { continuation in
+            if pending[token] != nil {
+                continuation.resume()
+            } else {
+                pendingWaiters[token, default: []].append(continuation)
+            }
+        }
+    }
 
     func resume(token: String, with preview: InvitationPreviewDTO) {
         pending.removeValue(forKey: token)?.resume(returning: preview)
@@ -183,16 +197,31 @@ private actor ControlledPreviewTransport: SnackdayInvitationTransport {
 
 private actor ControlledAcceptTransport: SnackdayInvitationTransport {
     private var pendingAccept: CheckedContinuation<InvitationAcceptanceDTO, any Error>?
+    private var pendingWaiters: [CheckedContinuation<Void, Never>] = []
 
     func previewInvitation(token _: String) -> InvitationPreviewDTO {
         InvitationPreviewDTO(state: .preview, teamName: "Fixture Falcons", invitedRole: .adult)
     }
 
     func acceptInvitation(token _: String) async throws -> InvitationAcceptanceDTO {
-        try await withCheckedThrowingContinuation { pendingAccept = $0 }
+        try await withCheckedThrowingContinuation { continuation in
+            pendingAccept = continuation
+            let waiters = pendingWaiters
+            pendingWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
     }
 
-    func isAcceptPending() -> Bool { pendingAccept != nil }
+    func waitUntilAcceptPending() async {
+        if pendingAccept != nil { return }
+        await withCheckedContinuation { continuation in
+            if pendingAccept != nil {
+                continuation.resume()
+            } else {
+                pendingWaiters.append(continuation)
+            }
+        }
+    }
 
     func resumeAccept(with acceptance: InvitationAcceptanceDTO) {
         pendingAccept?.resume(returning: acceptance)
@@ -237,19 +266,11 @@ private func expectPendingPreview(
     _ token: String,
     transport: ControlledPreviewTransport
 ) async {
-    for _ in 0 ..< 1_000 {
-        if await transport.isPending(token) { return }
-        await Task.yield()
-    }
-    Issue.record("Preview request did not start")
+    await transport.waitUntilPending(token)
 }
 
 private func expectPendingAccept(_ transport: ControlledAcceptTransport) async {
-    for _ in 0 ..< 1_000 {
-        if await transport.isAcceptPending() { return }
-        await Task.yield()
-    }
-    Issue.record("Accept request did not start")
+    await transport.waitUntilAcceptPending()
 }
 
 private func acceptedFixture() -> InvitationAcceptanceDTO {
