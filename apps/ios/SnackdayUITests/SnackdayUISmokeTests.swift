@@ -52,7 +52,9 @@ final class SnackdayUISmokeTests: XCTestCase {
         let consent = app.switches["adult-consent-toggle"]
         XCTAssertTrue(consent.exists)
         consent.tap()
-        XCTAssertTrue(signIn.isEnabled)
+        let enabledSignIn = app.buttons["apple-sign-in-button"]
+        XCTAssertTrue(enabledSignIn.waitForExistence(timeout: 2))
+        XCTAssertTrue(enabledSignIn.isEnabled)
     }
 
     @MainActor
@@ -93,7 +95,9 @@ final class SnackdayUISmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Second Fixture Team"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["Second Season"].waitForExistence(timeout: 2))
 
-        app.buttons["account-menu"].tap()
+        let accountMenu = app.buttons["account-menu"]
+        XCTAssertTrue(accountMenu.waitForExistence(timeout: 2))
+        accountMenu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         app.buttons["Sign Out"].tap()
         XCTAssertTrue(app.navigationBars["Sign In"].waitForExistence(timeout: 2))
     }

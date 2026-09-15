@@ -48,6 +48,21 @@ import Testing
 }
 
 @MainActor
+@Test func launchModelKeepsPreparedChallengeWhenControllerReturnsToSignedOut() async {
+    let controller = CompositionTestController()
+    let model = NativeAppViewModel(controller: controller)
+    let observation = Task { await model.observeState() }
+    defer { observation.cancel() }
+    await Task.yield()
+
+    await model.prepareSignIn()
+    await Task.yield()
+
+    #expect(model.state == .signedOut)
+    #expect(model.challenge == AppleChallengeDTO(challengeId: "challenge", nonce: "raw-nonce"))
+}
+
+@MainActor
 private final class CompositionTestController: SnackdayApplicationControlling {
     var state = NativeAppState.launching
     var restoreCount = 0
@@ -57,8 +72,10 @@ private final class CompositionTestController: SnackdayApplicationControlling {
     var retryCount = 0
     var signOutCount = 0
 
+    private var continuation: AsyncStream<NativeAppState>.Continuation?
+
     func stateUpdates() -> AsyncStream<NativeAppState> {
-        AsyncStream { $0.finish() }
+        AsyncStream { continuation = $0 }
     }
 
     func restore() async {
@@ -67,6 +84,8 @@ private final class CompositionTestController: SnackdayApplicationControlling {
     }
 
     func beginAppleSignIn() async throws -> AppleChallengeDTO {
+        state = .signedOut
+        continuation?.yield(state)
         AppleChallengeDTO(challengeId: "challenge", nonce: "raw-nonce")
     }
 

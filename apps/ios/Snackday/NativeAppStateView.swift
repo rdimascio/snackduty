@@ -155,12 +155,11 @@ private struct FailureStateView: View {
                     Label(content.title, systemImage: content.systemImage)
                 } description: {
                     Text(content.message)
-                } actions: {
-                    Button("Try Again", action: retry)
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("state-retry")
                 }
                 .accessibilityIdentifier("app-error")
+                Button("Try Again", action: retry)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("state-retry")
             }
             .padding()
             .navigationTitle("Snackday")
