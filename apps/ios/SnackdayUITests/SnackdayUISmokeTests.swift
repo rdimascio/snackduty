@@ -101,6 +101,12 @@ final class SnackdayUISmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Second Fixture Team"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["Second Season"].waitForExistence(timeout: 2))
 
+        teamPicker.tap()
+        app.buttons["Seasonless Fixture Team"].tap()
+        XCTAssertTrue(app.staticTexts["No seasons yet"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["team-picker"].label.contains("Seasonless Fixture Team"))
+        XCTAssertFalse(app.buttons["season-picker"].isEnabled)
+
         let accountMenu = app.buttons["account-menu"]
         XCTAssertTrue(accountMenu.waitForExistence(timeout: 2))
         accountMenu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()

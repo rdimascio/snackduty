@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct SnackdayApp: App {
     private let controller: (any SnackdayApplicationControlling)?
+    private let invitationTransport: (any SnackdayInvitationTransport)?
 
     init() {
         var configuredURL = Bundle.main.object(forInfoDictionaryKey: "SNACKDAY_API_BASE_URL") as? String
@@ -11,29 +12,35 @@ struct SnackdayApp: App {
         let environment = ProcessInfo.processInfo.environment
         if ProcessInfo.processInfo.arguments.contains("-SNACKDAY_UI_TEST_FIXTURE") {
             controller = nil
+            invitationTransport = nil
             return
         }
         configuredURL = environment["SNACKDAY_API_BASE_URL"] ?? configuredURL
 #endif
         guard let configuredURL, let url = URL(string: configuredURL), url.host != nil else {
             controller = nil
+            invitationTransport = nil
             return
         }
 #if DEBUG
         if environment["SNACKDAY_DEV_SIGN_IN"] == "true" {
+            let client = SnackdayAPIClient.development(baseURL: url)
             controller = SnackdayApplicationController(transport: DevelopmentScenarioTransport(
-                client: .development(baseURL: url)
+                client: client
             ))
+            invitationTransport = client
             return
         }
 #endif
-        controller = SnackdayApplicationController(transport: SnackdayAPIClient(baseURL: url))
+        let client = SnackdayAPIClient(baseURL: url)
+        controller = SnackdayApplicationController(transport: client)
+        invitationTransport = client
     }
 
     var body: some Scene {
         WindowGroup {
             if let controller {
-                AppLaunchView(controller: controller)
+                AppLaunchView(controller: controller, invitationTransport: invitationTransport)
             } else {
                 AppLaunchView()
             }

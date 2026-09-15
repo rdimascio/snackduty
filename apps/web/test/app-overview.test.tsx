@@ -21,7 +21,7 @@ async function clearState() {
   // accumulated API calls would trip 429s here, which is the limiter working,
   // not the page — so reset it alongside the domain state.
   await config.db.exec(
-    "DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -120,11 +120,17 @@ async function joinAsSecondAdult(
   participantId?: string,
 ): Promise<string> {
   const memberCookie = await signIn("second-adult");
+  const recipientSession = await app.handle("GET", "/api/session", {
+    headers: { cookie: memberCookie },
+  });
+  expect(recipientSession.status).toBe(200);
+  const recipientPersonId = (json(recipientSession) as { person: { id: string } }).person.id;
   const created = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
     headers: { ...sameOrigin, cookie: ownerCookie },
     body: {
       invitedRole: "adult",
       inviteeLabel: "joining adult",
+      recipientBinding: { kind: "confirmed_person", personId: recipientPersonId },
       ...(participantId === undefined ? {} : { participantId, relationship: "parent" }),
     },
   });
@@ -252,6 +258,7 @@ describe("/app overview loader", () => {
       body: {
         invitedRole: "adult",
         inviteeLabel: "Casey's dad",
+        recipientBinding: { kind: "verified_email", email: "guardian@example.test" },
         participantId,
         relationship: "parent",
       },

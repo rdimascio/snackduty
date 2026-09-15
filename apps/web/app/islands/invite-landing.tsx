@@ -153,8 +153,8 @@ const actionClassName =
  * it only in POST request bodies. It lives in ONE island rather than three
  * because the token is state, not a prop: a server loader cannot see it, and an
  * island that re-entered through a page reload would find the fragment already
- * gone. A signed-out visitor is sent to the real application sign-in and asked
- * to reopen the original link afterward; this surface never invokes dev auth.
+ * gone. A signed-out visitor is directed to sign in and paste their original
+ * invitation in the native app; this surface never invokes dev auth.
  *
  * `signedIn` is the only thing the server loader could still resolve, and it
  * chooses which affordance a valid preview offers.
@@ -221,11 +221,9 @@ function InviteLanding({ signedIn: sessionAtLoad }: { signedIn: boolean }): Reac
     return (
       <>
         <p className="text-sm text-muted-foreground">
-          Sign in first, then open this invitation link again to accept it.
+          Sign in to the Snackday app, choose Join Team from your account menu, and paste the
+          original invitation link you received. Only the intended recipient can accept it.
         </p>
-        <a className={actionClassName} href="/app">
-          Go to sign in
-        </a>
       </>
     );
   }

@@ -187,12 +187,12 @@ public struct TeamSelection: Equatable, Sendable {
 }
 
 extension TeamsResponse {
-    /// The first team that carries at least one season, preferring its first
-    /// `active` season. The server already sorts teams by creation and seasons
+    /// The first active team that carries an active, same-team season.
+    /// The server already sorts teams by creation and seasons
     /// by start date, so this preserves that ordering.
     public var primarySelection: TeamSelection? {
-        for entry in teams {
-            let season = entry.seasons.first(where: { $0.status == "active" }) ?? entry.seasons.first
+        for entry in teams where entry.team.status == "active" {
+            let season = entry.seasons.first(where: { $0.status == "active" && $0.teamId == entry.team.id })
             if let season {
                 return TeamSelection(team: entry.team, season: season)
             }

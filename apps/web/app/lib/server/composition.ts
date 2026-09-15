@@ -49,12 +49,12 @@ import { createTeamsAndSeasons, registerTeamRoutes } from "./teams";
 // `posts` table and its seed rows, deleted before first deploy. The migrator
 // keys off a `schema_migrations` version LEDGER, not array position, so the gap
 // is inert — a database that already applied them keeps a harmless orphan row.
-function buildBaseApp(db: Db, sessions: Sessions) {
+function buildBaseApp(db: Db, sessions: Sessions, clock: Clock) {
   return lesto()
     .client("/client.js")
     .styles("/styles.css")
     .use((c, next) => {
-      bindAppServices(c, { db, sessions });
+      bindAppServices(c, { db, sessions, clock });
       return next();
     });
 }
@@ -68,11 +68,14 @@ export function buildApp(
   exposeCalendarFeeds = true,
   invitationOptions: InvitationRouteOptions = {},
 ) {
-  let app: Lesto = buildBaseApp(db, sessions);
+  if (developmentSignIn && sessions.mode !== "development") {
+    throw new Error("Development sign-in requires development session services.");
+  }
+  let app: Lesto = buildBaseApp(db, sessions, clock);
   app = registerTeamRoutes(app, db, sessions, clock);
-  app = registerRosterRoutes(app, db, sessions);
-  app = registerRosterImportRoutes(app, db, sessions);
-  app = registerTeamReadRoutes(app, db, sessions);
+  app = registerRosterRoutes(app, db, sessions, clock);
+  app = registerRosterImportRoutes(app, db, sessions, clock);
+  app = registerTeamReadRoutes(app, db, sessions, clock);
   app = registerInvitationRoutes(app, db, sessions, inviteDelivery, invitationOptions);
   app = registerEventRoutes(app, db, sessions, clock);
   app = registerAttendanceRoutes(app, db, sessions, clock);
@@ -190,5 +193,9 @@ export function createApplication(options: ApplicationOptions) {
     secure: { originCheck: {} },
     ui: { dialect: "preact", css: "app/styles/app.css" },
   };
-  return { config, services: { db: options.db, sessions: options.sessions }, outbox };
+  return {
+    config,
+    services: { db: options.db, sessions: options.sessions, clock: options.clock },
+    outbox,
+  };
 }

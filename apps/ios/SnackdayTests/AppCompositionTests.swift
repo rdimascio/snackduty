@@ -1,7 +1,20 @@
 import SnackdayDesignSystem
 import SnackdayDomain
+import Foundation
 import Testing
 @testable import Snackday
+
+@Test func realKeychainPersistsAndClearsAnOriginSession() throws {
+    let service = "com.snackday.tests.\(UUID().uuidString)"
+    let origin = try #require(URL(string: "https://api.snackday.test"))
+    let first = KeychainSessionCookieStore(service: service)
+    defer { try? first.clearSession(for: origin) }
+    try first.saveSessionCookie("synthetic=session", for: origin)
+    let restored = KeychainSessionCookieStore(service: service)
+    #expect(try restored.sessionCookie(for: origin) == "synthetic=session")
+    try restored.clearSession(for: origin)
+    #expect(try first.sessionCookie(for: origin) == nil)
+}
 
 @Test func previewSnapshotComposesDomainAndDesignSystem() {
     #expect(HomeSnapshot.preview.team.name == "T-Ball Tigers")
@@ -53,10 +66,10 @@ import Testing
     let model = NativeAppViewModel(controller: controller)
     let observation = Task { await model.observeState() }
     defer { observation.cancel() }
-    await Task.yield()
 
     await model.prepareSignIn()
-    await Task.yield()
+    controller.finishUpdates()
+    await observation.value
 
     #expect(model.state == .signedOut)
     #expect(model.challenge == AppleChallengeDTO(challengeId: "challenge", nonce: "raw-nonce"))
@@ -72,11 +85,13 @@ private final class CompositionTestController: SnackdayApplicationControlling {
     var retryCount = 0
     var signOutCount = 0
 
-    private var continuation: AsyncStream<NativeAppState>.Continuation?
+    private let updates = AsyncStream<NativeAppState>.makeStream()
 
     func stateUpdates() -> AsyncStream<NativeAppState> {
-        AsyncStream { continuation = $0 }
+        updates.stream
     }
+
+    func finishUpdates() { updates.continuation.finish() }
 
     func restore() async {
         restoreCount += 1
@@ -85,7 +100,7 @@ private final class CompositionTestController: SnackdayApplicationControlling {
 
     func beginAppleSignIn() async throws -> AppleChallengeDTO {
         state = .signedOut
-        continuation?.yield(state)
+        updates.continuation.yield(state)
         return AppleChallengeDTO(challengeId: "challenge", nonce: "raw-nonce")
     }
 

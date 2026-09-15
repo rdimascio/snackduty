@@ -12,6 +12,7 @@ struct NativeAppStateView: View {
     let selectSeason: (String) -> Void
     let retry: () -> Void
     let signOut: () -> Void
+    var joinTeam: (() -> Void)? = nil
 
     @ViewBuilder var body: some View {
         switch state {
@@ -41,7 +42,8 @@ struct NativeAppStateView: View {
                 snapshot: snapshot,
                 selectTeam: selectTeam,
                 selectSeason: selectSeason,
-                signOut: signOut
+                signOut: signOut,
+                joinTeam: joinTeam
             )
         case .emptyTeams(let identity):
             SignedInEmptyView(
@@ -49,13 +51,14 @@ struct NativeAppStateView: View {
                 directory: nil,
                 title: "No teams yet",
                 systemImage: "person.3",
-                description: "Create a team on the web or ask a team owner for an invitation.",
+                description: "Ask a team owner for an invitation, then choose Join Team.",
                 identifier: "empty-teams",
                 selectTeam: selectTeam,
                 selectSeason: selectSeason,
-                signOut: signOut
+                signOut: signOut,
+                joinTeam: joinTeam
             )
-        case .emptySeasons(let identity, let directory, _):
+        case .emptySeasons(let identity, let directory, let teamID):
             SignedInEmptyView(
                 identity: identity,
                 directory: directory,
@@ -65,7 +68,9 @@ struct NativeAppStateView: View {
                 identifier: "empty-seasons",
                 selectTeam: selectTeam,
                 selectSeason: selectSeason,
-                signOut: signOut
+                signOut: signOut,
+                joinTeam: joinTeam,
+                selectedTeamID: teamID
             )
         case .failed(let identity, let directory, let failure):
             FailureStateView(
@@ -102,6 +107,8 @@ private struct SignedInEmptyView: View {
     let selectTeam: (String) -> Void
     let selectSeason: (String) -> Void
     let signOut: () -> Void
+    var joinTeam: (() -> Void)? = nil
+    var selectedTeamID: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -109,12 +116,18 @@ private struct SignedInEmptyView: View {
                 if let directory {
                     TeamSeasonPickerView(
                         directory: directory,
+                        selectedTeamID: selectedTeamID,
                         selectTeam: selectTeam,
                         selectSeason: selectSeason
                     )
                 }
                 ContentUnavailableView(title, systemImage: systemImage, description: Text(description))
                     .accessibilityIdentifier(identifier)
+                if let joinTeam {
+                    Button("Join Team", action: joinTeam)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("join-team")
+                }
             }
             .padding()
             .navigationTitle("Snackday")
@@ -122,6 +135,7 @@ private struct SignedInEmptyView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Text(identity.person.displayName)
+                        if let joinTeam { Button("Join Team", action: joinTeam) }
                         Button("Sign Out", role: .destructive, action: signOut)
                     } label: {
                         Image(systemName: "person.crop.circle")
@@ -180,7 +194,7 @@ private struct FailureStateView: View {
         case .offline:
             ("You’re offline", "Connect to the internet, then try again.", "wifi.slash")
         case .unauthorized:
-            ("Session expired", "Sign in again to continue.", "person.crop.circle.badge.exclamationmark")
+            ("Couldn’t sign in", "Try again to start a new sign-in request.", "person.crop.circle.badge.exclamationmark")
         case .unavailable:
             ("Snackday is not configured yet", "Check the app configuration and try again.", "exclamationmark.triangle")
         case .invalidResponse:

@@ -17,7 +17,7 @@ import { verifiedRecipientEmails } from "./authentication";
 import { accounts, authenticatedAdult, people } from "./identity";
 import type { AdultIdentity } from "./identity";
 import type { InvitedRole, InviteDeliverer } from "./invite-delivery";
-import type { InvitationDeliveryIntent, InvitationOutbox } from "./invitation-outbox";
+import type { InvitationOutbox } from "./invitation-outbox";
 import {
   DEFAULT_GUARDIAN_PERMISSIONS,
   guardianRelationships,
@@ -413,18 +413,6 @@ export interface InvitationRouteOptions {
   readonly verifiedEmails?: (db: Db, personId: string) => Promise<readonly string[]>;
 }
 
-type PersistIntent = (intent: InvitationDeliveryIntent) => Promise<void>;
-
-function invitationTransaction<R>(
-  db: Db,
-  outbox: InvitationOutbox | undefined,
-  operation: (tx: Db, persist: PersistIntent) => Promise<R>,
-): Promise<R> {
-  return outbox === undefined
-    ? db.transaction((tx) => operation(tx, () => Promise.resolve()))
-    : outbox.transaction(operation);
-}
-
 function deliveryFor(
   row: InvitationRow,
   teamName: string,
@@ -443,21 +431,6 @@ function deliveryFor(
   };
 }
 
-async function deliverInvite(
-  deliverer: InviteDeliverer,
-  row: InvitationRow,
-  teamName: string,
-  inviter: AdultIdentity,
-  token: string,
-  recipient: RecipientBinding,
-): Promise<string> {
-  const delivery = deliveryFor(row, teamName, inviter, token, recipient);
-  // The recipient, team, inviter, role, and link are the complete delivery
-  // contract. Invitee labels and participant data never enter the channel.
-  await deliverer.deliver(delivery);
-  return delivery.inviteUrl;
-}
-
 async function createInvitation(
   c: Context<"/api/teams/:teamId/invitations">,
   db: Db,
@@ -467,14 +440,14 @@ async function createInvitation(
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
-  if (options.outbox === undefined && deliverer.environment !== "development") {
+  if (options.outbox === undefined) {
     return c.json(invitationDeliveryUnavailable, 503);
   }
 
   const input = c.valid(createInvitationInputSchema);
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
-  const outcome = await invitationTransaction(db, options.outbox, async (tx, persist) => {
+  const outcome = await options.outbox.transaction(async (tx, persist) => {
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
@@ -552,26 +525,14 @@ async function createInvitation(
   if (outcome === "invalid-recipient" || outcome === "invalid-replacement") {
     return c.json(invitationRecipientInvalid, 422);
   }
-  await options.outbox?.requestSchedule();
-  if (options.outbox !== undefined && deliverer.environment === "development") {
+  await options.outbox.requestSchedule();
+  if (deliverer.environment === "development") {
     await options.outbox.drain();
   }
 
   // Delivery happens AFTER the transaction commits, so a rolled-back
   // invitation can never have leaked a live link.
-  const link =
-    options.outbox === undefined
-      ? await deliverInvite(
-          deliverer,
-          outcome.row,
-          outcome.teamName,
-          identity,
-          token,
-          outcome.recipient,
-        )
-      : deliverer.environment === "development"
-        ? inviteUrlFor(token)
-        : undefined;
+  const link = deliverer.environment === "development" ? inviteUrlFor(token) : undefined;
 
   return c.json(
     {
@@ -594,7 +555,7 @@ async function resendInvitation(
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
-  if (options.outbox === undefined && deliverer.environment !== "development") {
+  if (options.outbox === undefined) {
     return c.json(invitationDeliveryUnavailable, 503);
   }
   const parsedInput = resendInvitationInputSchema.safeParse(c.req.body ?? {});
@@ -602,7 +563,7 @@ async function resendInvitation(
 
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
-  const outcome = await invitationTransaction(db, options.outbox, async (tx, persist) => {
+  const outcome = await options.outbox.transaction(async (tx, persist) => {
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
 
@@ -663,24 +624,12 @@ async function resendInvitation(
   if (outcome === null) return c.json(invitationNotFound, 404);
   if (outcome === "not-pending") return c.json(invitationNotPending, 409);
   if (outcome === "invalid-recipient") return c.json(invitationRecipientInvalid, 422);
-  await options.outbox?.requestSchedule();
-  if (options.outbox !== undefined && deliverer.environment === "development") {
+  await options.outbox.requestSchedule();
+  if (deliverer.environment === "development") {
     await options.outbox.drain();
   }
 
-  const link =
-    options.outbox === undefined
-      ? await deliverInvite(
-          deliverer,
-          outcome.row,
-          outcome.teamName,
-          identity,
-          token,
-          outcome.recipient,
-        )
-      : deliverer.environment === "development"
-        ? inviteUrlFor(token)
-        : undefined;
+  const link = deliverer.environment === "development" ? inviteUrlFor(token) : undefined;
 
   return c.json({
     invitation: projectInvitation(

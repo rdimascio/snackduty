@@ -46,10 +46,16 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
     roster:
       season === undefined
         ? []
-        : await loadRoster(services.db, first.team.id, season.id, {
-            personId: identity.person.id,
-            access: first.access,
-          }),
+        : await loadRoster(
+            services.db,
+            first.team.id,
+            season.id,
+            {
+              personId: identity.person.id,
+              access: first.access,
+            },
+            services.clock,
+          ),
   };
 };
 

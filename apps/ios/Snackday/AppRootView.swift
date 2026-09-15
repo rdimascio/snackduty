@@ -9,6 +9,7 @@ struct AppRootView: View {
     let selectTeam: (String) -> Void
     let selectSeason: (String) -> Void
     let signOut: () -> Void
+    let joinTeam: (() -> Void)?
 
     init(
         identity: AdultIdentityDTO? = nil,
@@ -16,7 +17,8 @@ struct AppRootView: View {
         snapshot: HomeSnapshot,
         selectTeam: @escaping (String) -> Void = { _ in },
         selectSeason: @escaping (String) -> Void = { _ in },
-        signOut: @escaping () -> Void = {}
+        signOut: @escaping () -> Void = {},
+        joinTeam: (() -> Void)? = nil
     ) {
         self.identity = identity
         self.directory = directory
@@ -24,6 +26,7 @@ struct AppRootView: View {
         self.selectTeam = selectTeam
         self.selectSeason = selectSeason
         self.signOut = signOut
+        self.joinTeam = joinTeam
     }
 
     var body: some View {
@@ -34,7 +37,8 @@ struct AppRootView: View {
                 snapshot: snapshot,
                 selectTeam: selectTeam,
                 selectSeason: selectSeason,
-                signOut: signOut
+                signOut: signOut,
+                joinTeam: joinTeam
             )
             .tabItem { Label("Home", systemImage: "house.fill") }
 
@@ -66,6 +70,7 @@ private struct HomeView: View {
     let selectTeam: (String) -> Void
     let selectSeason: (String) -> Void
     let signOut: () -> Void
+    let joinTeam: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -98,6 +103,7 @@ private struct HomeView: View {
                         if let identity {
                             Text(identity.person.displayName)
                         }
+                        if let joinTeam { Button("Join Team", action: joinTeam) }
                         Button("Sign Out", role: .destructive, action: signOut)
                     } label: {
                         Image(systemName: "person.crop.circle")

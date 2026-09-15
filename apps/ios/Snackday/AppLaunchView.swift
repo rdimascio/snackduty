@@ -4,9 +4,15 @@ import SwiftUI
 
 struct AppLaunchView: View {
     @State private var model: NativeAppViewModel
+    @State private var showingJoinTeam = false
+    private let invitationTransport: (any SnackdayInvitationTransport)?
 
-    @MainActor init(controller: any SnackdayApplicationControlling) {
+    @MainActor init(
+        controller: any SnackdayApplicationControlling,
+        invitationTransport: (any SnackdayInvitationTransport)? = nil
+    ) {
         _model = State(initialValue: NativeAppViewModel(controller: controller))
+        self.invitationTransport = invitationTransport
     }
 
     @MainActor init(arguments: [String] = ProcessInfo.processInfo.arguments) {
@@ -37,10 +43,16 @@ struct AppLaunchView: View {
             selectTeam: { teamID in Task { await model.selectTeam(teamID) } },
             selectSeason: { seasonID in Task { await model.selectSeason(seasonID) } },
             retry: { Task { await model.retry() } },
-            signOut: { Task { await model.signOut() } }
+            signOut: { Task { await model.signOut() } },
+            joinTeam: invitationTransport == nil ? nil : { showingJoinTeam = true }
         )
         .task { await model.observeState() }
         .task { await model.restoreOnce() }
+        .sheet(isPresented: $showingJoinTeam) {
+            if let invitationTransport {
+                JoinTeamView(transport: invitationTransport) { await model.retry() }
+            }
+        }
     }
 }
 
@@ -305,6 +317,10 @@ private final class UITestApplicationController: SnackdayApplicationControlling 
             TeamWithSeasonsDTO(
                 team: team(id: "team-fixture-b", name: "Second Fixture Team"),
                 seasons: [season(id: "season-fixture-b", teamID: "team-fixture-b", label: "Second Season")]
+            ),
+            TeamWithSeasonsDTO(
+                team: team(id: "team-empty", name: "Seasonless Fixture Team"),
+                seasons: []
             ),
         ],
         selection: TeamSeasonSelection(teamID: "team-fixture-a", seasonID: "season-fixture-spring")

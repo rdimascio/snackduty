@@ -4,11 +4,12 @@ import SwiftUI
 
 struct TeamSeasonPickerView: View {
     let directory: TeamDirectory
+    var selectedTeamID: String? = nil
     let selectTeam: (String) -> Void
     let selectSeason: (String) -> Void
 
     private var selectedTeam: TeamWithSeasonsDTO? {
-        guard let selectedTeamID = directory.selection?.teamID else {
+        guard let selectedTeamID = selectedTeamID ?? directory.selection?.teamID else {
             return directory.teams.first
         }
         return directory.teams.first { $0.team.id == selectedTeamID }

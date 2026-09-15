@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { xcodeEnvironment } from "./dev-scenario-ios";
 
 /** Logs belong to synthetic local runs only; never retain the database or headers. */
 export function redactAcceptanceLog(value: string): string {
@@ -23,6 +24,7 @@ function command(root: string, executable: string, args: string[]): string | nul
   try {
     return execFileSync(executable, args, {
       cwd: root,
+      ...(executable === "xcodebuild" ? { env: xcodeEnvironment() } : {}),
       encoding: "utf8",
       timeout: 5_000,
       stdio: ["ignore", "pipe", "pipe"],

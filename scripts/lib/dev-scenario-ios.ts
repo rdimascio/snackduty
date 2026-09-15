@@ -45,7 +45,9 @@ export function selectScenarioSimulator(list: SimulatorList, requested?: string)
   return selected;
 }
 
-function xcodeEnvironment(extra: Record<string, string> = {}): Record<string, string | undefined> {
+export function xcodeEnvironment(
+  extra: Record<string, string> = {},
+): Record<string, string | undefined> {
   return {
     ...process.env,
     ...(process.env["DEVELOPER_DIR"] === undefined
