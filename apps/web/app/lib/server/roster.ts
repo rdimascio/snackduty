@@ -1,4 +1,4 @@
-import type { SessionService as Sessions } from "./application-contracts";
+import type { Clock, SessionService as Sessions } from "./application-contracts";
 import { and, createTableSql, defineTable, dropTableSql, eq, inList, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
@@ -329,6 +329,7 @@ async function addParticipant(
   c: Context<"/api/teams/:teamId/seasons/:seasonId/participants">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -349,7 +350,7 @@ async function addParticipant(
       tx,
       { teamId: team.id, seasonId: season.id },
       input,
-      new Date().toISOString(),
+      new Date(clock()).toISOString(),
     );
 
     return projectParticipant(row, person);
@@ -418,6 +419,7 @@ async function attachGuardian(
   c: Context<"/api/participants/:participantId/guardians">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -453,7 +455,7 @@ async function attachGuardian(
       tx,
       participant.id,
       input,
-      new Date().toISOString(),
+      new Date(clock()).toISOString(),
     );
 
     return projectGuardian(edge, person);
@@ -465,10 +467,17 @@ async function attachGuardian(
   return c.json({ guardian: outcome }, 201);
 }
 
-export function registerRosterRoutes(app: Lesto, db: Db, sessions: Sessions) {
+export function registerRosterRoutes(
+  app: Lesto,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock = Date.now,
+) {
   return app
     .post("/api/teams/:teamId/seasons/:seasonId/participants", (c) =>
-      addParticipant(c, db, sessions),
+      addParticipant(c, db, sessions, clock),
     )
-    .post("/api/participants/:participantId/guardians", (c) => attachGuardian(c, db, sessions));
+    .post("/api/participants/:participantId/guardians", (c) =>
+      attachGuardian(c, db, sessions, clock),
+    );
 }

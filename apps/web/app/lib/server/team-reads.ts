@@ -1,4 +1,4 @@
-import type { SessionService as Sessions } from "./application-contracts";
+import type { Clock, SessionService as Sessions } from "./application-contracts";
 import { and, eq, inList } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { Context, Lesto } from "@lesto/web";
@@ -159,6 +159,7 @@ async function guardianInvitationCounts(
   db: Db,
   teamId: string,
   participantIds: string[],
+  clock: Clock,
 ): Promise<Map<string, GuardianInvitationCounts>> {
   const counts = new Map<string, GuardianInvitationCounts>(
     participantIds.map((participantId) => [participantId, emptyInvitationCounts()] as const),
@@ -169,7 +170,7 @@ async function guardianInvitationCounts(
     .where(and(eq(invitations.teamId, teamId), inList(invitations.participantId, participantIds)))
     .all();
 
-  const nowIso = new Date().toISOString();
+  const nowIso = new Date(clock()).toISOString();
   for (const row of rows) {
     const bucket = row.participantId === null ? undefined : counts.get(row.participantId);
     if (bucket === undefined) continue;
@@ -213,6 +214,7 @@ export async function loadRoster(
   teamId: string,
   seasonId: string,
   viewer: RosterViewer,
+  clock: Clock = Date.now,
 ): Promise<RosterEntry[]> {
   // A caller-supplied or cached access hint is never a privacy boundary.
   if (!(await authorizeTeamOperation(db, viewer.personId, "roster.read", { teamId, seasonId })))
@@ -249,7 +251,7 @@ export async function loadRoster(
   const invitationCounts =
     privateParticipantIds.length === 0
       ? new Map<string, GuardianInvitationCounts>()
-      : await guardianInvitationCounts(db, teamId, privateParticipantIds);
+      : await guardianInvitationCounts(db, teamId, privateParticipantIds, clock);
 
   const roster = participantRows.map((participant): RosterEntry => {
     const projected = projectParticipant(
@@ -293,6 +295,7 @@ async function readRoster(
   c: Context<"/api/teams/:teamId/seasons/:seasonId/roster">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -309,16 +312,27 @@ async function readRoster(
 
   return c.json(
     rosterResponseSchema.parse({
-      roster: await loadRoster(db, access.team.id, season.id, {
-        personId: identity.person.id,
-        access: access.level,
-      }),
+      roster: await loadRoster(
+        db,
+        access.team.id,
+        season.id,
+        {
+          personId: identity.person.id,
+          access: access.level,
+        },
+        clock,
+      ),
     }),
   );
 }
 
-export function registerTeamReadRoutes(app: Lesto, db: Db, sessions: Sessions) {
+export function registerTeamReadRoutes(
+  app: Lesto,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock = Date.now,
+) {
   return app
     .get("/api/teams", (c) => listTeams(c, db, sessions))
-    .get("/api/teams/:teamId/seasons/:seasonId/roster", (c) => readRoster(c, db, sessions));
+    .get("/api/teams/:teamId/seasons/:seasonId/roster", (c) => readRoster(c, db, sessions, clock));
 }

@@ -32,7 +32,7 @@
  * even that body carries nothing for a row the manager cannot act on.
  */
 
-import type { SessionService as Sessions } from "./application-contracts";
+import type { Clock, SessionService as Sessions } from "./application-contracts";
 import { and, eq } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { Context, Lesto } from "@lesto/web";
@@ -488,6 +488,7 @@ async function commitRosterImport(
   c: Context<"/api/teams/:teamId/seasons/:seasonId/roster/import">,
   db: Db,
   sessions: Sessions,
+  clock: Clock,
 ) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -523,7 +524,7 @@ async function commitRosterImport(
     // wrote and a concurrent single-add is honored too.
     const keys = await seasonChildIdentityKeys(tx, target.team.id, target.season.id);
     const seen = new Set<string>();
-    const now = new Date().toISOString();
+    const now = new Date(clock()).toISOString();
     const results: CommitRow[] = [];
 
     for (const [index, row] of rows.entries()) {
@@ -591,12 +592,17 @@ async function commitRosterImport(
   );
 }
 
-export function registerRosterImportRoutes(app: Lesto, db: Db, sessions: Sessions) {
+export function registerRosterImportRoutes(
+  app: Lesto,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock = Date.now,
+) {
   return app
     .post("/api/teams/:teamId/seasons/:seasonId/roster/import/preview", (c) =>
       previewRosterImport(c, db, sessions),
     )
     .post("/api/teams/:teamId/seasons/:seasonId/roster/import", (c) =>
-      commitRosterImport(c, db, sessions),
+      commitRosterImport(c, db, sessions, clock),
     );
 }
