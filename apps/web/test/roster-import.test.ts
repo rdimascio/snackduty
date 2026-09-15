@@ -12,7 +12,7 @@ const app = await createApp(config);
 
 async function clearState() {
   await config.db.exec(
-    "DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM adult_memberships; DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -29,6 +29,7 @@ function header(response: { headers: Record<string, string | string[]> }, name: 
 }
 
 const sameOrigin = { "sec-fetch-site": "same-origin" };
+const SECOND_PERSON_ID = "person_dev_second_adult";
 
 async function signIn(persona?: "second-adult"): Promise<string> {
   const response = await app.handle("POST", "/api/dev/sign-in", {
@@ -537,7 +538,11 @@ describe("roster import authorization boundaries", () => {
     const memberCookie = await signIn("second-adult");
     const invited = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
       headers: { ...sameOrigin, cookie: ownerCookie },
-      body: { invitedRole: "adult", inviteeLabel: "read-only adult" },
+      body: {
+        invitedRole: "adult",
+        inviteeLabel: "read-only adult",
+        recipientBinding: { kind: "confirmed_person", personId: SECOND_PERSON_ID },
+      },
     });
     expect(invited.status).toBe(201);
     const inviteUrl =

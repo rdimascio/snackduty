@@ -625,6 +625,7 @@ async function createInvitation(
   cookie: string,
   teamId: string,
   label: string,
+  recipientPersonId: string,
   participantId?: string,
 ): Promise<PendingInvitation> {
   const step = "create-invitation";
@@ -637,6 +638,7 @@ async function createInvitation(
       body: JSON.stringify({
         invitedRole: "adult",
         inviteeLabel: label,
+        recipientBinding: { kind: "confirmed_person", personId: recipientPersonId },
         ...(participantId === undefined ? {} : { participantId, relationship: "parent" }),
       }),
     },
@@ -842,9 +844,16 @@ async function verifyResendAndRevoke(
   ownerCookie: string,
   teamId: string,
   hidden: string,
+  recipientPersonId: string,
 ): Promise<void> {
   const step = "resend-invitation";
-  const first = await createInvitation(base, ownerCookie, teamId, SECOND_INVITEE_LABEL);
+  const first = await createInvitation(
+    base,
+    ownerCookie,
+    teamId,
+    SECOND_INVITEE_LABEL,
+    recipientPersonId,
+  );
   const resent = await requestJson(
     step,
     `${base}/api/teams/${teamId}/invitations/${first.invitationId}/resend`,
@@ -888,7 +897,12 @@ async function verifyResendAndRevoke(
   );
 }
 
-async function signInAsSecondAdult(base: string): Promise<string> {
+interface AdultSession {
+  readonly cookie: string;
+  readonly personId: string;
+}
+
+async function signInAsSecondAdult(base: string): Promise<AdultSession> {
   const step = "second-adult-sign-in";
   const response = await fetch(`${base}/api/dev/sign-in`, {
     method: "POST",
@@ -908,13 +922,18 @@ async function signInAsSecondAdult(base: string): Promise<string> {
   );
   const cookie = setCookie.split(";", 1)[0];
   ensure(step, cookie !== undefined && cookie.length > 0, "second adult session cookie is empty");
-  const identity = (await response.json()) as { person?: { displayName?: string } };
+  const identity = (await response.json()) as { person?: { id?: string; displayName?: string } };
   ensure(
     step,
     identity.person?.displayName === SECOND_ADULT_NAME,
-    `second-adult identity mismatch: ${JSON.stringify(identity)}`,
+    "second-adult identity carries the wrong display name",
   );
-  return cookie;
+  ensure(
+    step,
+    typeof identity.person.id === "string",
+    "second-adult identity carries no person id",
+  );
+  return { cookie, personId: identity.person.id };
 }
 
 /**
@@ -931,21 +950,24 @@ async function verifyInvitationJourney(
   ids: JourneyIds,
 ): Promise<void> {
   const hidden = await hiddenPreviewBody(base);
+  // Confirmed-person invitations can only target a real, active adult. The
+  // preview remains signed out because it deliberately sends no session.
+  const member = await signInAsSecondAdult(base);
   const pending = await createInvitation(
     base,
     ownerCookie,
     ids.teamId,
     INVITEE_LABEL,
+    member.personId,
     ids.participantId,
   );
   await verifyPendingInvitationListed(base, ownerCookie, ids.teamId, pending);
   await verifyRosterInvitationStatus(base, ownerCookie, ids);
   await verifySignedOutPreview(base, pending.token);
 
-  const memberCookie = await signInAsSecondAdult(base);
-  await verifyAcceptAndMembership(base, memberCookie, pending.token, ids.teamId);
-  await verifyAcceptedPreview(base, memberCookie, ownerCookie, pending.token, hidden);
-  await verifyResendAndRevoke(base, ownerCookie, ids.teamId, hidden);
+  await verifyAcceptAndMembership(base, member.cookie, pending.token, ids.teamId);
+  await verifyAcceptedPreview(base, member.cookie, ownerCookie, pending.token, hidden);
+  await verifyResendAndRevoke(base, ownerCookie, ids.teamId, hidden, member.personId);
 }
 
 // The events leg: a weekly practice whose range CROSSES the 2026-03-08
@@ -1346,8 +1368,8 @@ async function verifyEventsJourney(
 
   // A fresh session for the second adult — already a member AND the child's
   // guardian from the invitation journey above.
-  const guardianCookie = await signInAsSecondAdult(base);
-  await verifyAttendance(base, ownerCookie, guardianCookie, ids, occurrenceIds[0] ?? "");
+  const guardian = await signInAsSecondAdult(base);
+  await verifyAttendance(base, ownerCookie, guardian.cookie, ids, occurrenceIds[0] ?? "");
   await verifyCalendarFeed(base, ownerCookie, ids, cancelTarget);
 }
 

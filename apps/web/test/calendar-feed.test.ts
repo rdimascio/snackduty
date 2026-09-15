@@ -12,7 +12,7 @@ const app = await createApp(config);
 
 async function clearState() {
   await config.db.exec(
-    "DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
+    "DELETE FROM event_attendance; DELETE FROM calendar_feed_tokens; DELETE FROM event_occurrences; DELETE FROM event_series; DELETE FROM adult_memberships; DELETE FROM lesto_jobs; DELETE FROM invitation_delivery_outbox; DELETE FROM invitations; DELETE FROM guardian_relationships; DELETE FROM memberships; DELETE FROM participants; DELETE FROM seasons; DELETE FROM teams; DELETE FROM lesto_sessions; DELETE FROM lesto_rate_limits; DELETE FROM accounts; DELETE FROM people;",
   );
 }
 
@@ -29,6 +29,7 @@ function header(response: { headers: Record<string, string | string[]> }, name: 
 }
 
 const sameOrigin = { "sec-fetch-site": "same-origin" };
+const SECOND_PERSON_ID = "person_dev_second_adult";
 const FEED_URL_SHAPE = /^\/calendar\/feed\/[0-9a-f]{64}$/u;
 /** RFC 5545's fold width, in octets — the boundary the leak scan must survive. */
 const ICS_FOLD_OCTETS = 75;
@@ -139,16 +140,20 @@ async function mintFeed(cookie: string, teamId: string) {
  * handed a link, and the one most likely to be broken by over-hardening.
  */
 async function joinAsReadOnlyMember(ownerCookie: string, teamId: string): Promise<string> {
+  const memberCookie = await signIn("second-adult");
   const invited = await app.handle("POST", `/api/teams/${teamId}/invitations`, {
     headers: { ...sameOrigin, cookie: ownerCookie },
-    body: { invitedRole: "adult", inviteeLabel: "the second adult" },
+    body: {
+      invitedRole: "adult",
+      inviteeLabel: "the second adult",
+      recipientBinding: { kind: "confirmed_person", personId: SECOND_PERSON_ID },
+    },
   });
   expect(invited.status).toBe(201);
   const token =
     (json(invited) as { invitation: { inviteUrl: string } }).invitation.inviteUrl.split("#")[1] ??
     "";
 
-  const memberCookie = await signIn("second-adult");
   const accepted = await app.handle("POST", "/api/invitations/accept", {
     headers: { ...sameOrigin, cookie: memberCookie },
     body: { token },
