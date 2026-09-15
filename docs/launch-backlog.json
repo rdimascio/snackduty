@@ -2,8 +2,8 @@
   "schema_version": 1,
   "as_of": "2026-09-14",
   "repository": "rdimascio/snackduty",
-  "audited_commit": "40fe367",
-  "note": "PRs #1\u2013#3 are merged. Beta foundation implementation is integrated locally on feat/beta-foundation; final integrated review and gates are pending. Local cryptographic tests are not live Apple, hosted staging, external delivery, or TestFlight evidence. See implementation-status.md and beta-release-evidence.md. League remains R4 and branded apps R5.",
+  "audited_commit": "afe87e8",
+  "note": "PRs #1\u2013#3 are merged. Beta foundation implementation is integrated locally on feat/beta-foundation; independent integrated review and the complete local Mac gate pass; hosted checks remain required. Local cryptographic tests are not live Apple, hosted staging, external delivery, or TestFlight evidence. See implementation-status.md and beta-release-evidence.md. League remains R4 and branded apps R5.",
   "tasks": [
     {
       "id": "SD-001",
@@ -39,7 +39,7 @@
       "depends_on": ["SD-002"],
       "acceptance": "Use one policy for owner/coach/guardian/member; ordinary members cannot read other children's birth dates or private guardian data. Test cross-team, cross-season, revoked membership and own-child boundaries at API and HTML read paths.",
       "code_areas": "packages/domain/src/policies.ts; apps/web/app/lib/server/teams.ts; apps/web/app/lib/server/team-reads.ts",
-      "note": "Runtime team and child access now delegates to the domain policy. Owner/co-coach/guardian/ordinary member, inactive and cross-team/season coverage implemented. Focused local tests pass; complete integrated gate/review pending."
+      "note": "Runtime team and child access now delegates to the domain policy. Owner/co-coach/guardian/ordinary member, inactive and cross-team/season coverage implemented. Focused local tests pass; complete integrated local gate and independent review pass."
     },
     {
       "id": "SD-004",
@@ -51,7 +51,7 @@
       "depends_on": ["SD-002", "SD-003"],
       "acceptance": "Bind elevated/guardian invitations to verified intended recipients or explicit manager confirmation. Test forwarded links, expiration, rotation, replay, Apple relay addresses and duplicate identities without relying on display names.",
       "code_areas": "apps/web/app/lib/server/invitations.ts; apps/web/app/lib/server/people-identity.ts",
-      "note": "Verified email or explicit active-person recipient binding, expiry/rotation/replay protection and explicit child relationship targeting implemented with real DB tests. Native acceptance UI is integrated and its real HTTP preview/accept journey passes with synthetic development identities; final gate pending. Live recipient/provider evidence incomplete."
+      "note": "Verified email or explicit active-person recipient binding, expiry/rotation/replay protection and explicit child relationship targeting implemented with real DB tests. Native acceptance UI is integrated and its real HTTP preview/accept journey passes with synthetic development identities; complete local gate passes. Live recipient/provider evidence incomplete."
     },
     {
       "id": "SD-005",
@@ -63,7 +63,7 @@
       "depends_on": ["SD-002"],
       "acceptance": "Ship an explicit HTTPS staging/release configuration, real sign-in and returning-session behavior, logout, team/season switching and honest empty/error states. Release never falls back to preview success or dev sign-in.",
       "code_areas": "apps/ios/Snackday/AppLaunchView.swift; apps/ios/SnackdayDomain/SnackdayAPIClient.swift",
-      "note": "Real HTTPS transport, app-hosted real Keychain save/restore/logout, cancellation/generation guards, identity-scoped active-season selection and honest SwiftUI states implemented. Release omits development sign-in/fixtures. Local focused/native navigation and real native/server invitation acceptance pass; final gate/review pending. Staging configuration/signing remains open."
+      "note": "Real HTTPS transport, app-hosted real Keychain save/restore/logout, cancellation/generation guards, identity-scoped active-season selection and honest SwiftUI states implemented. Release omits development sign-in/fixtures. Local focused/native navigation and real native/server invitation acceptance pass; complete local gate and independent review pass. Staging configuration/signing remains open."
     },
     {
       "id": "SD-006",

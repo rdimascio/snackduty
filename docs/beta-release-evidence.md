@@ -24,15 +24,15 @@ This record separates behavior implemented in source from evidence gathered in a
 
 Record these against the same reviewed commit:
 
-| Check                                         | Receipt                                                                                       |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `bun test apps/web/test/beta-journey.test.ts` | Pass — 2 tests, 91 assertions                                                                 |
-| `bun run check:fast`                          | Pass — `/tmp/snackday-foundation-fast-review.log`                                             |
-| `bun run check:scenario`                      | Pass — `/tmp/snackday-foundation-scenario-final.log`                                          |
-| `bun run ios:test:ui`                         | Pass — four tests, `/tmp/snackday-foundation-ui-final-2.log`                                  |
-| `bun run accept`                              | Pass — `.artifacts/acceptance/run-5oDwgO/receipt.json` through gate                           |
-| `bun run gate`                                | Pass on `dceda28` — `/tmp/snackday-foundation-gate.log`; final refresh fix repeat in progress |
-| Independent integrated-diff review            | Claude baseline and final delta plus separate-model review passed after reproduced fixes      |
+| Check                                         | Receipt                                                                                  |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `bun test apps/web/test/beta-journey.test.ts` | Pass — 2 tests, 91 assertions                                                            |
+| `bun run check:fast`                          | Pass — `/tmp/snackday-foundation-fast-review.log`                                        |
+| `bun run check:scenario`                      | Pass — `/tmp/snackday-foundation-scenario-final.log`                                     |
+| `bun run ios:test:ui`                         | Pass — four tests, `/tmp/snackday-foundation-ui-final-2.log`                             |
+| `bun run accept`                              | Pass — `.artifacts/acceptance/run-1FLROh/receipt.json` through gate                      |
+| `bun run gate`                                | Pass on `afe87e8` — `/tmp/snackday-foundation-final-gate-3.log`                          |
+| Independent integrated-diff review            | Claude baseline and final delta plus separate-model review passed after reproduced fixes |
 
 For native checks, record the discovered simulator destination and the nonzero named-test counts. Keep failure logs redacted and attach screenshots to the release record rather than embedding child-sensitive data here.
 
@@ -50,7 +50,7 @@ Never satisfy these rows with a development persona, a mocked identity verifier,
 
 ## Native real-controller preparation
 
-Integration regressions found while replacing the fixture shell have source corrections with focused evidence; the final complete gate remains required:
+Integration regressions found while replacing the fixture shell have source corrections with focused evidence; the complete gate now passes:
 
 - The Apple challenge preparation now leaves the sign-in form visible, so the view can present the system authorization sheet after receiving the server nonce. A late challenge failure is generation-guarded and cannot replace a session restored in the meantime.
 - The native transport test server now reads `URLRequest.httpBodyStream`, matching the body representation used by `URLSession` on the simulator. This turns Apple sign-in, restored-session logout, and the live development round trip into exercised requests instead of false 400 responses from a test-only body reader.
