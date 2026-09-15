@@ -74,11 +74,14 @@ cherry-picked in the root worktree. Follow-up E2/C2/A3 leaves share the newly fr
 
 ## Current verification and blockers
 
-The latest fast run passes after updating old overview tests to provide recipient
-binding. Its complete integrated successor, scenario, native UI, acceptance and
-Mac gate must pass on the reviewed commit before merge. Claude reviewed the complete baseline diff; a different-model integrated review
-also ran. Retained findings were reproduced and corrected; final delta review is
-running. The alleged concurrent first Apple sign-in race was refuted with two
+Fast, scenario, native UI, acceptance and the Mac gate passed locally. The full
+gate at `dceda28` passed 288 web, 22 domain, 39 manifest, 12 harness, 58 Swift
+and four UI tests. Claude reviewed the complete baseline and integrated delta;
+a different-model integrated review also ran. Retained findings were reproduced
+and corrected. Final fix `d54a2f4` makes an accepted invitation's refresh outlive
+sheet cancellation: the regression failed before, passed after (12 app tests),
+and independent review passed. Its full gate and hosted checks are required
+before merge. The alleged concurrent first Apple sign-in race was refuted with two
 real simultaneous sign-ins producing exactly one account and provider link.
 
 No remote staging, live Apple login, external delivery, signed archive or

@@ -13,11 +13,13 @@ Implemented and integrated locally:
 - Swift decodes canonical server contract fixtures. The native shell uses real transport/session/selection interfaces, explicit sign-in, honest loading/empty/error states and team/season switching. Release contains no development sign-in or automatic successful preview. Misleading sample status tiles are removed.
 - The durable runtime serves actual authorized APIs and file routes, applies canonical migrations and supports health, integrity checks, backup/restore and rollback drills. Missing remote authentication/delivery configuration fails closed.
 
-### Verification in progress
+### Local verification
 
 The composed runtime journey passes 2 tests and 91 assertions using real generated RS256 tokens and durable database/session/outbox implementations. This establishes local cryptographic integration, dual coach–parent identity, two-team privacy, recipient/replay boundaries and session expiry/revocation. Its keys and delivery recorder are synthetic; it is not a live Apple or mail-provider test.
 
-Native focused evidence includes 42 domain tests, 10 app tests, one design-system test and four UI navigation tests on Xcode 16.2 with a discovered iOS 18.3 simulator. Review found native redirect credential handling, failed-network logout retention and a seasonless-team display error; those fixes are integrated with regressions. Archived-season attendance totals and roster selection now fail closed. The real native/server invitation and Keychain restore/revoke acceptance passes after hosting the test bundle in the app and using local simulator ad-hoc signing. The complete current-commit gate and final delta review remain pending; prior passing runs are not copied forward as final evidence.
+The complete Mac gate passed on `dceda28`: 288 web tests, 22 domain tests, 39 manifest tests, 12 harness tests, 58 Swift tests, four UI tests, Debug/Release simulator builds and real native/API acceptance. Xcode 16.2 discovered iPhone 16 Pro on iOS 18.3. The acceptance receipt is `.artifacts/acceptance/run-5oDwgO/receipt.json`; its dirty flag reflects the preserved unrelated untracked file.
+
+Two independent integrated reviews completed. Reproduced findings have regressions for redirect credentials, local logout, rejected sign-in, archived-season privacy and selection. The final review found cancellation of the invitation sheet could strand the application refresh. `d54a2f4` fixes the refresh lifetime; its regression failed before the fix and all 12 app tests passed after it. Independent source review passed. The complete gate is being repeated on this final source commit; hosted checks remain required before merge.
 
 ### External requirements still incomplete
 
