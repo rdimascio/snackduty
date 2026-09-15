@@ -157,16 +157,19 @@ import Foundation
     public func signOut() async {
         let task = replaceLoad { [weak self] generation in
             guard let self else { return }
+            let departingPersonID = identity?.person.id
+            identity = nil
+            directory = nil
+            publish(.signingOut)
+            if let departingPersonID { await selectionStore.clearSelection(for: departingPersonID) }
+            guard isCurrent(generation) else { return }
             do {
                 try await transport.signOut()
                 guard isCurrent(generation) else { return }
-                if let identity { await selectionStore.clearSelection(for: identity.person.id) }
-                guard isCurrent(generation) else { return }
-                self.identity = nil
-                directory = nil
                 publish(.signedOut)
             } catch {
-                await handle(error, generation: generation)
+                guard isCurrent(generation), !isCancellation(error) else { return }
+                publish(.failed(identity: nil, directory: nil, failure: failure(for: error)))
             }
         }
         await awaitOperation(task)

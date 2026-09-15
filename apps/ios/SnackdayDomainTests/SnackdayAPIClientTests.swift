@@ -13,11 +13,29 @@ private struct RecordedRequest: Sendable {
 private struct StubState: Sendable {
     var recorded: [RecordedRequest] = []
     var issuedCookie: String?
+    var logoutStatus = 200
+    var responseURLOverride: URL?
 }
 
 private let productionCookie = "__Host-snackday_session=stub-production-session"
 private let developmentCookie = "snackday_session_dev=stub-development-session"
 private let challengeResponse = #"{"challengeId":"challenge_fixture","nonce":"fixture-nonce"}"#
+
+private struct LiveCreateTeamRequest: Encodable { let name: String }
+private struct LiveCreateTeamResponse: Decodable {
+    struct Team: Decodable { let id: String }
+    let team: Team
+}
+private struct LiveCreateInvitationRequest: Encodable {
+    struct RecipientBinding: Encodable { let kind: String; let personId: String }
+    let invitedRole: String
+    let inviteeLabel: String
+    let recipientBinding: RecipientBinding
+}
+private struct LiveCreateInvitationResponse: Decodable {
+    struct Invitation: Decodable { let inviteUrl: String }
+    let invitation: Invitation
+}
 
 private final class MemoryCookieStore: SessionCookieStoring, Sendable {
     private let values = Mutex<[String: String]>([:])
@@ -40,6 +58,10 @@ final class BetaServerStubURLProtocol: URLProtocol {
 
     fileprivate static func reset() { state.withLock { $0 = StubState() } }
     fileprivate static func recordedRequests() -> [RecordedRequest] { state.withLock { $0.recorded } }
+    fileprivate static func setLogoutStatus(_ status: Int) { state.withLock { $0.logoutStatus = status } }
+    fileprivate static func setResponseURLOverride(_ url: URL?) {
+        state.withLock { $0.responseURLOverride = url }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -59,8 +81,9 @@ final class BetaServerStubURLProtocol: URLProtocol {
         let routed = Self.route(method: method, path: url.path, headers: headers, body: requestBody)
         var responseHeaders = ["Content-Type": "application/json; charset=utf-8"]
         responseHeaders.merge(routed.headers) { _, new in new }
+        let responseURL = Self.state.withLock { $0.responseURLOverride } ?? url
         guard let response = HTTPURLResponse(
-            url: url,
+            url: responseURL,
             statusCode: routed.status,
             httpVersion: "HTTP/1.1",
             headerFields: responseHeaders
@@ -126,8 +149,12 @@ final class BetaServerStubURLProtocol: URLProtocol {
         }
         if method == "GET", path == "/api/session" { return (200, identityFixture, [:]) }
         if method == "POST", path == "/api/session/logout" {
-            state.withLock { $0.issuedCookie = nil }
-            return (200, #"{"signedOut":true}"#, [:])
+            let status = state.withLock { state in
+                if state.logoutStatus == 200 { state.issuedCookie = nil }
+                return state.logoutStatus
+            }
+            if status == 200 { return (200, #"{"signedOut":true}"#, [:]) }
+            return (status, #"{"error":"logout unavailable"}"#, [:])
         }
         if method == "GET", path == "/api/teams" { return (200, teamsFixture, [:]) }
         if method == "GET",
@@ -165,7 +192,54 @@ private func makeStubClient(
     return SnackdayAPIClient(baseURL: baseURL, configuration: configuration, cookieStore: cookieStore)
 }
 
+private func livePost<Input: Encodable, Output: Decodable>(
+    baseURL: URL,
+    path: String,
+    cookie: String,
+    body: Input,
+    decoding _: Output.Type
+) async throws -> Output {
+    var request = URLRequest(url: baseURL.appending(path: path))
+    request.httpMethod = "POST"
+    request.httpBody = try JSONEncoder().encode(body)
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue("same-origin", forHTTPHeaderField: "Sec-Fetch-Site")
+    request.setValue(cookie, forHTTPHeaderField: "Cookie")
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse, http.statusCode == 201 else {
+        throw SnackdayAPIError.invalidResponse
+    }
+    return try JSONDecoder().decode(Output.self, from: data)
+}
+
 @Suite(.serialized) struct SnackdayAPIClientTests {
+    @Test func redirectDelegateRefusesCrossOriginRedirects() throws {
+        let origin = try #require(URL(string: "https://api.snackday.test/api/session"))
+        let destination = try #require(URL(string: "https://attacker.example/capture"))
+        let response = try #require(
+            HTTPURLResponse(
+                url: origin,
+                statusCode: 302,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Location": destination.absoluteString]
+            )
+        )
+        let task = URLSession.shared.dataTask(with: origin)
+        let followed = Mutex(true)
+
+        RejectingRedirectURLSessionDelegate().urlSession(
+            URLSession.shared,
+            task: task,
+            willPerformHTTPRedirection: response,
+            newRequest: URLRequest(url: destination)
+        ) { request in
+            followed.withLock { $0 = request != nil }
+        }
+
+        task.cancel()
+        #expect(!followed.withLock { $0 })
+    }
+
     @Test func credentialEpochRejectsLateWritesAndClears() async throws {
         let origin = URL(string: "https://api.snackday.test")!
         let store = MemoryCookieStore()
@@ -235,6 +309,28 @@ private func makeStubClient(
         #expect(sessionRequest.headers["Cookie"] == productionCookie)
     }
 
+    @Test func foreignFinalOriginIsRejectedBeforePersistingItsCookie() async throws {
+        BetaServerStubURLProtocol.reset()
+        BetaServerStubURLProtocol.setResponseURLOverride(
+            URL(string: "https://attacker.example/api/auth/apple/sign-in")
+        )
+        let origin = URL(string: "https://api.snackday.test")!
+        let store = MemoryCookieStore()
+        let client = makeStubClient(baseURL: origin, cookieStore: store)
+
+        await #expect(throws: SnackdayAPIError.invalidResponse) {
+            _ = try await client.completeAppleSignIn(
+                AppleSignInRequestDTO(
+                    challengeId: "challenge_fixture",
+                    identityToken: "opaque-token",
+                    displayName: nil,
+                    adultConsent: true
+                )
+            )
+        }
+        #expect(store.stored(for: origin) == nil)
+    }
+
     @Test func appleSignInSendsFrozenBodyAndSameOriginMetadata() async throws {
         BetaServerStubURLProtocol.reset()
         let client = makeStubClient(cookieStore: MemoryCookieStore())
@@ -286,6 +382,26 @@ private func makeStubClient(
         #expect(store.stored(for: origin) == nil)
         let logout = try #require(BetaServerStubURLProtocol.recordedRequests().last)
         #expect(logout.path == "/api/session/logout")
+        #expect(logout.headers["Cookie"] == productionCookie)
+    }
+
+    @Test func failedLogoutStillClearsCapturedLocalCredential() async throws {
+        BetaServerStubURLProtocol.reset()
+        BetaServerStubURLProtocol.setLogoutStatus(503)
+        let origin = URL(string: "https://api.snackday.test")!
+        let store = MemoryCookieStore()
+        store.saveSessionCookie(productionCookie, for: origin)
+        BetaServerStubURLProtocol.state.withLock { $0.issuedCookie = productionCookie }
+        let client = makeStubClient(baseURL: origin, cookieStore: store)
+
+        await #expect(throws: SnackdayAPIError.requestFailed(statusCode: 503)) {
+            try await client.signOut()
+        }
+
+        #expect(store.stored(for: origin) == nil)
+        let logout = try #require(
+            BetaServerStubURLProtocol.recordedRequests().last(where: { $0.path == "/api/session/logout" })
+        )
         #expect(logout.headers["Cookie"] == productionCookie)
     }
 
@@ -346,6 +462,57 @@ private func makeStubClient(
         await #expect(throws: SnackdayAPIError.unauthorized) {
             _ = try await client.currentSession()
         }
+
+        // These are synthetic development identities. This path verifies the
+        // native invitation transport against the real composed HTTP APIs; it
+        // is not Apple authentication or staging evidence.
+        let ownerStore = MemoryCookieStore()
+        let recipientStore = MemoryCookieStore()
+        let ownerClient = SnackdayAPIClient.development(baseURL: baseURL, cookieStore: ownerStore)
+        let recipientClient = SnackdayAPIClient.development(
+            baseURL: baseURL,
+            cookieStore: recipientStore
+        )
+        _ = try await ownerClient.signInDevelopment()
+        let recipientIdentity = try await recipientClient.signInDevelopment(persona: "second-adult")
+        let ownerCookie = try #require(ownerStore.stored(for: baseURL))
+        let teamName = "Native invitation \(UUID().uuidString)"
+        let createdTeam = try await livePost(
+            baseURL: baseURL,
+            path: "api/teams",
+            cookie: ownerCookie,
+            body: LiveCreateTeamRequest(name: teamName),
+            decoding: LiveCreateTeamResponse.self
+        )
+        let createdInvitation = try await livePost(
+            baseURL: baseURL,
+            path: "api/teams/\(createdTeam.team.id)/invitations",
+            cookie: ownerCookie,
+            body: LiveCreateInvitationRequest(
+                invitedRole: "adult",
+                inviteeLabel: "Native synthetic second adult",
+                recipientBinding: LiveCreateInvitationRequest.RecipientBinding(
+                    kind: "confirmed_person",
+                    personId: recipientIdentity.person.id
+                )
+            ),
+            decoding: LiveCreateInvitationResponse.self
+        )
+        let inviteURL = try #require(URL(string: createdInvitation.invitation.inviteUrl))
+        let token = try #require(inviteURL.fragment)
+
+        let preview = try await recipientClient.previewInvitation(token: token)
+        #expect(preview.state == .preview)
+        #expect(preview.teamName == teamName)
+        #expect(preview.invitedRole == .adult)
+        let acceptance = try await recipientClient.acceptInvitation(token: token)
+        #expect(acceptance.invitation.status == "accepted")
+        #expect(acceptance.team.id == createdTeam.team.id)
+        #expect(acceptance.membership.role == .adult)
+        let recipientTeams = try await recipientClient.listTeams()
+        #expect(recipientTeams.teams.contains { $0.team.id == createdTeam.team.id })
+        try await recipientClient.signOut()
+        try await ownerClient.signOut()
 #else
         Issue.record("The live development round trip requires a Debug build")
 #endif

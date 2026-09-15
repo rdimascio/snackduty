@@ -11,6 +11,18 @@ public enum SnackdayAPIError: Error, Equatable, Sendable {
     case noTeamAvailable
 }
 
+final class RejectingRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _: URLSession,
+        task _: URLSessionTask,
+        willPerformHTTPRedirection _: HTTPURLResponse,
+        newRequest _: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+}
+
 /// HTTP implementation of the frozen native transport contract. Authentication
 /// remains server-owned: the client persists only the opaque session cookie and
 /// every operation sends its team and season identifiers back to an authorized
@@ -18,6 +30,7 @@ public enum SnackdayAPIError: Error, Equatable, Sendable {
 public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport, Sendable {
     private let baseURL: URL
     private let session: URLSession
+    private let sessionDelegate: RejectingRedirectURLSessionDelegate
     private let cookies: SessionCookieCoordinator
     private let allowsInsecureLoopback: Bool
 
@@ -45,7 +58,13 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
         sessionConfiguration.httpShouldSetCookies = false
         sessionConfiguration.httpCookieAcceptPolicy = .never
         sessionConfiguration.httpCookieStorage = nil
-        self.session = URLSession(configuration: sessionConfiguration)
+        let sessionDelegate = RejectingRedirectURLSessionDelegate()
+        self.sessionDelegate = sessionDelegate
+        self.session = URLSession(
+            configuration: sessionConfiguration,
+            delegate: sessionDelegate,
+            delegateQueue: nil
+        )
         self.cookies = SessionCookieCoordinator(store: cookieStore)
         self.allowsInsecureLoopback = allowsInsecureLoopback
     }
@@ -93,10 +112,12 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
         )
     }
 
-    /// The local credential is removed after confirmed revocation. A 401 is also
-    /// a successful local outcome because no active server session remains.
+    /// Revocation is attempted with the captured credential before the local
+    /// credential is removed. Failure remains visible to the caller, but never
+    /// leaves this device signed in. An older logout cannot clear a newer login.
     public func signOut() async throws {
         let credential = try await authenticationCredential()
+        let revocationError: (any Error)?
         do {
             let response = try await perform(
                 SignOutResponseDTO.self,
@@ -104,10 +125,15 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
                 credential: credential
             )
             guard response.signedOut else { throw SnackdayAPIError.invalidResponse }
-            try await cookies.clear(for: baseURL, requestEpoch: credential.epoch)
+            revocationError = nil
         } catch SnackdayAPIError.unauthorized {
-            try await cookies.clear(for: baseURL, requestEpoch: credential.epoch)
+            revocationError = nil
+        } catch {
+            revocationError = error
         }
+        do { try await cookies.clear(for: baseURL, requestEpoch: credential.epoch) }
+        catch { throw SnackdayAPIError.unavailable }
+        if let revocationError { throw revocationError }
     }
 
     public func listTeams() async throws -> TeamsResponse {
@@ -273,27 +299,36 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
             throw SnackdayAPIError.unavailable
         }
 
-        guard let http = response as? HTTPURLResponse, let requestURL = authenticatedRequest.url else {
+        guard let http = response as? HTTPURLResponse,
+              let responseURL = http.url,
+              sameOrigin(responseURL, baseURL)
+        else {
             throw SnackdayAPIError.invalidResponse
-        }
-        do {
-            try await persistSessionCookie(
-                from: http,
-                requestURL: requestURL,
-                requestEpoch: requestEpoch
-            )
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as SnackdayAPIError {
-            throw error
-        } catch {
-            throw SnackdayAPIError.unavailable
         }
 
         switch http.statusCode {
         case 200...299:
-            break
+            do {
+                try await persistSessionCookie(
+                    from: http,
+                    requestURL: responseURL,
+                    requestEpoch: requestEpoch
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as SnackdayAPIError {
+                throw error
+            } catch {
+                throw SnackdayAPIError.unavailable
+            }
         case 401:
+            // A malformed or foreign deletion header must not prevent local
+            // invalidation of a credential the server rejected.
+            try? await persistSessionCookie(
+                from: http,
+                requestURL: responseURL,
+                requestEpoch: requestEpoch
+            )
             try? await cookies.clear(for: baseURL, requestEpoch: requestEpoch)
             throw SnackdayAPIError.unauthorized
         default:
@@ -315,5 +350,20 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
         }
         if scheme == "https" { return true }
         return allowsInsecureLoopback && scheme == "http" && ["localhost", "127.0.0.1", "::1"].contains(host)
+    }
+
+    private func sameOrigin(_ left: URL, _ right: URL) -> Bool {
+        left.scheme?.lowercased() == right.scheme?.lowercased()
+            && left.host?.lowercased() == right.host?.lowercased()
+            && effectivePort(left) == effectivePort(right)
+    }
+
+    private func effectivePort(_ url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "https": return 443
+        case "http": return 80
+        default: return nil
+        }
     }
 }

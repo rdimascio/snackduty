@@ -13,17 +13,24 @@ private actor SessionTransport: SnackdayTransport {
     var currentIdentity: AdultIdentityDTO?
     var currentError: SnackdayAPIError?
     var signedOut = false
+    private let signOutError: SnackdayAPIError?
+    private let delaysSignOut: Bool
+    private var pendingSignOut: CheckedContinuation<Void, Error>?
     let teams: TeamsResponse
     let roster: RosterResponse
 
     init(
         identity: AdultIdentityDTO? = sessionIdentity(),
         error: SnackdayAPIError? = nil,
+        signOutError: SnackdayAPIError? = nil,
+        delaysSignOut: Bool = false,
         teams: TeamsResponse = sessionTeams(),
         roster: RosterResponse = RosterResponse(roster: [])
     ) {
         currentIdentity = identity
         currentError = error
+        self.signOutError = signOutError
+        self.delaysSignOut = delaysSignOut
         self.teams = teams
         self.roster = roster
     }
@@ -40,9 +47,20 @@ private actor SessionTransport: SnackdayTransport {
         guard let currentIdentity else { throw SnackdayAPIError.unauthorized }
         return currentIdentity
     }
-    func signOut() { signedOut = true }
+    func signOut() async throws {
+        signedOut = true
+        if delaysSignOut {
+            try await withCheckedThrowingContinuation { pendingSignOut = $0 }
+        }
+        if let signOutError { throw signOutError }
+    }
     func listTeams() -> TeamsResponse { teams }
     func loadRoster(teamId: String, seasonId: String) -> RosterResponse { roster }
+    func isSignOutPending() -> Bool { pendingSignOut != nil }
+    func finishSignOut() {
+        pendingSignOut?.resume()
+        pendingSignOut = nil
+    }
 }
 
 private func sessionIdentity(
@@ -142,6 +160,72 @@ private func sessionTeams() -> TeamsResponse {
     #expect(controller.state == .signedOut)
     #expect(await transport.signedOut)
     #expect(await selections.selection(for: "person_adult") == nil)
+}
+
+@MainActor @Test func logoutClearsSignedInContextBeforeRevocationCompletes() async {
+    let transport = SessionTransport(delaysSignOut: true)
+    let selections = SessionSelectionStore()
+    let controller = SnackdayApplicationController(transport: transport, selectionStore: selections)
+    await controller.restore()
+
+    let logout = Task { await controller.signOut() }
+    for _ in 0..<1_000 {
+        if await transport.isSignOutPending() { break }
+        await Task.yield()
+    }
+
+    #expect(await transport.isSignOutPending())
+    #expect(controller.state == .signingOut)
+    #expect(await selections.selection(for: "person_adult") == nil)
+    await transport.finishSignOut()
+    await logout.value
+    #expect(controller.state == .signedOut)
+}
+
+@MainActor @Test func failedLogoutLeavesNoSignedInContext() async {
+    let transport = SessionTransport(signOutError: .offline)
+    let selections = SessionSelectionStore()
+    let controller = SnackdayApplicationController(transport: transport, selectionStore: selections)
+    await controller.restore()
+
+    await controller.signOut()
+
+    #expect(controller.state == .failed(identity: nil, directory: nil, failure: .offline))
+    #expect(await transport.signedOut)
+    #expect(await selections.selection(for: "person_adult") == nil)
+}
+
+@MainActor @Test func staleLogoutCompletionCannotReplaceANewerRestoredSession() async {
+    let transport = SessionTransport(delaysSignOut: true)
+    let controller = SnackdayApplicationController(
+        transport: transport,
+        selectionStore: SessionSelectionStore()
+    )
+    await controller.restore()
+
+    let logout = Task { await controller.signOut() }
+    for _ in 0..<1_000 {
+        if await transport.isSignOutPending() { break }
+        await Task.yield()
+    }
+    #expect(await transport.isSignOutPending())
+
+    await controller.restore()
+    guard case .ready(let identity, _, _) = controller.state else {
+        Issue.record("Expected the newer restored session to be ready")
+        await transport.finishSignOut()
+        await logout.value
+        return
+    }
+    #expect(identity.person.id == "person_adult")
+
+    await transport.finishSignOut()
+    await logout.value
+    guard case .ready(let finalIdentity, _, _) = controller.state else {
+        Issue.record("A stale logout replaced the newer restored session")
+        return
+    }
+    #expect(finalIdentity.person.id == "person_adult")
 }
 
 @MainActor @Test func safeFailuresNeverCarryServerPayloads() async {
