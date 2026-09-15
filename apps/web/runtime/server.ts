@@ -13,6 +13,7 @@ import type { RuntimeApplication, RuntimeApplicationAdapters } from "./applicati
 import type { RuntimeConfiguration, RuntimeEnvironment } from "./config";
 import { runtimeConfiguration } from "./config";
 import { redactingRequestTracer } from "./tracing";
+import { createAppleIdentityVerifier } from "../app/lib/server/apple-identity";
 
 type ServeRuntime = (app: App, options: GracefulShutdownOptions) => Promise<Server>;
 
@@ -82,7 +83,19 @@ export async function runRuntimeFromEnvironment(
   adapters: RuntimeServerAdapters = {},
 ): Promise<RunningRuntimeServer> {
   const configuration = runtimeConfiguration(environment);
-  const running = await startRuntimeServer(configuration, adapters);
+  const audience = environment["SNACKDAY_APPLE_CLIENT_ID"]?.trim();
+  const appleVerifier =
+    adapters.appleVerifier ??
+    (audience
+      ? createAppleIdentityVerifier({
+          audience,
+          ...(adapters.clock === undefined ? {} : { clock: adapters.clock }),
+        })
+      : undefined);
+  const running = await startRuntimeServer(configuration, {
+    ...adapters,
+    ...(appleVerifier === undefined ? {} : { appleVerifier }),
+  });
   console.log(
     JSON.stringify({
       level: "info",

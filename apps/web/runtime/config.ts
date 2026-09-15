@@ -88,6 +88,11 @@ function explicitBoolean(value: string | undefined, name: string): boolean {
 }
 
 export function runtimeConfiguration(environment: RuntimeEnvironment): RuntimeConfiguration {
+  if (explicitBoolean(environment["SNACKDAY_DEV_SIGN_IN"], "SNACKDAY_DEV_SIGN_IN")) {
+    throw new RuntimeConfigurationError(
+      "Development authentication is forbidden in the remote runtime.",
+    );
+  }
   return {
     mode: runtimeMode(required(environment, "SNACKDAY_RUNTIME_MODE")),
     databasePath: databasePath(required(environment, "LESTO_DB")),

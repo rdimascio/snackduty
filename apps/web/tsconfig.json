@@ -16,5 +16,5 @@
       "@/*": ["./app/*"]
     }
   },
-  "include": ["env.ts", "lesto.app.ts", "lesto.sites.ts", "worker.ts", "app"]
+  "include": ["env.ts", "lesto.app.ts", "lesto.sites.ts", "worker.ts", "app", "runtime"]
 }

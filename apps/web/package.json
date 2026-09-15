@@ -21,6 +21,7 @@
     "@lesto/migrate": "^0.2.0",
     "@lesto/observability": "^0.2.0",
     "@lesto/queue": "0.2.0",
+    "@lesto/router": "0.2.0",
     "@lesto/runtime": "^0.2.0",
     "@lesto/sites": "^0.2.0",
     "@lesto/styles": "^0.2.0",

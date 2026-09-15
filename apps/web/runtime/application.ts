@@ -1,17 +1,18 @@
-import { installSessionSchema, Sessions, sqlSessionStore } from "@lesto/auth";
-import { createDb } from "@lesto/db";
+import type { Sessions } from "@lesto/auth";
 import type { Db, SqlDatabase } from "@lesto/db";
 import { createApp } from "@lesto/kernel";
 import type { App, LestoAppConfig } from "@lesto/kernel";
 
 import type { AppleIdentityVerifier, Clock } from "../app/lib/server/application-contracts";
 import { createApplication } from "../app/lib/server/composition";
+import { identityServices } from "../app/lib/server/identity";
 import type { InviteDeliverer } from "../app/lib/server/invite-delivery";
 import type { RuntimeConfiguration } from "./config";
 import { openRuntimeDatabase } from "./database";
 import type { RuntimeDatabase } from "./database";
 import { unavailableInviteDeliverer } from "./delivery";
 import { remoteSafetyPolicy } from "./surface";
+import { registerRuntimePages, withRuntimeAssets } from "./web-surface";
 
 export interface RuntimeApplicationAdapters {
   readonly clock?: Clock;
@@ -45,12 +46,7 @@ export async function openRuntimeApplication(
 
   try {
     const clock = adapters.clock ?? Date.now;
-    const db = createDb(database.sql);
-    // sqlSessionStore prepares statements eagerly. Install Lesto's idempotent
-    // durable-session schema before constructing it; createApp installs the
-    // same platform schema again after application migrations.
-    await installSessionSchema(database.sql);
-    const sessions = new Sessions({ store: sqlSessionStore(database.sql), clock });
+    const { db, sessions } = await identityServices(database.sql, { mode: "verified", clock });
     const inviteDelivery = adapters.inviteDelivery ?? unavailableInviteDeliverer();
     const application = createApplication({
       sql: database.sql,
@@ -60,10 +56,12 @@ export async function openRuntimeApplication(
       mode: configuration.mode,
       developmentSignIn: false,
       inviteDelivery,
+      exposeCalendarFeeds: configuration.upstreamCredentialPathLoggingSafe,
       ...(adapters.appleVerifier === undefined ? {} : { appleVerifier: adapters.appleVerifier }),
     });
+    await registerRuntimePages(application.config.app);
     const kernel = await (adapters.createKernelApplication ?? createApp)(application.config);
-    const app = remoteSafetyPolicy(kernel, {
+    const app = remoteSafetyPolicy(withRuntimeAssets(kernel), {
       invitationDeliveryAvailable: adapters.inviteDelivery !== undefined,
       upstreamCredentialPathLoggingSafe: configuration.upstreamCredentialPathLoggingSafe,
     });

@@ -131,7 +131,10 @@ export async function launchScenarioIos(
     ["xcrun", "simctl", "launch", "--terminate-running-process", simulator.udid, BUNDLE_ID],
     "launch-ios-app",
     signal,
-    { SIMCTL_CHILD_SNACKDAY_API_BASE_URL: nativeApiBaseUrl },
+    {
+      SIMCTL_CHILD_SNACKDAY_API_BASE_URL: nativeApiBaseUrl,
+      SIMCTL_CHILD_SNACKDAY_DEV_SIGN_IN: "true",
+    },
   );
   return simulator;
 }

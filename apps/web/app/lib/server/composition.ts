@@ -7,6 +7,8 @@ import type { Clock } from "./application-contracts";
 import type { LestoAppConfig } from "@lesto/kernel";
 
 import { bindAppServices } from "./app-services";
+import { createAuthentication, createAuthenticationSchema } from "./authentication";
+import { registerSessionRoutes } from "./session-routes";
 import {
   authenticatedAdult,
   createIdentity,
@@ -120,6 +122,7 @@ export const applicationMigrations = [
   createEvents,
   createCalendarFeeds,
   createDuties,
+  createAuthenticationSchema,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 export function createApplication(options: ApplicationOptions) {
@@ -128,13 +131,22 @@ export function createApplication(options: ApplicationOptions) {
   }
   const config: LestoAppConfig = {
     db: options.sql,
-    app: buildApp(
-      options.db,
-      options.sessions,
-      options.developmentSignIn,
-      options.inviteDelivery,
-      options.clock,
-      options.exposeCalendarFeeds ?? options.mode === "development",
+    app: registerSessionRoutes(
+      buildApp(
+        options.db,
+        options.sessions,
+        options.developmentSignIn,
+        options.inviteDelivery,
+        options.clock,
+        options.exposeCalendarFeeds ?? options.mode === "development",
+      ),
+      createAuthentication({
+        db: options.db,
+        sessions: options.sessions,
+        clock: options.clock,
+        secureCookies: options.mode !== "development",
+        ...(options.appleVerifier === undefined ? {} : { appleVerifier: options.appleVerifier }),
+      }),
     ),
     migrations: applicationMigrations,
     secure: { originCheck: {} },

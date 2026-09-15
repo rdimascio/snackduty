@@ -6,7 +6,8 @@ import type { App } from "@lesto/kernel";
 import type { RequestSpan, RequestTracer } from "@lesto/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { accounts, DEV_SESSION_COOKIE, people } from "../app/lib/server/identity";
+import { accounts, VERIFIED_SESSION_COOKIE, people } from "../app/lib/server/identity";
+import { applicationMigrations } from "../app/lib/server/composition";
 import {
   createSqliteBackup,
   openRuntimeApplication,
@@ -72,7 +73,7 @@ async function seedAdult(runtime: Awaited<ReturnType<typeof openRuntimeApplicati
     })
     .run();
   const session = await runtime.sessions.create("account_runtime_probe", 60_000);
-  return `${DEV_SESSION_COOKIE}=${session.token}`;
+  return `${VERIFIED_SESSION_COOKIE}=${session.token}`;
 }
 
 async function createTeam(
@@ -106,6 +107,9 @@ describe("remote runtime configuration", () => {
       RuntimeConfigurationError,
     );
     expect(() => runtimeConfiguration({ ...valid, LESTO_DB: ":memory:" })).toThrow(
+      RuntimeConfigurationError,
+    );
+    expect(() => runtimeConfiguration({ ...valid, SNACKDAY_DEV_SIGN_IN: "true" })).toThrow(
       RuntimeConfigurationError,
     );
     expect(() =>
@@ -227,18 +231,19 @@ describe("durable Bun application", () => {
     const options = configuration(databasePath);
 
     const first = await openRuntimeApplication(options);
-    expect(first.migrationsApplied).toEqual([
-      "003_create_identity",
-      "004_create_teams_and_seasons",
-      "005_create_roster",
-      "006_create_invitations",
-      "007_create_events",
-      "008_create_calendar_feeds",
-      "009_create_duty_slots",
-    ]);
+    expect(first.migrationsApplied).toEqual(
+      applicationMigrations.map((migration) => migration.version),
+    );
     expect((await first.app.handle("POST", "/api/dev/sign-in")).status).toBe(404);
 
     const cookie = await seedAdult(first);
+    const sessionResponse = await first.app.handle("GET", "/api/session", { headers: { cookie } });
+    expect(sessionResponse.status).toBe(200);
+    expect(JSON.stringify(body(sessionResponse))).toContain("account_runtime_probe");
+    const page = await first.app.handle("GET", "/app", { headers: { cookie } });
+    expect(page.status).toBe(200);
+    const invitePage = await first.app.handle("GET", "/invite");
+    expect(invitePage.status).toBe(200);
     await createTeam(first, cookie, "Persistent Falcons");
     await first.close();
 
