@@ -112,11 +112,20 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
         )
     }
 
-    /// Revocation is attempted with the captured credential before the local
-    /// credential is removed. Failure remains visible to the caller, but never
-    /// leaves this device signed in. An older logout cannot clear a newer login.
+    /// The local credential is removed before revocation begins, while the
+    /// captured header is still sent to the server. Failure remains visible to
+    /// the caller, but never leaves this device signed in. An older logout
+    /// cannot clear a newer login.
     public func signOut() async throws {
         let credential = try await authenticationCredential()
+        let localClearFailed: Bool
+        do {
+            try await cookies.clear(for: baseURL, requestEpoch: credential.epoch)
+            localClearFailed = false
+        } catch {
+            localClearFailed = true
+        }
+
         let revocationError: (any Error)?
         do {
             let response = try await perform(
@@ -131,8 +140,7 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
         } catch {
             revocationError = error
         }
-        do { try await cookies.clear(for: baseURL, requestEpoch: credential.epoch) }
-        catch { throw SnackdayAPIError.unavailable }
+        if localClearFailed { throw SnackdayAPIError.unavailable }
         if let revocationError { throw revocationError }
     }
 

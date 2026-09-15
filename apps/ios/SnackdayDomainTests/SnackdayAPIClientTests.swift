@@ -17,6 +17,52 @@ private struct StubState: Sendable {
     var responseURLOverride: URL?
 }
 
+private final class LogoutGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var blocked = false
+    private var pending = false
+
+    func reset() {
+        condition.lock()
+        blocked = false
+        pending = false
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func block() {
+        condition.lock()
+        blocked = true
+        condition.unlock()
+    }
+
+    func awaitIfBlocked() {
+        condition.lock()
+        guard blocked else {
+            condition.unlock()
+            return
+        }
+        pending = true
+        condition.broadcast()
+        while blocked { condition.wait() }
+        pending = false
+        condition.unlock()
+    }
+
+    func isPending() -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return pending
+    }
+
+    func release() {
+        condition.lock()
+        blocked = false
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
 private let productionCookie = "__Host-snackday_session=stub-production-session"
 private let developmentCookie = "snackday_session_dev=stub-development-session"
 private let challengeResponse = #"{"challengeId":"challenge_fixture","nonce":"fixture-nonce"}"#
@@ -55,13 +101,20 @@ private final class MemoryCookieStore: SessionCookieStoring, Sendable {
 
 final class BetaServerStubURLProtocol: URLProtocol {
     fileprivate static let state = Mutex(StubState())
+    private static let logoutGate = LogoutGate()
 
-    fileprivate static func reset() { state.withLock { $0 = StubState() } }
+    fileprivate static func reset() {
+        state.withLock { $0 = StubState() }
+        logoutGate.reset()
+    }
     fileprivate static func recordedRequests() -> [RecordedRequest] { state.withLock { $0.recorded } }
     fileprivate static func setLogoutStatus(_ status: Int) { state.withLock { $0.logoutStatus = status } }
     fileprivate static func setResponseURLOverride(_ url: URL?) {
         state.withLock { $0.responseURLOverride = url }
     }
+    fileprivate static func blockLogout() { logoutGate.block() }
+    fileprivate static func isLogoutPending() -> Bool { logoutGate.isPending() }
+    fileprivate static func releaseLogout() { logoutGate.release() }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -149,6 +202,7 @@ final class BetaServerStubURLProtocol: URLProtocol {
         }
         if method == "GET", path == "/api/session" { return (200, identityFixture, [:]) }
         if method == "POST", path == "/api/session/logout" {
+            logoutGate.awaitIfBlocked()
             let status = state.withLock { state in
                 if state.logoutStatus == 200 { state.issuedCookie = nil }
                 return state.logoutStatus
@@ -363,8 +417,9 @@ private func livePost<Input: Encodable, Output: Decodable>(
         #expect(store.stored(for: origin) == nil)
     }
 
-    @Test func logoutRevokesBeforeClearingLocalCredential() async throws {
+    @Test func logoutClearsLocalCredentialBeforeRevocationCompletes() async throws {
         BetaServerStubURLProtocol.reset()
+        BetaServerStubURLProtocol.blockLogout()
         let origin = URL(string: "https://api.snackday.test")!
         let store = MemoryCookieStore()
         let client = makeStubClient(baseURL: origin, cookieStore: store)
@@ -377,9 +432,16 @@ private func livePost<Input: Encodable, Output: Decodable>(
             )
         )
 
-        try await client.signOut()
+        let logoutTask = Task { try await client.signOut() }
+        for _ in 0..<1_000 {
+            if BetaServerStubURLProtocol.isLogoutPending() { break }
+            await Task.yield()
+        }
 
+        #expect(BetaServerStubURLProtocol.isLogoutPending())
         #expect(store.stored(for: origin) == nil)
+        BetaServerStubURLProtocol.releaseLogout()
+        try await logoutTask.value
         let logout = try #require(BetaServerStubURLProtocol.recordedRequests().last)
         #expect(logout.path == "/api/session/logout")
         #expect(logout.headers["Cookie"] == productionCookie)
