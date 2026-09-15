@@ -53,9 +53,7 @@ export const devPersonaProvider: IdentityProvider = {
   },
 };
 
-// Sign in with Apple plugs in HERE (parked operator decision — do not build it
-// yet): an `appleIdentityProvider` verifies the ID token server-side, then
-// resolves `sub` → Account/Person through a provider-subject link table so a
-// returning Apple user maps to their EXISTING pair — same contract as above,
-// no duplication. The session-issuing route stays unchanged; only the
-// provider that vouches for the identity is swapped.
+// Production Apple verification and stable issuer+subject linking live in
+// apple-identity.ts and authentication.ts. Development identities remain
+// deliberately separate and bounded here; they never impersonate an Apple
+// subject or prove a recipient email.

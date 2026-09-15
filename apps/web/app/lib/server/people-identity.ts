@@ -1,19 +1,16 @@
 /**
  * "Are these two records the same person?" — asked in exactly one place.
  *
- * Three surfaces ask it, and they used to answer it three different ways:
+ * Two roster-maintenance surfaces use display-name similarity as a visible,
+ * manager-reviewed duplicate hint:
  *
  *   1. Roster import, deciding whether a CSV row names a child who is already
  *      on this season's roster (or appears twice in the same file).
  *   2. Manual guardian attachment, enforcing the duplicate-active-guardian
  *      invariant (`hasDuplicateActiveGuardian` in roster.ts).
- *   3. Invitation acceptance, deciding whether the adult who just accepted is
- *      the guardian a manager already typed onto the child by hand.
- *
- * Surface 3 answered it by PERSON ID, which can never match surface 2 — the
- * manual path mints a fresh placeholder Person for every attach — so accepting
- * an invitation put a second "Sam Rivera" on a child's roster. The two now
- * share the definition below, which is why one fix covers both.
+ * Authentication, invitation acceptance, account linking and guardian authority
+ * MUST NOT use these helpers. Those flows require a stable provider subject or
+ * an exact owner-confirmed record ID; a name is never identity proof.
  *
  * THE DEFINITION, and why:
  *
@@ -76,10 +73,8 @@ export function childIdentityKey(child: {
 }
 
 /**
- * The identity key for one guardian ON one child: normalized display name plus
- * the relationship label. The relationship is part of the key because the same
- * adult may legitimately hold two labels on different children, and because the
- * manual attach path has always treated name+relationship as the unique pair.
+ * A roster-maintenance duplicate hint for a placeholder guardian on one child.
+ * This key is never suitable for account linking or an authorization decision.
  */
 export function guardianIdentityKey(guardian: {
   readonly displayName: string;
