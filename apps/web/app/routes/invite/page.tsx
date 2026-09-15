@@ -31,7 +31,7 @@ type InviteData =
  *     button and the sign-in affordance once the island has a preview.
  */
 const load = async (c: Context<"/invite">): Promise<InviteData> => {
-  const services = appServices();
+  const services = appServices(c);
   if (services === undefined) return { state: "app-only" };
 
   const identity = await authenticatedAdult(services.db, services.sessions, c.header("cookie"));

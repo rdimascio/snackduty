@@ -5,3 +5,4 @@ export * from "./people";
 export * from "./policies";
 export * from "./primitives";
 export * from "./teams";
+export * from "./api-contracts";

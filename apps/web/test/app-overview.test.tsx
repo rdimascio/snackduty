@@ -1,3 +1,4 @@
+import { bindAppServices } from "../app/lib/server/app-services";
 import { createApp } from "@lesto/kernel";
 import { Context } from "@lesto/web";
 import type { PageProps } from "@lesto/web";
@@ -9,7 +10,9 @@ import appPage from "../app/routes/app/page";
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config } = await import("../lesto.app");
+const { default: config, services } = await import("./support/application").then((module) =>
+  module.testApplication(),
+);
 
 const app = await createApp(config);
 
@@ -149,6 +152,7 @@ async function loadOverview(cookie?: string): Promise<Loaded> {
     headers: cookie === undefined ? {} : { cookie },
     body: undefined,
   });
+  bindAppServices(context, services);
   // The page declares no `params` schema, so the loader's `search` argument is
   // unused; `null` stands in for "no validated search value".
   const loaded = await appPage.load?.(context, null);

@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 
 process.env.LESTO_DB = ":memory:";
 
-const { default: config } = await import("../lesto.app");
+const { default: config } = await import("./support/application").then((module) =>
+  module.testApplication(),
+);
 
 const app = await createApp(config);
 

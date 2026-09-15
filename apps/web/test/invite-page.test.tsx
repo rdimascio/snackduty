@@ -1,10 +1,10 @@
+import { bindAppServices } from "../app/lib/server/app-services";
 import { createApp } from "@lesto/kernel";
 import { Context } from "@lesto/web";
 import type { PageProps } from "@lesto/web";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { appServices } from "../app/lib/server/app-services";
 import { DEV_PERSON_ID } from "../app/lib/server/identity";
 import { invitationAcceptedBy, previewInvitation } from "../app/lib/server/invitations";
 import invitePage from "../app/routes/invite/page";
@@ -12,14 +12,12 @@ import invitePage from "../app/routes/invite/page";
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config } = await import("../lesto.app");
+const { default: config, services } = await import("./support/application").then((module) =>
+  module.testApplication(),
+);
 
 const app = await createApp(config);
 
-// `lesto.app.ts` registers the live services on import — the same registry the
-// page loader reads; the preview tests reach the typed Db through it.
-const services = appServices();
-if (services === undefined) throw new Error("lesto.app must register the app services.");
 const db = services.db;
 
 const TEAM_NAME = "Invite Landing Falcons";
@@ -160,6 +158,7 @@ async function loadInvite(cookie?: string): Promise<Loaded> {
     headers: cookie === undefined ? {} : { cookie },
     body: undefined,
   });
+  bindAppServices(context, services);
   // The page declares no `params` schema, so the loader's `search` argument is
   // unused; `null` stands in for "no validated search value".
   const loaded = await invitePage.load?.(context, null);

@@ -1,0 +1,60 @@
+{
+  "teams": [
+    {
+      "team": {
+        "id": "team_coached",
+        "name": "Fixture Falcons",
+        "status": "active",
+        "createdAt": "2026-09-14T00:00:00.000Z",
+        "updatedAt": "2026-09-14T00:00:00.000Z"
+      },
+      "seasons": [
+        {
+          "id": "season_coached",
+          "teamId": "team_coached",
+          "label": "Fall 2026",
+          "startDate": "2026-09-01",
+          "endDate": "2026-12-01",
+          "timeZone": "America/Los_Angeles",
+          "status": "active",
+          "createdAt": "2026-09-14T00:00:00.000Z",
+          "updatedAt": "2026-09-14T00:00:00.000Z"
+        }
+      ],
+      "access": "manage",
+      "capabilities": {
+        "read": true,
+        "manage": true,
+        "delegate": false
+      }
+    },
+    {
+      "team": {
+        "id": "team_family",
+        "name": "Fixture Comets",
+        "status": "active",
+        "createdAt": "2026-09-14T00:00:00.000Z",
+        "updatedAt": "2026-09-14T00:00:00.000Z"
+      },
+      "seasons": [
+        {
+          "id": "season_family",
+          "teamId": "team_family",
+          "label": "Fall 2026",
+          "startDate": "2026-09-01",
+          "endDate": "2026-12-01",
+          "timeZone": "America/Los_Angeles",
+          "status": "active",
+          "createdAt": "2026-09-14T00:00:00.000Z",
+          "updatedAt": "2026-09-14T00:00:00.000Z"
+        }
+      ],
+      "access": "read",
+      "capabilities": {
+        "read": true,
+        "manage": false,
+        "delegate": false
+      }
+    }
+  ]
+}

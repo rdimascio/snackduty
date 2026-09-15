@@ -5,7 +5,7 @@ process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
 const [{ default: config }, { hashInviteToken }] = await Promise.all([
-  import("../lesto.app"),
+  import("./support/application").then((module) => module.testApplication()),
   import("../app/lib/server/invitations"),
 ]);
 const SECOND_PERSON_ID = "person_dev_second_adult";

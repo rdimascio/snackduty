@@ -58,10 +58,14 @@ public struct SeasonDTO: Codable, Equatable, Sendable {
 public struct TeamWithSeasonsDTO: Codable, Equatable, Sendable {
     public let team: TeamDTO
     public let seasons: [SeasonDTO]
+    public let access: String?
+    public let capabilities: TeamCapabilities?
 
-    public init(team: TeamDTO, seasons: [SeasonDTO]) {
+    public init(team: TeamDTO, seasons: [SeasonDTO], access: String? = nil, capabilities: TeamCapabilities? = nil) {
         self.team = team
         self.seasons = seasons
+        self.access = access
+        self.capabilities = capabilities
     }
 }
 

@@ -1,21 +1,20 @@
 import { createApp } from "@lesto/kernel";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { appServices } from "../app/lib/server/app-services";
 import { DEV_PERSON_ID } from "../app/lib/server/identity";
 import { invitationAcceptedBy } from "../app/lib/server/invitations";
 
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
-const { default: config, devInviteDelivery } = await import("../lesto.app");
+const {
+  default: config,
+  devInviteDelivery,
+  services,
+} = await import("./support/application").then((module) => module.testApplication());
 
 const app = await createApp(config);
 
-// `lesto.app.ts` registers the live services on import — the same typed Db the
-// `/invite` landing page reads its accepted-state projection through.
-const services = appServices();
-if (services === undefined) throw new Error("lesto.app must register the app services.");
 const db = services.db;
 
 async function clearState() {

@@ -28,7 +28,7 @@ type OverviewData =
  * shell is not an authorization boundary, the DATA path is.
  */
 const load = async (c: Context<"/app">): Promise<OverviewData> => {
-  const services = appServices();
+  const services = appServices(c);
   if (services === undefined) return { state: "signed-out" };
 
   const identity = await authenticatedAdult(services.db, services.sessions, c.header("cookie"));
