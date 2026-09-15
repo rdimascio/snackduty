@@ -93,7 +93,10 @@ import Foundation
                 self.identity = identity
                 await loadDirectory(for: identity, generation: generation)
             } catch {
-                await handle(error, generation: generation)
+                guard isCurrent(generation), !isCancellation(error) else { return }
+                identity = nil
+                directory = nil
+                publish(.failed(identity: nil, directory: nil, failure: failure(for: error)))
             }
         }
         await awaitOperation(task)

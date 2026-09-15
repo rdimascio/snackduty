@@ -134,6 +134,25 @@ private func sessionTeams() -> TeamsResponse {
     #expect(controller.state == .signedOut)
 }
 
+@MainActor @Test func rejectedAppleCompletionSurfacesAnUnauthorizedFailure() async {
+    let controller = SnackdayApplicationController(
+        transport: SessionTransport(identity: nil),
+        selectionStore: SessionSelectionStore()
+    )
+
+    await controller.completeAppleSignIn(
+        challengeID: "challenge",
+        identityToken: "rejected-token",
+        displayName: nil,
+        adultConsent: true
+    )
+
+    #expect(
+        controller.state
+            == .failed(identity: nil, directory: nil, failure: .unauthorized)
+    )
+}
+
 @MainActor @Test func emptyTeamDirectoryIsAnHonestState() async {
     let controller = SnackdayApplicationController(
         transport: SessionTransport(teams: TeamsResponse(teams: [])),
