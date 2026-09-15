@@ -128,6 +128,23 @@ private let coordinationContext = CoordinationContext(
     #expect(rows.first?.occurrence.status == .cancelled)
 }
 
+@Test func eventFormattingAcceptsCanonicalAndWholeSecondServerTimestamps() throws {
+    let canonical = "2026-10-03T17:00:00.000Z"
+    let wholeSecond = "2026-10-03T17:00:00Z"
+    let offset = "2026-10-03T10:00:00.125-07:00"
+
+    let canonicalDate = try #require(CoordinationFormatting.instant(canonical))
+    let wholeSecondDate = try #require(CoordinationFormatting.instant(wholeSecond))
+    #expect(canonicalDate == wholeSecondDate)
+    let offsetDate = try #require(CoordinationFormatting.instant(offset))
+    #expect(abs(offsetDate.timeIntervalSince(wholeSecondDate) - 0.125) < 0.001)
+    #expect(
+        CoordinationFormatting.eventDate(canonical, timeZoneID: "America/Los_Angeles")
+            != "Date unavailable"
+    )
+    #expect(CoordinationFormatting.instant("not-a-timestamp") == nil)
+}
+
 @Test func unauthorizedDetectionCoversEveryControllerFailureSurface() {
     #expect(
         CoordinationViewModel.containsUnauthorized(

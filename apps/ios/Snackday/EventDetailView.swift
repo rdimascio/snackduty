@@ -6,6 +6,7 @@ struct EventDetailView: View {
     let controller: any SnackdayCoordinationControlling
     let state: CoordinationState
     let occurrenceID: String
+    @State private var respondingParticipantID: String?
 
     var body: some View {
         Group {
@@ -22,6 +23,21 @@ struct EventDetailView: View {
         .task(id: occurrenceID) {
             guard state.context == context else { return }
             await controller.openOccurrence(occurrenceID)
+        }
+        .confirmationDialog(
+            rsvpDialogTitle,
+            isPresented: rsvpDialogIsPresented,
+            titleVisibility: .visible
+        ) {
+            if let option = respondingOption {
+                Button("Going") { record(option, status: .yes) }
+                    .accessibilityIdentifier("rsvp-yes-\(option.participantId)")
+                Button("Maybe") { record(option, status: .maybe) }
+                    .accessibilityIdentifier("rsvp-maybe-\(option.participantId)")
+                Button("Not Going") { record(option, status: .no) }
+                    .accessibilityIdentifier("rsvp-no-\(option.participantId)")
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -115,19 +131,19 @@ struct EventDetailView: View {
                     .accessibilityIdentifier("rsvp-empty")
             } else {
                 ForEach(attendance.responseOptions, id: \.participantId) { option in
-                    Menu {
-                        Button("Going") { record(option, status: .yes) }
-                            .accessibilityIdentifier("rsvp-yes-\(option.participantId)")
-                        Button("Maybe") { record(option, status: .maybe) }
-                            .accessibilityIdentifier("rsvp-maybe-\(option.participantId)")
-                        Button("Not Going") { record(option, status: .no) }
-                            .accessibilityIdentifier("rsvp-no-\(option.participantId)")
+                    Button {
+                        respondingParticipantID = option.participantId
                     } label: {
-                        LabeledContent(
-                            option.displayName,
-                            value: RSVPStatusCopy.label(option.status)
-                        )
+                        HStack {
+                            Text(option.displayName)
+                            Spacer()
+                            Text(RSVPStatusCopy.label(option.status))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .disabled(cancelled || isSaving)
                     .accessibilityLabel(
                         "RSVP for \(option.displayName), \(RSVPStatusCopy.label(option.status))"
@@ -219,6 +235,28 @@ struct EventDetailView: View {
     private var isSaving: Bool {
         if case .saving = state.mutation { return true }
         return false
+    }
+
+    private var respondingOption: AttendanceOptionDTO? {
+        guard let respondingParticipantID,
+              case .loaded(let detail) = state.detail
+        else { return nil }
+        return detail.attendance.responseOptions.first {
+            $0.participantId == respondingParticipantID
+        }
+    }
+
+    private var rsvpDialogTitle: String {
+        respondingOption.map { "RSVP for \($0.displayName)" } ?? "RSVP"
+    }
+
+    private var rsvpDialogIsPresented: Binding<Bool> {
+        Binding(
+            get: { respondingParticipantID != nil },
+            set: { isPresented in
+                if !isPresented { respondingParticipantID = nil }
+            }
+        )
     }
 
     private func record(_ option: AttendanceOptionDTO, status: AttendanceStatusDTO) {

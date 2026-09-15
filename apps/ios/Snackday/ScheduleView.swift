@@ -266,12 +266,20 @@ private struct ScheduleEventRow: View {
 
 enum CoordinationFormatting {
     static func eventDate(_ value: String, timeZoneID: String) -> String {
-        guard let date = ISO8601DateFormatter().date(from: value) else { return "Date unavailable" }
+        guard let date = instant(value) else { return "Date unavailable" }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         formatter.timeZone = TimeZone(identifier: timeZoneID) ?? TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
+    }
+
+    static func instant(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: value) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: value)
     }
 
     static func localDate(_ date: Date, timeZoneID: String) -> String {
