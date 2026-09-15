@@ -6,3 +6,4 @@ export * from "./policies";
 export * from "./primitives";
 export * from "./teams";
 export * from "./api-contracts";
+export * from "./coordination-contracts";

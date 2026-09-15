@@ -1,0 +1,17 @@
+{
+  "title": "Saturday practice",
+  "kind": "practice",
+  "location": "Community field",
+  "schedule": {
+    "timeZone": "America/Los_Angeles",
+    "localTime": "10:00",
+    "durationMinutes": 60,
+    "frequency": "once",
+    "startDate": "2026-10-03"
+  },
+  "requestId": "f15f9510-7369-4d5f-a33e-68b6d59eb768",
+  "snackDuty": {
+    "label": "Snacks",
+    "instructions": "Bring individually wrapped snacks."
+  }
+}

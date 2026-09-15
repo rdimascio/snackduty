@@ -1,0 +1,12 @@
+{
+  "dutySlots": [
+    {
+      "id": "duty_slot_fixture",
+      "occurrenceId": "event_occurrence_fixture",
+      "label": "Snacks",
+      "instructions": "Bring individually wrapped snacks.",
+      "createdAt": "2026-09-14T18:00:00.000Z",
+      "updatedAt": "2026-09-14T18:00:00.000Z"
+    }
+  ]
+}

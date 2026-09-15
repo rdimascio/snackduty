@@ -13,6 +13,26 @@ import Testing
 
 private final class ContractFixtureBundleToken {}
 
+@Test func canonicalCoordinationFixturesDecode() throws {
+    let decoder = JSONDecoder()
+    let input = try decoder.decode(CreateEventRequestDTO.self, from: contractFixture(named: "event-create-input"))
+    let created = try decoder.decode(CreateEventResponseDTO.self, from: contractFixture(named: "event-created"))
+    let schedule = try decoder.decode(SeasonEventsResponseDTO.self, from: contractFixture(named: "season-events"))
+    let attendance = try decoder.decode(AttendanceReadResponseDTO.self, from: contractFixture(named: "attendance-own-child"))
+    let recorded = try decoder.decode(AttendanceResponseDTO.self, from: contractFixture(named: "attendance-recorded"))
+    let slots = try decoder.decode(DutySlotsResponseDTO.self, from: contractFixture(named: "duty-slots"))
+    let claimed = try decoder.decode(DutySlotResponseDTO.self, from: contractFixture(named: "duty-claimed"))
+    #expect(input.schedule.frequency == .once)
+    #expect(created.series.title == input.title)
+    #expect(created.dutySlots.first?.occurrenceId == created.occurrences.first?.id)
+    #expect(schedule.events.first?.occurrences.first?.attendance?.yes == 1)
+    #expect(attendance.attendance.responseOptions.count == 2)
+    #expect(attendance.attendance.responseOptions.last?.status == nil)
+    #expect(recorded.attendance.status == .yes)
+    #expect(slots.dutySlots.first?.assignee == nil)
+    #expect(claimed.dutySlot.assignee?.personId == "person_fixture_adult")
+}
+
 private func contractFixture(named name: String) throws -> Data {
     let bundle = Bundle(for: ContractFixtureBundleToken.self)
     let url = bundle.url(forResource: name, withExtension: "json", subdirectory: "fixtures")

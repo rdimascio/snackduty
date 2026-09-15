@@ -26,6 +26,7 @@ import { registerAttendanceRoutes } from "./attendance";
 import { createCalendarFeeds, registerCalendarFeedRoutes } from "./calendar-feeds";
 import { createDuties, registerDutyRoutes } from "./duties";
 import { createEvents, registerEventRoutes } from "./events";
+import { createEventCreationReceipts } from "./event-creation-receipts";
 import { devInviteDeliverer } from "./invite-delivery";
 import type { InviteDeliverer } from "./invite-delivery";
 import {
@@ -142,6 +143,7 @@ export const applicationMigrations = [
   createAuthenticationSchema,
   createInvitationRecipientBinding,
   createInvitationOutbox,
+  createEventCreationReceipts,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 export function createApplication(options: ApplicationOptions) {
