@@ -16,6 +16,53 @@ import Testing
     #expect(try first.sessionCookie(for: origin) == nil)
 }
 
+@MainActor
+@Test func cancellingInvitationSheetDoesNotCancelApplicationRefresh() async {
+    let transport = RefreshTransport()
+    let controller = SnackdayApplicationController(transport: transport)
+    let model = NativeAppViewModel(controller: controller)
+    await model.restoreOnce()
+
+    let sheet = Task { await model.refreshAfterJoining() }
+    await transport.waitForRefresh()
+    sheet.cancel()
+    await transport.finishRefresh()
+    await sheet.value
+
+    guard case .emptyTeams = controller.state else {
+        Issue.record("The application must finish refreshing after the invitation sheet closes")
+        return
+    }
+}
+
+private actor RefreshTransport: SnackdayTransport {
+    private var calls = 0
+    private var pending: CheckedContinuation<TeamsResponse, Never>?
+    private var waiting: CheckedContinuation<Void, Never>?
+    func currentSession() async throws -> AdultIdentityDTO {
+        AdultIdentityDTO(account: DevAccountDTO(id: "refresh-account"),
+                         person: DevPersonDTO(id: "refresh-person", displayName: "Fixture Adult"))
+    }
+    func listTeams() async throws -> TeamsResponse {
+        calls += 1
+        if calls == 1 { return TeamsResponse(teams: []) }
+        return await withCheckedContinuation {
+            pending = $0
+            waiting?.resume()
+            waiting = nil
+        }
+    }
+    func waitForRefresh() async {
+        if pending != nil { return }
+        await withCheckedContinuation { waiting = $0 }
+    }
+    func finishRefresh() { pending?.resume(returning: TeamsResponse(teams: [])); pending = nil }
+    func beginAppleSignIn() async throws -> AppleChallengeDTO { throw SnackdayAPIError.unavailable }
+    func completeAppleSignIn(_: AppleSignInRequestDTO) async throws -> AdultIdentityDTO { throw SnackdayAPIError.unavailable }
+    func signOut() async throws {}
+    func loadRoster(teamId: String, seasonId: String) async throws -> RosterResponse { throw SnackdayAPIError.unavailable }
+}
+
 @Test func previewSnapshotComposesDomainAndDesignSystem() {
     #expect(HomeSnapshot.preview.team.name == "T-Ball Tigers")
     #expect(SnackdaySpacing.standard == 16)

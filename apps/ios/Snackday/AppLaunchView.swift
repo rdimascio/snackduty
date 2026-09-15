@@ -50,7 +50,7 @@ struct AppLaunchView: View {
         .task { await model.restoreOnce() }
         .sheet(isPresented: $showingJoinTeam) {
             if let invitationTransport {
-                JoinTeamView(transport: invitationTransport) { await model.retry() }
+                JoinTeamView(transport: invitationTransport) { await model.refreshAfterJoining() }
             }
         }
     }
@@ -120,6 +120,13 @@ final class NativeAppViewModel {
     func selectTeam(_ teamID: String) async { await controller.selectTeam(teamID) }
     func selectSeason(_ seasonID: String) async { await controller.selectSeason(seasonID) }
     func retry() async { await controller.retry() }
+
+    func refreshAfterJoining() async {
+        // Membership is already committed. The application refresh outlives
+        // the invitation sheet; a newer controller operation still cancels it.
+        let refresh = Task { await controller.retry() }
+        await refresh.value
+    }
 
     func signOut() async {
         challenge = nil
