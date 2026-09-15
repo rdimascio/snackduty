@@ -345,6 +345,51 @@ describe("reading attendance", () => {
     }
   });
 
+  it("hides attendance aggregates after the occurrence season is archived", async () => {
+    const ownerCookie = await signIn();
+    const fixture = await buildFixture(ownerCookie);
+    expect((await record(ownerCookie, fixture, fixture.childA, "yes")).status).toBe(200);
+
+    await config.db
+      .prepare("UPDATE seasons SET status = 'archived' WHERE id = ?")
+      .run([fixture.seasonId]);
+
+    for (const response of [
+      await read(ownerCookie, fixture),
+      await record(ownerCookie, fixture, fixture.childA, "maybe"),
+    ]) {
+      expect(response.status).toBe(404);
+      expect(json(response)).toEqual({ error: "event not found" });
+    }
+    expect(await config.db.prepare("SELECT status FROM event_attendance").all()).toEqual([
+      { status: "yes" },
+    ]);
+  });
+
+  it("rejects an occurrence whose authoritative series belongs to another team", async () => {
+    const ownerCookie = await signIn();
+    const first = await buildFixture(ownerCookie);
+    const second = await buildFixture(ownerCookie);
+    expect((await record(ownerCookie, first, first.childA, "yes")).status).toBe(200);
+
+    await config.db
+      .prepare(
+        "UPDATE event_occurrences SET local_date = '2030-05-02', series_id = (SELECT series_id FROM event_occurrences WHERE id = ?) WHERE id = ?",
+      )
+      .run([second.occurrenceId, first.occurrenceId]);
+
+    for (const response of [
+      await read(ownerCookie, first),
+      await record(ownerCookie, first, first.childA, "maybe"),
+    ]) {
+      expect(response.status).toBe(404);
+      expect(json(response)).toEqual({ error: "event not found" });
+    }
+    expect(await config.db.prepare("SELECT status FROM event_attendance").all()).toEqual([
+      { status: "yes" },
+    ]);
+  });
+
   it("hides reads from strangers and requires authentication", async () => {
     const ownerCookie = await signIn();
     const fixture = await buildFixture(ownerCookie);

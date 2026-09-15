@@ -26,12 +26,11 @@ import {
   attendanceCountsByOccurrence,
   emptyAttendanceCounts,
   eventAttendance,
-  eventOccurrences,
-  eventSeries,
   recordAttendanceInputSchema,
 } from "./events";
 import { authenticatedAdult, people } from "./identity";
 import { authorizeTeamOperation } from "./authorization";
+import { activeOccurrenceForOperation } from "./occurrence-access";
 import { memberships, participants } from "./roster";
 import { teamAccess } from "./teams";
 
@@ -40,24 +39,6 @@ const teamNotFound = { error: "team not found" } as const;
 const eventNotFound = { error: "event not found" } as const;
 const participantNotFound = { error: "participant not found" } as const;
 const occurrenceCancelled = { error: "event occurrence is cancelled" } as const;
-
-/** An occurrence on this team, joined to its series — or undefined, hidden. */
-async function teamOccurrence(tx: Db, teamId: string, occurrenceId: string) {
-  const occurrence = await tx
-    .select()
-    .from(eventOccurrences)
-    .where(and(eq(eventOccurrences.id, occurrenceId), eq(eventOccurrences.teamId, teamId)))
-    .get();
-  if (occurrence === undefined) return undefined;
-
-  const series = await tx
-    .select()
-    .from(eventSeries)
-    .where(and(eq(eventSeries.id, occurrence.seriesId), eq(eventSeries.status, "active")))
-    .get();
-
-  return series === undefined ? undefined : { occurrence, series };
-}
 
 /** Whether this child is ACTIVE on the season's roster the series belongs to. */
 async function rosteredParticipant(
@@ -125,7 +106,10 @@ async function recordAttendance(
     const access = await teamAccess(tx, c.param("teamId"), identity.person.id);
     if (access === undefined) return null;
 
-    const found = await teamOccurrence(tx, access.team.id, c.param("occurrenceId"));
+    const found = await activeOccurrenceForOperation(tx, identity.person.id, "season.read", {
+      teamId: access.team.id,
+      occurrenceId: c.param("occurrenceId"),
+    });
     if (found === undefined) return "no-occurrence" as const;
     if (found.occurrence.status === "cancelled") return "cancelled" as const;
 
@@ -204,77 +188,86 @@ async function readAttendance(
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const access = await teamAccess(db, c.param("teamId"), identity.person.id);
-  if (access === undefined) return c.json(teamNotFound, 404);
+  const outcome = await db.transaction(async (tx) => {
+    const access = await teamAccess(tx, c.param("teamId"), identity.person.id);
+    if (access === undefined) return null;
 
-  const found = await teamOccurrence(db, access.team.id, c.param("occurrenceId"));
-  if (found === undefined) return c.json(eventNotFound, 404);
+    const found = await activeOccurrenceForOperation(tx, identity.person.id, "season.read", {
+      teamId: access.team.id,
+      occurrenceId: c.param("occurrenceId"),
+    });
+    if (found === undefined) return "no-occurrence" as const;
 
-  const rows = await db
-    .select()
-    .from(eventAttendance)
-    .where(eq(eventAttendance.occurrenceId, found.occurrence.id))
-    .all();
-  const counts =
-    (await attendanceCountsByOccurrence(db, [found.occurrence.id])).get(found.occurrence.id) ??
-    emptyAttendanceCounts();
+    const rows = await tx
+      .select()
+      .from(eventAttendance)
+      .where(eq(eventAttendance.occurrenceId, found.occurrence.id))
+      .all();
+    const counts =
+      (await attendanceCountsByOccurrence(tx, [found.occurrence.id])).get(found.occurrence.id) ??
+      emptyAttendanceCounts();
 
-  const entries = [];
-  for (const row of rows) {
-    if (
-      await authorizeTeamOperation(db, identity.person.id, "participant.read", {
-        teamId: access.team.id,
-        seasonId: found.series.seasonId,
-        participantId: row.participantId,
-      })
-    )
-      entries.push(row);
-  }
+    const entries = [];
+    for (const row of rows) {
+      if (
+        await authorizeTeamOperation(tx, identity.person.id, "participant.read", {
+          teamId: access.team.id,
+          seasonId: found.series.seasonId,
+          participantId: row.participantId,
+        })
+      )
+        entries.push(row);
+    }
 
-  const participantRows =
-    entries.length === 0
-      ? []
-      : await db
-          .select()
-          .from(participants)
-          .where(
-            inList(
-              participants.id,
-              entries.map((row) => row.participantId),
-            ),
-          )
-          .all();
-  const personRows =
-    participantRows.length === 0
-      ? []
-      : await db
-          .select()
-          .from(people)
-          .where(
-            inList(
-              people.id,
-              participantRows.map((row) => row.personId),
-            ),
-          )
-          .all();
-  const namesByParticipantId = new Map(
-    participantRows.map((row) => {
-      const person = personRows.find((candidate) => candidate.id === row.personId);
-      return [row.id, person?.displayName ?? ""] as const;
-    }),
-  );
+    const participantRows =
+      entries.length === 0
+        ? []
+        : await tx
+            .select()
+            .from(participants)
+            .where(
+              inList(
+                participants.id,
+                entries.map((row) => row.participantId),
+              ),
+            )
+            .all();
+    const personRows =
+      participantRows.length === 0
+        ? []
+        : await tx
+            .select()
+            .from(people)
+            .where(
+              inList(
+                people.id,
+                participantRows.map((row) => row.personId),
+              ),
+            )
+            .all();
+    const namesByParticipantId = new Map(
+      participantRows.map((row) => {
+        const person = personRows.find((candidate) => candidate.id === row.personId);
+        return [row.id, person?.displayName ?? ""] as const;
+      }),
+    );
 
-  const projected = entries.map((row) => ({
-    ...projectAttendance(row),
-    displayName: namesByParticipantId.get(row.participantId) ?? "",
-  }));
-  projected.sort(
-    (left, right) =>
-      left.displayName.localeCompare(right.displayName) ||
-      left.participantId.localeCompare(right.participantId),
-  );
+    const projected = entries.map((row) => ({
+      ...projectAttendance(row),
+      displayName: namesByParticipantId.get(row.participantId) ?? "",
+    }));
+    projected.sort(
+      (left, right) =>
+        left.displayName.localeCompare(right.displayName) ||
+        left.participantId.localeCompare(right.participantId),
+    );
 
-  return c.json({ attendance: { counts, entries: projected } });
+    return { counts, entries: projected };
+  });
+
+  if (outcome === null) return c.json(teamNotFound, 404);
+  if (outcome === "no-occurrence") return c.json(eventNotFound, 404);
+  return c.json({ attendance: outcome });
 }
 
 export function registerAttendanceRoutes(
