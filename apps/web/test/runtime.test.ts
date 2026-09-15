@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { App } from "@lesto/kernel";
+import { openSqlite } from "@lesto/runtime";
 import type { RequestSpan, RequestTracer } from "@lesto/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -10,6 +11,7 @@ import { accounts, VERIFIED_SESSION_COOKIE, people } from "../app/lib/server/ide
 import { applicationMigrations } from "../app/lib/server/composition";
 import {
   createSqliteBackup,
+  openRuntimeDatabase,
   openRuntimeApplication,
   redactingRequestTracer,
   remoteSafetyPolicy,
@@ -18,6 +20,7 @@ import {
   RuntimeAdapterUnavailableError,
   RuntimeBackupError,
   RuntimeConfigurationError,
+  RuntimeDatabaseDriverUnavailableError,
   startRuntimeServer,
   unavailableInviteDeliverer,
 } from "../runtime";
@@ -147,6 +150,157 @@ describe("remote runtime configuration", () => {
         SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE: "yes",
       }),
     ).toThrow(RuntimeConfigurationError);
+  });
+
+  it("selects PostgreSQL explicitly without treating its connection string as a file path", () => {
+    const configured = runtimeConfiguration({
+      ...valid,
+      SNACKDAY_DATABASE_DIALECT: "postgres",
+      LESTO_DB: undefined,
+      DATABASE_URL: "postgresql://snackday:secret@db.internal/snackday?sslmode=require",
+      SNACKDAY_DATABASE_POOL_MAX: "8",
+    });
+
+    expect(configured).toMatchObject({
+      databaseDialect: "postgres",
+      databaseUrl: "postgresql://snackday:secret@db.internal/snackday?sslmode=require",
+      databasePoolMax: 8,
+    });
+    expect("databasePath" in configured).toBe(false);
+  });
+
+  it("rejects incomplete or malformed PostgreSQL configuration", () => {
+    const postgres = {
+      ...valid,
+      SNACKDAY_DATABASE_DIALECT: "postgres",
+      LESTO_DB: undefined,
+    };
+
+    expect(() => runtimeConfiguration(postgres)).toThrow(RuntimeConfigurationError);
+    expect(() =>
+      runtimeConfiguration({ ...postgres, DATABASE_URL: "https://db.internal/db" }),
+    ).toThrow(RuntimeConfigurationError);
+    expect(() =>
+      runtimeConfiguration({
+        ...postgres,
+        DATABASE_URL: "postgresql://db.internal/snackday",
+        SNACKDAY_DATABASE_POOL_MAX: "0",
+      }),
+    ).toThrow(RuntimeConfigurationError);
+    expect(() => runtimeConfiguration({ ...valid, SNACKDAY_DATABASE_DIALECT: "mysql" })).toThrow(
+      RuntimeConfigurationError,
+    );
+  });
+});
+
+describe("runtime database selection", () => {
+  const target = {
+    dialect: "postgres" as const,
+    connectionString: "postgresql://snackday:secret@db.internal/snackday?sslmode=require",
+    maxConnections: 8,
+  };
+
+  it("fails closed when the PostgreSQL driver has not been wired", async () => {
+    await expect(openRuntimeDatabase(target)).rejects.toBeInstanceOf(
+      RuntimeDatabaseDriverUnavailableError,
+    );
+  });
+
+  it("passes the bounded pool configuration to an injected PostgreSQL opener", async () => {
+    const opened: unknown[] = [];
+    const closed: string[] = [];
+    const underlying = await openSqlite(":memory:");
+
+    const database = await openRuntimeDatabase(target, {
+      openPostgres: (configuration) => {
+        opened.push(configuration);
+        return Promise.resolve({
+          db: underlying.db,
+          close: () => {
+            closed.push("closed");
+            underlying.close();
+          },
+        });
+      },
+    });
+
+    expect(opened).toEqual([
+      {
+        connectionString: target.connectionString,
+        max: target.maxConnections,
+      },
+    ]);
+    expect(database.dialect).toBe("postgres");
+    await database.close();
+    expect(closed).toEqual(["closed"]);
+  });
+
+  it("threads the selected dialect into the Lesto kernel configuration", async () => {
+    const opened = await openSqlite(":memory:");
+    let receivedTarget: unknown;
+    let receivedDialect: unknown;
+
+    const runtime = await openRuntimeApplication(
+      {
+        mode: "staging",
+        databaseDialect: "postgres",
+        databaseUrl: target.connectionString,
+        databasePoolMax: target.maxConnections,
+        host: "127.0.0.1",
+        port: 0,
+        publicBaseUrl: new URL("https://staging.snackduty.test"),
+        appleClientId: "com.snackday.runtime-fixture",
+        upstreamCredentialPathLoggingSafe: false,
+      },
+      {
+        openDatabase(databaseTarget) {
+          receivedTarget = databaseTarget;
+          return Promise.resolve({ dialect: "postgres", sql: opened.db, close: opened.close });
+        },
+        createKernelApplication(config) {
+          receivedDialect = config.dialect;
+          return Promise.resolve({ migrationsApplied: [], handle: config.app.handle });
+        },
+      },
+    );
+
+    expect(receivedTarget).toEqual(target);
+    expect(receivedDialect).toBe("postgres");
+    await runtime.close();
+  });
+
+  it("closes and rejects an opener that returns the wrong dialect", async () => {
+    const opened = await openSqlite(":memory:");
+    let closed = false;
+
+    await expect(
+      openRuntimeApplication(
+        {
+          mode: "staging",
+          databaseDialect: "postgres",
+          databaseUrl: target.connectionString,
+          databasePoolMax: target.maxConnections,
+          host: "127.0.0.1",
+          port: 0,
+          publicBaseUrl: new URL("https://staging.snackduty.test"),
+          appleClientId: "com.snackday.runtime-fixture",
+          upstreamCredentialPathLoggingSafe: false,
+        },
+        {
+          openDatabase() {
+            return Promise.resolve({
+              dialect: "sqlite",
+              sql: opened.db,
+              close() {
+                closed = true;
+                opened.close();
+              },
+            });
+          },
+        },
+      ),
+    ).rejects.toThrow("different SQL dialect");
+    expect(closed).toBe(true);
   });
 });
 

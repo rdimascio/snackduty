@@ -1,5 +1,7 @@
 import type { SessionService as Sessions } from "../app/lib/server/application-contracts";
+import { createDb } from "@lesto/db";
 import type { Db, SqlDatabase } from "@lesto/db";
+import { openPostgres } from "@lesto/pg";
 import { createApp } from "@lesto/kernel";
 import type { App, LestoAppConfig } from "@lesto/kernel";
 
@@ -14,14 +16,14 @@ import type {
 import type { InviteDeliverer } from "../app/lib/server/invite-delivery";
 import type { RuntimeConfiguration } from "./config";
 import { openRuntimeDatabase } from "./database";
-import type { RuntimeDatabase } from "./database";
+import type { RuntimeDatabase, RuntimeDatabaseTarget } from "./database";
 import { unavailableInviteDeliverer } from "./delivery";
 import { remoteSafetyPolicy } from "./surface";
 import { registerRuntimePages, withRuntimeAssets } from "./web-surface";
 
 export interface RuntimeApplicationAdapters {
   readonly clock?: Clock;
-  readonly openDatabase?: (path: string) => Promise<RuntimeDatabase>;
+  readonly openDatabase?: (target: RuntimeDatabaseTarget) => Promise<RuntimeDatabase>;
   readonly createKernelApplication?: (config: LestoAppConfig) => Promise<App>;
   readonly inviteDelivery?: InviteDeliverer;
   readonly appleVerifier?: AppleIdentityVerifier;
@@ -38,11 +40,35 @@ export interface RuntimeApplication {
   close(): Promise<void>;
 }
 
+function runtimeDatabaseTarget(configuration: RuntimeConfiguration): RuntimeDatabaseTarget {
+  return configuration.databaseDialect === "postgres"
+    ? {
+        dialect: "postgres",
+        connectionString: configuration.databaseUrl,
+        maxConnections: configuration.databasePoolMax,
+      }
+    : { dialect: "sqlite", path: configuration.databasePath };
+}
+
 export async function openRuntimeApplication(
   configuration: RuntimeConfiguration,
   adapters: RuntimeApplicationAdapters = {},
 ): Promise<RuntimeApplication> {
-  const database = await (adapters.openDatabase ?? openRuntimeDatabase)(configuration.databasePath);
+  const target = runtimeDatabaseTarget(configuration);
+  const openDatabase =
+    adapters.openDatabase ??
+    ((requested: RuntimeDatabaseTarget) =>
+      openRuntimeDatabase(
+        requested,
+        requested.dialect === "postgres"
+          ? { openPostgres: (configuration) => openPostgres(configuration) }
+          : {},
+      ));
+  const database = await openDatabase(target);
+  if (database.dialect !== target.dialect) {
+    await database.close();
+    throw new Error("Runtime database opener returned a different SQL dialect than requested.");
+  }
   let closed = false;
 
   const close = async () => {
@@ -53,7 +79,8 @@ export async function openRuntimeApplication(
 
   try {
     const clock = adapters.clock ?? Date.now;
-    const { db, sessions } = await identityServices(database.sql, { mode: "verified", clock });
+    const { sessions } = await identityServices(database.sql, { mode: "verified", clock });
+    const db = createDb(database.sql, { dialect: database.dialect });
     const inviteDelivery = adapters.inviteDelivery ?? unavailableInviteDeliverer();
     const application = createApplication({
       sql: database.sql,
@@ -61,6 +88,7 @@ export async function openRuntimeApplication(
       sessions,
       clock,
       mode: configuration.mode,
+      dialect: database.dialect,
       developmentSignIn: false,
       inviteDelivery,
       exposeCalendarFeeds: configuration.upstreamCredentialPathLoggingSafe,
@@ -72,7 +100,10 @@ export async function openRuntimeApplication(
         : { invitationCipher: adapters.invitationCipher }),
     });
     await registerRuntimePages(application.config.app);
-    const kernel = await (adapters.createKernelApplication ?? createApp)(application.config);
+    const kernel = await (adapters.createKernelApplication ?? createApp)({
+      ...application.config,
+      dialect: database.dialect,
+    });
     const app = remoteSafetyPolicy(withRuntimeAssets(kernel), {
       invitationDeliveryAvailable:
         adapters.inviteDelivery !== undefined && application.outbox !== undefined,

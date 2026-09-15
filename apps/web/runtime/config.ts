@@ -2,15 +2,27 @@ import { isAbsolute, resolve } from "node:path";
 
 export type RemoteRuntimeMode = "staging" | "production";
 
-export interface RuntimeConfiguration {
+interface SharedRuntimeConfiguration {
   readonly mode: RemoteRuntimeMode;
-  readonly databasePath: string;
   readonly host: string;
   readonly port: number;
   readonly publicBaseUrl: URL;
   readonly appleClientId: string;
   readonly upstreamCredentialPathLoggingSafe: boolean;
 }
+
+export interface SqliteRuntimeConfiguration extends SharedRuntimeConfiguration {
+  readonly databaseDialect?: "sqlite";
+  readonly databasePath: string;
+}
+
+export interface PostgresRuntimeConfiguration extends SharedRuntimeConfiguration {
+  readonly databaseDialect: "postgres";
+  readonly databaseUrl: string;
+  readonly databasePoolMax: number;
+}
+
+export type RuntimeConfiguration = SqliteRuntimeConfiguration | PostgresRuntimeConfiguration;
 
 export type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
 
@@ -43,6 +55,52 @@ function databasePath(value: string): string {
   }
 
   return resolve(value);
+}
+
+function databaseDialect(value: string | undefined): "sqlite" | "postgres" {
+  if (value === undefined || value.trim() === "" || value === "sqlite") return "sqlite";
+  if (value === "postgres") return value;
+
+  throw new RuntimeConfigurationError(
+    "SNACKDAY_DATABASE_DIALECT must be either sqlite or postgres.",
+  );
+}
+
+function databaseUrl(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new RuntimeConfigurationError("DATABASE_URL must be a valid PostgreSQL URL.");
+  }
+
+  if (
+    (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") ||
+    parsed.hostname === "" ||
+    parsed.pathname === "" ||
+    parsed.pathname === "/" ||
+    parsed.hash !== "" ||
+    !["require", "verify-ca", "verify-full"].includes(parsed.searchParams.get("sslmode") ?? "")
+  ) {
+    throw new RuntimeConfigurationError(
+      "DATABASE_URL must be a PostgreSQL URL with sslmode=require, verify-ca, or verify-full.",
+    );
+  }
+
+  return value;
+}
+
+function databasePoolMax(value: string | undefined): number {
+  if (value === undefined || value.trim() === "") return 10;
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+    throw new RuntimeConfigurationError(
+      "SNACKDAY_DATABASE_POOL_MAX must be an integer between 1 and 100.",
+    );
+  }
+
+  return parsed;
 }
 
 function port(value: string | undefined): number {
@@ -94,9 +152,8 @@ export function runtimeConfiguration(environment: RuntimeEnvironment): RuntimeCo
       "Development authentication is forbidden in the remote runtime.",
     );
   }
-  return {
+  const shared = {
     mode: runtimeMode(required(environment, "SNACKDAY_RUNTIME_MODE")),
-    databasePath: databasePath(required(environment, "LESTO_DB")),
     host: environment["HOST"]?.trim() || "0.0.0.0",
     port: port(environment["PORT"]),
     publicBaseUrl: publicBaseUrl(required(environment, "SNACKDAY_PUBLIC_BASE_URL")),
@@ -106,4 +163,18 @@ export function runtimeConfiguration(environment: RuntimeEnvironment): RuntimeCo
       "SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE",
     ),
   };
+  const dialect = databaseDialect(environment["SNACKDAY_DATABASE_DIALECT"]);
+
+  return dialect === "postgres"
+    ? {
+        ...shared,
+        databaseDialect: dialect,
+        databaseUrl: databaseUrl(required(environment, "DATABASE_URL")),
+        databasePoolMax: databasePoolMax(environment["SNACKDAY_DATABASE_POOL_MAX"]),
+      }
+    : {
+        ...shared,
+        databaseDialect: dialect,
+        databasePath: databasePath(required(environment, "LESTO_DB")),
+      };
 }

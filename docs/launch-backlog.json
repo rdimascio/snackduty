@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "as_of": "2026-09-14",
+  "as_of": "2026-09-15",
   "repository": "rdimascio/snackduty",
-  "audited_commit": "1f9e10a",
+  "audited_commit": "a72c5be",
   "note": "PRs #1\u2013#4 are merged after independent review and local/hosted checks. The first native coordination journey is implemented and locally verified on feat/native-coordination; independent review and all requested local checks, including the complete Mac gate, pass. Coordination publication and hosted check receipts are tracked in PR #5 (https://github.com/rdimascio/snackduty/pull/5). Local cryptographic tests are not live Apple, hosted staging, external delivery, or TestFlight evidence. See implementation-status.md and beta-release-evidence.md. League remains R4 and branded apps R5.",
   "tasks": [
     {
@@ -15,7 +15,7 @@
       "depends_on": [],
       "acceptance": "Read required sibling Lesto guides, record the runtime ADR, serve real API routes over HTTPS with dev sign-in disabled, run migrations, and demonstrate backup restoration, health monitoring and deployment rollback. Verify request-path/token redaction at every serving/logging/tracing tier.",
       "code_areas": "apps/web/lesto.app.ts; apps/web/worker.ts; apps/web/wrangler.jsonc; docs/adr",
-      "note": "Single Bun/Lesto process with durable SQLite, canonical migrations, actual authorized APIs, health and backup/restore/rollback tooling implemented and focused tests pass locally. No hosting account, hostname or volume selected; remote HTTPS and deployment evidence incomplete."
+      "note": "Single Bun/Lesto process with durable SQLite and an explicit PostgreSQL/RDS runtime seam, canonical migrations, actual authorized APIs, health and backup/restore/rollback tooling implemented and focused tests pass locally. Alchemy 0.93.12 declares the AWS VPC/EC2/private RDS target and a redacted dry-run/read-only preflight; deployment is gated until real PostgreSQL evidence and AWS identifiers are supplied. No live account, hostname, remote HTTPS or staging evidence yet."
     },
     {
       "id": "SD-002",
