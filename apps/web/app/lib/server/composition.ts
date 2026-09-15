@@ -193,7 +193,7 @@ export function createApplication(options: ApplicationOptions) {
       }),
     ),
     migrations: applicationMigrations,
-    schemas: [installQueueSchema],
+    schemas: [(sql) => installQueueSchema(sql, options.dialect ?? "sqlite")],
     ...(options.dialect === undefined ? {} : { dialect: options.dialect }),
     secure: { originCheck: {} },
     ui: { dialect: "preact", css: "app/styles/app.css" },
