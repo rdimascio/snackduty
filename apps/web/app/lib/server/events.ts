@@ -29,7 +29,6 @@ import type { Clock } from "./application-contracts";
  * history.
  */
 
-import type { Sessions } from "@lesto/auth";
 import {
   and,
   createTableSql,
@@ -53,6 +52,7 @@ import {
 import type { EventSchedule } from "@snackday/domain";
 import { z } from "zod";
 
+import type { SessionService as Sessions } from "./application-contracts";
 import { instantFromWallTime, isValidTimeZone, scheduleDates } from "./event-time";
 import { authenticatedAdult, people } from "./identity";
 import { participants } from "./roster";

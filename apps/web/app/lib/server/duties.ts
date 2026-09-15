@@ -13,7 +13,6 @@ import type { Clock } from "./application-contracts";
  * participant, household, or guardian relationship to claim their own slot.
  */
 
-import type { Sessions } from "@lesto/auth";
 import {
   and,
   createTableSql,
@@ -29,6 +28,7 @@ import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
 import { z } from "zod";
 
+import type { SessionService as Sessions } from "./application-contracts";
 import { eventOccurrences } from "./events";
 import { accounts, authenticatedAdult, people } from "./identity";
 import { manageableActiveTeam, readableActiveTeam, teamAccess, teams } from "./teams";
