@@ -339,6 +339,18 @@
       "code_areas": "domain policy; all team-scoped routes and regression tests"
     },
     {
+      "id": "SD-031",
+      "milestone": "R0",
+      "priority": "P1",
+      "owner_role": "Engineering",
+      "title": "Make local scenarios and verification easy for development agents",
+      "status": "done",
+      "depends_on": [],
+      "acceptance": "Provide an isolated synthetic coach-parent scenario through real APIs, one-command simulator launch, fast TypeScript checks alongside the full Mac gate, a non-skippable native UI smoke with screenshot, and redacted failure artifacts with commit/tool receipts. Record the focused-to-full workflow and regression lessons for the next agent.",
+      "code_areas": "scripts; apps/ios/SnackdayUITests; .github/workflows/product.yml; docs/development-loop.md",
+      "note": "Implemented with local fast/full Mac gates, real simulator launch and visual inspection, and controlled failure-evidence validation. See development-loop.md for commands and implementation-status.md for evidence. Hosted PR checks must pass before merge. Runtime policy unification, real authentication, native coordination screens, and TestFlight release remain open."
+    },
+    {
       "id": "SD-030",
       "milestone": "R5",
       "priority": "P3",

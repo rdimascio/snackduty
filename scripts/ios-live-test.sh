@@ -15,8 +15,9 @@ set -euo pipefail
 # Selection is at SUITE granularity: Swift Testing function identifiers
 # (with or without trailing parentheses) match ZERO tests under this Xcode's
 # -only-testing, silently "succeeding" while running nothing. The whole
-# SnackdayAPIClientTests suite runs in well under a second, and the caller
-# (scripts/acceptance.ts) verifies the live test's own pass verdict.
+# SnackdayAPIClientTests suite runs in well under a second. This wrapper and its
+# acceptance caller both require the live test's own pass verdict through the
+# shared xcodebuild verdict parser.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT="$ROOT_DIR/apps/ios/Snackday.xcodeproj"
@@ -39,6 +40,10 @@ fi
 
 export TEST_RUNNER_SNACKDAY_LIVE_API="$SNACKDAY_LIVE_API"
 
+LOG_FILE="$(mktemp -t snackday-ios-live-test)"
+trap 'rm -f "$LOG_FILE"' EXIT
+
+set +e
 xcodebuild test \
   -project "$PROJECT" \
   -scheme Snackday \
@@ -46,4 +51,13 @@ xcodebuild test \
   -destination "$IOS_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   -only-testing:SnackdayDomainTests/SnackdayAPIClientTests \
-  CODE_SIGNING_ALLOWED=NO
+  CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$LOG_FILE"
+XCODEBUILD_STATUS="${PIPESTATUS[0]}"
+set -e
+
+bun "$ROOT_DIR/scripts/lib/xcodebuild-verdict.ts" \
+  "$LOG_FILE" \
+  "$XCODEBUILD_STATUS" \
+  --named-test \
+  "the live round-trip test" \
+  "LIVE API|liveDevServerRoundTrip"

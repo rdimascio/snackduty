@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT="$ROOT_DIR/apps/ios/Snackday.xcodeproj"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$ROOT_DIR/DerivedData}"
+IOS_DESTINATION="${IOS_DESTINATION:-platform=iOS Simulator,name=iPhone 16,OS=latest}"
+TEST_NAME="testHomeRosterPrivacyAndTabNavigation"
 
 if ! xcodebuild -version >/dev/null 2>&1 && [[ -d /Applications/Xcode.app ]]; then
   export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
@@ -14,10 +16,24 @@ if ! xcodebuild -version >/dev/null 2>&1; then
   exit 1
 fi
 
-exec xcodebuild build \
+LOG_FILE="$(mktemp -t snackday-ios-ui-test)"
+trap 'rm -f "$LOG_FILE"' EXIT
+
+set +e
+xcodebuild test \
   -project "$PROJECT" \
   -scheme Snackday \
   -configuration Debug \
-  -destination 'generic/platform=iOS Simulator' \
+  -destination "$IOS_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
-  CODE_SIGNING_ALLOWED=NO
+  -only-testing:SnackdayUITests/SnackdayUISmokeTests/$TEST_NAME \
+  CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$LOG_FILE"
+XCODEBUILD_STATUS="${PIPESTATUS[0]}"
+set -e
+
+bun "$ROOT_DIR/scripts/lib/xcodebuild-verdict.ts" \
+  "$LOG_FILE" \
+  "$XCODEBUILD_STATUS" \
+  --named-only \
+  "the native UI smoke test" \
+  "SnackdayUISmokeTests[./ ]$TEST_NAME"

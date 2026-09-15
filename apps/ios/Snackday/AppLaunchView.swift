@@ -11,13 +11,26 @@ struct AppLaunchView: View {
     static let baseURLEnvironmentKey = "SNACKDAY_API_BASE_URL"
 
     private let liveBaseURL: URL?
+    private let uiTestSnapshot: HomeSnapshot?
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        liveBaseURL = Self.liveBaseURL(from: environment)
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) {
+#if DEBUG
+        uiTestSnapshot = arguments.contains("-SNACKDAY_UI_TEST_FIXTURE")
+            ? Self.uiTestFixture
+            : nil
+#else
+        uiTestSnapshot = nil
+#endif
+        liveBaseURL = uiTestSnapshot == nil ? Self.liveBaseURL(from: environment) : nil
     }
 
     var body: some View {
-        if let liveBaseURL {
+        if let uiTestSnapshot {
+            AppRootView(snapshot: uiTestSnapshot)
+        } else if let liveBaseURL {
             LiveHomeView(client: SnackdayAPIClient(baseURL: liveBaseURL))
         } else {
             AppRootView(snapshot: .preview)
@@ -34,6 +47,31 @@ struct AppLaunchView: View {
         }
         return URL(string: raw)
     }
+
+#if DEBUG
+    /// Synthetic, deterministic content for XCUITest. Keeping this behind the
+    /// Debug compilation condition prevents test-success state from entering a
+    /// release build, and the values contain no account or participant data.
+    private static let uiTestFixture = HomeSnapshot(
+        greeting: "UI test fixture",
+        team: TeamSummary(name: "Fixture Team", season: "Fixture Season"),
+        nextEvent: "Fixture practice",
+        roster: [
+            RosterMember(
+                id: "fixture_private_guardians",
+                displayName: "Private Fixture Player",
+                guardians: [],
+                guardianDetailsVisible: false
+            ),
+            RosterMember(
+                id: "fixture_empty_guardians",
+                displayName: "Empty Fixture Player",
+                guardians: [],
+                guardianDetailsVisible: true
+            ),
+        ]
+    )
+#endif
 }
 
 private struct LiveHomeView: View {

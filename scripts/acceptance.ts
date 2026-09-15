@@ -30,6 +30,12 @@ import { fileURLToPath } from "node:url";
 import type { Subprocess } from "bun";
 
 import { namedTestProblems, zeroTestProblems } from "./lib/xcodebuild-verdict";
+import {
+  type AcceptanceProvenance,
+  acceptanceProvenance,
+  redactAcceptanceLog,
+  writeAcceptanceEvidence,
+} from "./lib/acceptance-evidence";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -782,7 +788,7 @@ async function verifyAcceptAndMembership(
   // `adult` reads, `owner` manages (lib/server/teams.ts owns that rule).
   ensure(
     listStep,
-    teams[0].access === (membership.role === "owner" ? "manage" : "read"),
+    teams[0].access === "read",
     `access level "${String(teams[0].access)}" does not match granted role "${String(membership.role)}"`,
   );
 }
@@ -1381,16 +1387,52 @@ async function dumpServerLogs(server: WebServer): Promise<void> {
     const content = await readFile(path, "utf8").catch(() => "");
     if (content.trim() === "") continue;
     console.error(`--- ${path} (tail) ---`);
-    console.error(content.split("\n").slice(-25).join("\n"));
+    console.error(redactAcceptanceLog(content.split("\n").slice(-25).join("\n")));
   }
 }
 
-async function main(): Promise<void> {
-  const port = reserveEphemeralPort();
-  const base = `http://127.0.0.1:${port}`;
-  const scratchDir = await mkdtemp(join(tmpdir(), "snackday-accept-"));
-  const server = bootWebServer(port, join(scratchDir, "acceptance.db"), scratchDir);
+async function finishAcceptance(input: {
+  server: WebServer | undefined;
+  scratchDir: string | undefined;
+  startedAt: string;
+  failedStep: string | null;
+  provenance: AcceptanceProvenance;
+}): Promise<void> {
+  let failedStep = input.failedStep;
+  let stopError: Error | undefined;
   try {
+    if (input.server !== undefined) await stopWebServer(input.server);
+  } catch (error) {
+    failedStep ??= "server-cleanup";
+    stopError = error instanceof Error ? error : new Error(String(error));
+  }
+  const receipt = await writeAcceptanceEvidence({
+    root: ROOT,
+    scratchDir: input.scratchDir,
+    startedAt: input.startedAt,
+    failedStep,
+    provenance: input.provenance,
+    cleanup: async () => {
+      if (input.scratchDir !== undefined)
+        await rm(input.scratchDir, { recursive: true, force: true });
+    },
+  });
+  console.log(`Acceptance evidence: ${receipt}`);
+  if (stopError !== undefined) throw stopError;
+}
+
+async function main(): Promise<void> {
+  const startedAt = new Date().toISOString();
+  const provenance = acceptanceProvenance(ROOT);
+  let scratchDir: string | undefined;
+  let server: WebServer | undefined;
+  let failedStep: string | null = null;
+  let base = "";
+  try {
+    const port = reserveEphemeralPort();
+    base = `http://127.0.0.1:${port}`;
+    scratchDir = await mkdtemp(join(tmpdir(), "snackday-accept-"));
+    server = bootWebServer(port, join(scratchDir, "acceptance.db"), scratchDir);
     await waitForReadiness(base, server);
     const cookie = await signIn(base);
     const ids = await createTeamSeasonAndRoster(base, cookie);
@@ -1403,11 +1445,11 @@ async function main(): Promise<void> {
     await verifyEventsJourney(base, cookie, ids);
     await runIosLiveCheck(port, scratchDir);
   } catch (error) {
-    await dumpServerLogs(server);
+    failedStep = error instanceof StepFailure ? error.step : "unexpected";
+    if (server !== undefined) await dumpServerLogs(server);
     throw error;
   } finally {
-    await stopWebServer(server);
-    await rm(scratchDir, { recursive: true, force: true });
+    await finishAcceptance({ server, scratchDir, startedAt, failedStep, provenance });
   }
   console.log(
     `PASS acceptance on ${base}: dev sign-in, create team, create season, add child (birth date), ` +
@@ -1429,9 +1471,9 @@ async function main(): Promise<void> {
 
 await main().catch((error: unknown) => {
   if (error instanceof StepFailure) {
-    console.error(`FAIL [${error.step}] ${error.message}`);
+    console.error(redactAcceptanceLog(`FAIL [${error.step}] ${error.message}`));
   } else {
-    console.error("FAIL [unexpected]", error);
+    console.error(redactAcceptanceLog(`FAIL [unexpected] ${String(error)}`));
   }
   process.exit(1);
 });

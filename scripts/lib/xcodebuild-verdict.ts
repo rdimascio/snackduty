@@ -8,12 +8,15 @@
  * therefore NOT evidence that anything was verified, and neither is the
  * success banner: both appear on a run that executed nothing.
  *
- * Both iOS entry points route their verdict through this module, so the guard
+ * All iOS entry points route their verdict through this module, so the guard
  * can never be strong on one path and absent on the other:
  *
  *   - `scripts/ios-test.sh` — the GATED whole-scheme run (`bun run gate` →
  *     `bun run test` → `apps/ios` `test`). It shells out to the CLI at the
- *     bottom of this file with the captured log and xcodebuild's exit code.
+ *     bottom of this file with the captured log, xcodebuild's exit code, and
+ *     the UI smoke test it requires in addition to the Swift Testing suites.
+ *   - `scripts/ios-ui-test.sh` — a focused XCTest UI run. It uses named-only
+ *     mode because this selector intentionally runs no Swift Testing bundle.
  *   - `scripts/acceptance.ts` — the live round trip (`bun run accept`). It
  *     imports `zeroTestProblems` and adds `namedTestProblems` for the one test
  *     that leg exists to run.
@@ -40,6 +43,16 @@ function count(output: string, pattern: RegExp): number {
   return [...output.matchAll(pattern)].length;
 }
 
+/** Exit/banner checks shared by Swift-suite and named-only XCTest runs. */
+export function baseRunProblems(exitCode: number, output: string): readonly string[] {
+  const problems: string[] = [];
+  if (exitCode !== 0) problems.push(`xcodebuild exited ${exitCode}`);
+  if (!output.includes(TEST_SUCCEEDED)) {
+    problems.push(`xcodebuild never printed "${TEST_SUCCEEDED}"`);
+  }
+  return problems;
+}
+
 /**
  * Everything that makes an xcodebuild run untrustworthy AS EVIDENCE, given its
  * exit code and combined stdout+stderr. An empty list means tests really ran
@@ -55,12 +68,7 @@ function count(output: string, pattern: RegExp): number {
  *   - no bundle may summarize a failure.
  */
 export function zeroTestProblems(exitCode: number, output: string): readonly string[] {
-  const problems: string[] = [];
-
-  if (exitCode !== 0) problems.push(`xcodebuild exited ${exitCode}`);
-  if (!output.includes(TEST_SUCCEEDED)) {
-    problems.push(`xcodebuild never printed "${TEST_SUCCEEDED}"`);
-  }
+  const problems = [...baseRunProblems(exitCode, output)];
 
   if (count(output, INDIVIDUAL_PASS) === 0) {
     problems.push(
@@ -114,19 +122,78 @@ export function namedTestProblems(
   return problems;
 }
 
+export interface NamedTestRequirement {
+  readonly label: string;
+  readonly namePattern: string;
+}
+
+export interface VerdictRequirements {
+  /** Disable only for a focused XCTest invocation that intentionally runs no Swift Testing suite. */
+  readonly requireSwiftTests?: boolean;
+  readonly namedTest?: NamedTestRequirement;
+}
+
+/** Compose the canonical verdict for whole-scheme and focused named-test runs. */
+export function xcodebuildProblems(
+  exitCode: number,
+  output: string,
+  requirements: VerdictRequirements = {},
+): readonly string[] {
+  const problems =
+    requirements.requireSwiftTests === false
+      ? [...baseRunProblems(exitCode, output)]
+      : [...zeroTestProblems(exitCode, output)];
+
+  if (requirements.namedTest !== undefined) {
+    problems.push(
+      ...namedTestProblems(
+        output,
+        requirements.namedTest.label,
+        requirements.namedTest.namePattern,
+      ),
+    );
+  }
+  return problems;
+}
+
 /**
- * CLI form for the shell wrapper: `bun scripts/lib/xcodebuild-verdict.ts <log>
- * <exit-code>`. Prints every problem it found and exits 1, so a "successful"
- * xcodebuild that ran nothing fails the gate loudly instead of passing quietly.
+ * CLI form for the shell wrappers. `--named-test` adds one required test to the
+ * normal Swift-suite checks; `--named-only` applies exit/banner/named checks to
+ * a focused XCTest run that intentionally has no Swift Testing summary.
  */
 if (import.meta.main) {
-  const [logPath, exitCodeArgument] = process.argv.slice(2);
-  if (logPath === undefined || exitCodeArgument === undefined) {
-    console.error("usage: bun scripts/lib/xcodebuild-verdict.ts <log-file> <xcodebuild-exit-code>");
+  const [logPath, exitCodeArgument, mode, label, namePattern, ...unexpected] =
+    process.argv.slice(2);
+  const hasNamedMode = mode === "--named-test" || mode === "--named-only";
+  const invalidNamedMode = mode !== undefined && !hasNamedMode;
+  const missingNamedArgument = hasNamedMode && (label === undefined || namePattern === undefined);
+  if (
+    logPath === undefined ||
+    exitCodeArgument === undefined ||
+    invalidNamedMode ||
+    missingNamedArgument ||
+    unexpected.length > 0
+  ) {
+    console.error(
+      "usage: bun scripts/lib/xcodebuild-verdict.ts <log-file> <xcodebuild-exit-code> " +
+        "[--named-test|--named-only <label> <name-pattern>]",
+    );
     process.exit(2);
   }
 
-  const problems = zeroTestProblems(Number(exitCodeArgument), await Bun.file(logPath).text());
+  const namedTest =
+    hasNamedMode && label !== undefined && namePattern !== undefined
+      ? { label, namePattern }
+      : undefined;
+  const requirements: VerdictRequirements =
+    namedTest === undefined
+      ? { requireSwiftTests: mode !== "--named-only" }
+      : { requireSwiftTests: mode !== "--named-only", namedTest };
+  const problems = xcodebuildProblems(
+    Number(exitCodeArgument),
+    await Bun.file(logPath).text(),
+    requirements,
+  );
   if (problems.length > 0) {
     console.error("error: this xcodebuild run is not evidence that the iOS tests passed:");
     for (const problem of problems) console.error(`  - ${problem}`);

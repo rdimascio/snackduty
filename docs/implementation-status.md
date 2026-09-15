@@ -1,5 +1,15 @@
 # Team-first implementation status
 
+## Development harness — September 14, 2026
+
+SD-031 implements the [development and verification loop](./development-loop.md): isolated synthetic owner/co-coach/parent scenarios through real APIs, optional simulator launch, separate fast CI, strict harness typechecking, and native UI smoke coverage with screenshots. The scenario keeps children as participants without accounts and verifies that coaching on one team does not grant management on the other.
+
+The local full Mac gate passed with 232 web tests, 10 domain tests, 39 platform-manifest tests, 19 Swift tests, one native UI smoke, 12 harness tests, builds, and live native/API acceptance. This run used Bun 1.4.2, Xcode 16.2, and the installed iPhone 16 / iOS 18.3.1 simulator selected by ID. A separate scenario launch was visually inspected on iPhone 16 Pro: the real synthetic team and parent-linked roster rendered successfully.
+
+A deliberately invalid native destination proved that acceptance exits nonzero, retains complete redacted server/native logs with a failed receipt, and removes its temporary database. Cleanup failures cannot produce passing receipts. The full and standalone native runners require actual test verdicts; regression coverage distinguishes the word `SKIPPED` in a test name from a genuinely skipped test. CI requires receipt and native artifacts separately, includes the explicitly allowlisted hidden artifact directory, and uploads failure evidence after potentially failing upload steps.
+
+Hosted checks are required before merging this implementation. The receipt records the tested commit and whether local source was dirty; CI provides the clean PR-commit evidence. This harness does not complete SD-003 runtime policy unification, production authentication, native coordination screens, signing, or TestFlight distribution. The existing home action tiles and unimplemented tabs still contain sample/placeholder content.
+
 ## Published foundation
 
 [PR #1](https://github.com/rdimascio/snackduty/pull/1) merged as `5146232ade232558e222badbde8a8d19a21f69ee` on September 14 after the [hosted macOS full product gate](https://github.com/rdimascio/snackduty/actions/runs/34897170161) and GitGuardian checks passed. This publishes the restored roadmap, roster privacy, duty API, native privacy correction, and product CI. Local and hosted gates both executed 226 web tests, 19 Swift tests, the domain/platform suites, builds and native live acceptance.
@@ -8,7 +18,7 @@
 
 The next isolated Sol implementation adds owner-controlled coaching grants to existing adult team memberships. Stored role precedence is owner → coach → adult. Coaches use the existing authorized roster, season, event, attendance and duty services; owners alone manage invitations and coaching grants. API `access: "manage"` describes operational access and is not permission to manage membership. Server guards remain authoritative.
 
-Integrated as `9de1226` on `feat/co-coach-beta` from Sol commit `a469f34`, based on merged main `5146232`. Independent review prompted explicit delegated-owner coverage, same-team guardian preservation, and accurate accepted-invitation role typing/display. The complete local Mac gate passed with 232 web tests, 10 domain tests, 39 platform-manifest tests, 19 Swift tests, builds, and live native/API acceptance. Hosted CI must pass before this branch is merged.
+Merged through [PR #2](https://github.com/rdimascio/snackduty/pull/2) as `5611809`, after the [hosted Mac gate](https://github.com/rdimascio/snackduty/actions/runs/34901565919) passed. Integrated from Sol commit `a469f34`. Independent review prompted explicit delegated-owner coverage, same-team guardian preservation, and accurate accepted-invitation role typing/display. The complete local and hosted Mac gates passed with 232 web tests, 10 domain tests, 39 platform-manifest tests, 19 Swift tests, builds, and live native/API acceptance.
 
 `POST /api/teams/:teamId/adult-members/:personId/co-coach/grant` requires an active adult account and team membership. The matching `/revoke` endpoint downgrades all active coach rows to ordinary adult access, including when the target account is deactivated. Neither endpoint changes a creator/owner role or guardian edges; unknown roles remain inert. A parent retains own-child reads on the coached team and other teams after coaching is revoked. Accepted invitation pages report the current coach role accurately without adding a coach invitation type.
 

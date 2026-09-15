@@ -11,3 +11,4 @@ DerivedData*/
 .studio-worktrees/
 *.xcuserstate
 xcuserdata/
+.artifacts/

@@ -14,6 +14,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  fast:
+    name: Fast product checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Run fast checks
+        run: bun run check:fast
   gate:
     name: Full product gate
     runs-on: macos-15
@@ -58,13 +75,34 @@ jobs:
         shell: bash
         run: bun run gate 2>&1 | tee "$RUNNER_TEMP/product-gate.log"
 
+      - name: Upload acceptance receipt
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/.artifacts/acceptance/*/receipt.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload native results and screenshots
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/DerivedData-CI/Logs/Test/*.xcresult
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: product-gate-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
           path: |
             ${{ runner.temp }}/product-gate.log
             ${{ github.workspace }}/DerivedData-CI/Logs/Test/*.xcresult
+            ${{ github.workspace }}/.artifacts/acceptance/
           if-no-files-found: ignore
           retention-days: 7
