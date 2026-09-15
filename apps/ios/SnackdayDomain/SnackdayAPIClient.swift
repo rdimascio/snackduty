@@ -15,7 +15,7 @@ public enum SnackdayAPIError: Error, Equatable, Sendable {
 /// remains server-owned: the client persists only the opaque session cookie and
 /// every operation sends its team and season identifiers back to an authorized
 /// server route.
-public struct SnackdayAPIClient: SnackdayTransport, Sendable {
+public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport, Sendable {
     private let baseURL: URL
     private let session: URLSession
     private let cookies: SessionCookieCoordinator
@@ -112,6 +112,14 @@ public struct SnackdayAPIClient: SnackdayTransport, Sendable {
 
     public func listTeams() async throws -> TeamsResponse {
         try await perform(TeamsResponse.self, request: request(path: "api/teams", method: "GET"))
+    }
+
+    public func previewInvitation(token: String) async throws -> InvitationPreviewDTO {
+        try await perform(InvitationPreviewDTO.self, request: try request(path: "api/invitations/preview", method: "POST", body: ["token": token]))
+    }
+
+    public func acceptInvitation(token: String) async throws -> InvitationAcceptanceDTO {
+        try await perform(InvitationAcceptanceDTO.self, request: try request(path: "api/invitations/accept", method: "POST", body: ["token": token]))
     }
 
     public func loadRoster(teamId: String, seasonId: String) async throws -> RosterResponse {

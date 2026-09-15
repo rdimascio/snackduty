@@ -2,6 +2,15 @@ import Foundation
 import SnackdayDomain
 import Testing
 
+@Test func canonicalInvitationFixturesDecode() throws {
+    let decoder = JSONDecoder()
+    let preview = try decoder.decode(InvitationPreviewDTO.self, from: contractFixture(named: "invitation-preview"))
+    let accepted = try decoder.decode(InvitationAcceptanceDTO.self, from: contractFixture(named: "invitation-accepted"))
+    #expect(preview.invitedRole == .adult)
+    #expect(accepted.membership.role == .adult)
+    #expect(accepted.team.name == preview.teamName)
+}
+
 private final class ContractFixtureBundleToken {}
 
 private func contractFixture(named name: String) throws -> Data {

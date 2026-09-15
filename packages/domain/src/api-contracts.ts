@@ -45,6 +45,21 @@ const season = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
+const adultRole = z.enum(["owner", "coach", "adult"]);
+export const invitationPreviewSchema = z.discriminatedUnion("state", [
+  z.strictObject({
+    state: z.literal("preview"),
+    teamName: id,
+    inviterDisplayName: id,
+    invitedRole: adultRole,
+  }),
+  z.strictObject({ state: z.literal("accepted"), teamName: id, grantedRole: adultRole }),
+]);
+export const invitationAcceptanceSchema = z.strictObject({
+  invitation: z.strictObject({ id, status: z.literal("accepted") }),
+  membership: z.strictObject({ role: adultRole }),
+  team,
+});
 export const teamDirectorySchema = z.strictObject({
   teams: z.array(
     z.object({

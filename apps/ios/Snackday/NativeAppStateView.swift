@@ -27,6 +27,8 @@ struct NativeAppStateView: View {
             )
         case .authenticating:
             LoadingStateView(message: "Signing you in…", identifier: "authentication-loading")
+        case .signingOut:
+            LoadingStateView(message: "Signing out…", identifier: "sign-out-loading")
         case .loading(_, let directory):
             LoadingStateView(
                 message: directory == nil ? "Loading your teams…" : "Loading your team…",

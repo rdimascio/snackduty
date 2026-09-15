@@ -7,6 +7,8 @@ import {
   rosterResponseSchema,
   signedOutSchema,
   teamDirectorySchema,
+  invitationPreviewSchema,
+  invitationAcceptanceSchema,
 } from "./api-contracts";
 
 describe("canonical native/API fixtures", () => {
@@ -18,6 +20,8 @@ describe("canonical native/API fixtures", () => {
     ["empty-directory", teamDirectorySchema],
     ["team-directory", teamDirectorySchema],
     ["roster-privacy", rosterResponseSchema],
+    ["invitation-preview", invitationPreviewSchema],
+    ["invitation-accepted", invitationAcceptanceSchema],
   ] as const) {
     it(`validates ${name}`, () => {
       const data: unknown = JSON.parse(

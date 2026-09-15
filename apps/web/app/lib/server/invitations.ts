@@ -3,7 +3,12 @@ import { and, createTableSql, defineTable, dropTableSql, eq, gt, text } from "@l
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
-import { guardianRelationshipSchema, recipientBindingSchema } from "@snackday/domain";
+import {
+  guardianRelationshipSchema,
+  recipientBindingSchema,
+  invitationPreviewSchema,
+  invitationAcceptanceSchema,
+} from "@snackday/domain";
 import type { RecipientBinding } from "@snackday/domain";
 import { z } from "zod";
 
@@ -982,11 +987,13 @@ async function acceptInvitation(
   // a later adult invitation keeps `owner`. The invitation's own role is
   // deliberately NOT echoed here — it is the offer, not the grant, and the
   // owner-facing invitation projections are where an offer is read.
-  return c.json({
-    invitation: { id: outcome.row.id, status: outcome.row.status },
-    membership: { role: outcome.grantedRole },
-    team: projectTeam(outcome.team),
-  });
+  return c.json(
+    invitationAcceptanceSchema.parse({
+      invitation: { id: outcome.row.id, status: outcome.row.status },
+      membership: { role: outcome.grantedRole },
+      team: projectTeam(outcome.team),
+    }),
+  );
 }
 
 /**
@@ -1107,14 +1114,16 @@ async function invitationPreview(
   const input = c.valid(invitationTokenInputSchema);
 
   const preview = await previewInvitation(db, input.token, options.clock);
-  if (preview !== undefined) return c.json({ state: "preview", ...preview });
+  if (preview !== undefined)
+    return c.json(invitationPreviewSchema.parse({ state: "preview", ...preview }));
 
   // Only now is a session interesting: a token already accepted BY THIS ADULT
   // resolves to their success state, and by nobody else's.
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity !== undefined) {
     const accepted = await invitationAcceptedBy(db, input.token, identity.person.id);
-    if (accepted !== undefined) return c.json({ state: "accepted", ...accepted });
+    if (accepted !== undefined)
+      return c.json(invitationPreviewSchema.parse({ state: "accepted", ...accepted }));
   }
 
   return c.json(invitationNotFound, 404);
