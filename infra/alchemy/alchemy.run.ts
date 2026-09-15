@@ -414,7 +414,7 @@ function bootstrapEnvironment(environment: BootstrapEnvironment): string {
   } as const;
   const content = Object.entries(entries)
     .map(([name, value]) => `${name}=${value}`)
-    .join("\\n");
+    .join("\n");
 
   return `#!/bin/sh\nset -eu\ninstall -d -m 0750 /etc/snackday\numask 077\nprintf '%s\\n' '${content}' > /etc/snackday/staging.env\nsystemctl restart snackday\n`;
 }

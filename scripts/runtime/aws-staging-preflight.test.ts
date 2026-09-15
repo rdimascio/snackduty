@@ -212,6 +212,7 @@ describe("AWS staging preflight", () => {
       configurationValid: true,
       awsTopologyVerified: false,
       preliminarySurfaceVerified: false,
+      loadBalancerRouteVerified: false,
       stagingVerified: false,
     });
     expect(livePreflightPassed(receipt)).toBe(false);
@@ -230,11 +231,12 @@ describe("AWS staging preflight", () => {
     expect(receipt).toMatchObject({
       mode: "live",
       awsTopologyVerified: true,
+      loadBalancerRouteVerified: false,
       preDeploySnapshotVerified: true,
       preliminarySurfaceVerified: true,
       stagingVerified: false,
     });
-    expect(livePreflightPassed(receipt)).toBe(true);
+    expect(livePreflightPassed(receipt)).toBe(false);
     expect(receipt.checks).toContainEqual({
       id: "latency-placement",
       status: "pass",

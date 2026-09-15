@@ -78,6 +78,7 @@ export interface AwsStagingPreflightReceipt {
   readonly originBindingVerified: boolean;
   readonly preDeploySnapshotVerified: boolean;
   readonly preliminarySurfaceVerified: boolean;
+  readonly loadBalancerRouteVerified: boolean;
   readonly stagingVerified: false;
 }
 
@@ -419,6 +420,7 @@ export async function verifyAwsStagingTarget(
       originBindingVerified: false,
       preDeploySnapshotVerified: false,
       preliminarySurfaceVerified: false,
+      loadBalancerRouteVerified: false,
       stagingVerified: false,
     };
   }
@@ -636,6 +638,14 @@ export async function verifyAwsStagingTarget(
     apiIngressVerified &&
     databaseTopologyVerified &&
     databaseIngressVerified;
+  // Listener/target health and artifact identity are intentionally fail-closed
+  // until the deployment adapter supplies those AWS API responses.
+  const loadBalancerRouteVerified = false;
+  checks.push({
+    id: "load-balancer-route",
+    status: "planned",
+    detail: "Listener, target-group health, and deployed artifact identity require an AWS adapter.",
+  });
   return {
     schema: "snackday/aws-staging-preflight-receipt/v1",
     mode: "live",
@@ -651,6 +661,7 @@ export async function verifyAwsStagingTarget(
     originBindingVerified,
     preDeploySnapshotVerified: snapshotVerified,
     preliminarySurfaceVerified: remote.preliminarySurfaceVerified,
+    loadBalancerRouteVerified,
     stagingVerified: false,
   };
 }
@@ -660,6 +671,7 @@ export function livePreflightPassed(receipt: AwsStagingPreflightReceipt): boolea
     receipt.awsTopologyVerified &&
     receipt.preDeploySnapshotVerified &&
     receipt.originBindingVerified &&
+    receipt.loadBalancerRouteVerified &&
     receipt.preliminarySurfaceVerified
   );
 }
