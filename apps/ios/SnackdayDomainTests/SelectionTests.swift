@@ -34,7 +34,7 @@ private actor DelayedRosterTransport: SnackdayTransport {
     func loadRoster(teamId: String, seasonId: String) async throws -> RosterResponse {
         requests.append(TeamSeasonSelection(teamID: teamId, seasonID: seasonId))
         if !delaysRoster { return RosterResponse(roster: []) }
-        try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in
             continuations[teamId] = continuation
         }
     }
