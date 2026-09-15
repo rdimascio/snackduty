@@ -27,7 +27,7 @@ final class RejectingRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegat
 /// remains server-owned: the client persists only the opaque session cookie and
 /// every operation sends its team and season identifiers back to an authorized
 /// server route.
-public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport, Sendable {
+public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport, SnackdayCoordinationTransport, Sendable {
     private let baseURL: URL
     private let session: URLSession
     private let sessionDelegate: RejectingRedirectURLSessionDelegate
@@ -166,6 +166,126 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
         )
     }
 
+    public func listEvents(teamID: String, seasonID: String) async throws -> SeasonEventsResponseDTO {
+        let response = try await perform(
+            SeasonEventsResponseDTO.self,
+            request: try coordinationRequest(
+                pathSegments: ["api", "teams", teamID, "seasons", seasonID, "events"],
+                method: "GET"
+            ),
+            extractsCoordinationFailure: true
+        )
+        guard response.events.allSatisfy({ event in
+            event.series.teamId == teamID
+                && event.series.seasonId == seasonID
+                && event.occurrences.allSatisfy {
+                    $0.seriesId == event.series.id && $0.attendance != nil
+                }
+        }) else {
+            throw CoordinationFailure.invalidResponse
+        }
+        return response
+    }
+
+    public func createEvent(
+        teamID: String,
+        seasonID: String,
+        input: CreateEventRequestDTO
+    ) async throws -> CreateEventResponseDTO {
+        let response = try await perform(
+            CreateEventResponseDTO.self,
+            request: try coordinationRequest(
+                pathSegments: ["api", "teams", teamID, "seasons", seasonID, "events"],
+                method: "POST",
+                body: input
+            ),
+            extractsCoordinationFailure: true
+        )
+        let occurrenceIDs = Set(response.occurrences.map(\.id))
+        guard response.series.teamId == teamID,
+              response.series.seasonId == seasonID,
+              response.occurrences.allSatisfy({ $0.seriesId == response.series.id }),
+              response.dutySlots.allSatisfy({ occurrenceIDs.contains($0.occurrenceId) })
+        else {
+            throw CoordinationFailure.invalidResponse
+        }
+        return response
+    }
+
+    public func readAttendance(
+        teamID: String,
+        occurrenceID: String
+    ) async throws -> AttendanceReadResponseDTO {
+        try await perform(
+            AttendanceReadResponseDTO.self,
+            request: try coordinationRequest(
+                pathSegments: ["api", "teams", teamID, "occurrences", occurrenceID, "attendance"],
+                method: "GET"
+            ),
+            extractsCoordinationFailure: true
+        )
+    }
+
+    public func recordAttendance(
+        teamID: String,
+        occurrenceID: String,
+        input: AttendanceRequestDTO
+    ) async throws -> AttendanceResponseDTO {
+        let response = try await perform(
+            AttendanceResponseDTO.self,
+            request: try coordinationRequest(
+                pathSegments: ["api", "teams", teamID, "occurrences", occurrenceID, "attendance"],
+                method: "POST",
+                body: input
+            ),
+            extractsCoordinationFailure: true
+        )
+        guard response.attendance == input else { throw CoordinationFailure.invalidResponse }
+        return response
+    }
+
+    public func listDutySlots(
+        teamID: String,
+        occurrenceID: String
+    ) async throws -> DutySlotsResponseDTO {
+        let response = try await perform(
+            DutySlotsResponseDTO.self,
+            request: try coordinationRequest(
+                pathSegments: ["api", "teams", teamID, "occurrences", occurrenceID, "duty-slots"],
+                method: "GET"
+            ),
+            extractsCoordinationFailure: true
+        )
+        guard response.dutySlots.allSatisfy({ $0.occurrenceId == occurrenceID }) else {
+            throw CoordinationFailure.invalidResponse
+        }
+        return response
+    }
+
+    public func claimDutySlot(
+        teamID: String,
+        occurrenceID: String,
+        slotID: String
+    ) async throws -> DutySlotResponseDTO {
+        let response = try await perform(
+            DutySlotResponseDTO.self,
+            request: try coordinationRequest(
+                pathSegments: [
+                    "api", "teams", teamID, "occurrences", occurrenceID,
+                    "duty-slots", slotID, "claim",
+                ],
+                method: "POST"
+            ),
+            extractsCoordinationFailure: true
+        )
+        guard response.dutySlot.id == slotID,
+              response.dutySlot.occurrenceId == occurrenceID
+        else {
+            throw CoordinationFailure.invalidResponse
+        }
+        return response
+    }
+
     /// Compatibility convenience for existing callers. It uses the current
     /// authenticated session and never creates a development session implicitly.
     public func loadHomeSnapshot(greeting: String = "Welcome back") async throws -> HomeSnapshot {
@@ -222,6 +342,60 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
         return request
     }
 
+    private func coordinationRequest(
+        pathSegments: [String],
+        method: String
+    ) throws -> URLRequest {
+        var request = URLRequest(url: try coordinationURL(pathSegments: pathSegments))
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if method == "POST" {
+            request.setValue("same-origin", forHTTPHeaderField: "Sec-Fetch-Site")
+        }
+        return request
+    }
+
+    private func coordinationRequest<Body: Encodable>(
+        pathSegments: [String],
+        method: String,
+        body: Body
+    ) throws -> URLRequest {
+        var request = try coordinationRequest(pathSegments: pathSegments, method: method)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        do {
+            request.httpBody = try JSONEncoder().encode(body)
+        } catch {
+            throw CoordinationFailure.invalidInput
+        }
+        return request
+    }
+
+    private func coordinationURL(pathSegments: [String]) throws -> URL {
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        )
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw CoordinationFailure.invalidInput
+        }
+        var encodedPath: [String] = []
+        for segment in pathSegments {
+            guard !segment.isEmpty,
+                  let encoded = segment.addingPercentEncoding(withAllowedCharacters: allowed)
+            else {
+                throw CoordinationFailure.invalidInput
+            }
+            encodedPath.append(encoded)
+        }
+        let prefix = components.percentEncodedPath.hasSuffix("/")
+            ? String(components.percentEncodedPath.dropLast())
+            : components.percentEncodedPath
+        components.percentEncodedPath = prefix + "/" + encodedPath.joined(separator: "/")
+        components.query = nil
+        components.fragment = nil
+        guard let url = components.url else { throw CoordinationFailure.invalidInput }
+        return url
+    }
+
     private func authenticationCredential() async throws -> (header: String?, epoch: UInt64) {
         guard validOrigin else { throw SnackdayAPIError.unavailable }
         do { return try await cookies.beginAuthentication(for: baseURL) }
@@ -273,7 +447,8 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
     private func perform<Payload: Decodable>(
         _ payload: Payload.Type,
         request: URLRequest,
-        credential: (header: String?, epoch: UInt64)? = nil
+        credential: (header: String?, epoch: UInt64)? = nil,
+        extractsCoordinationFailure: Bool = false
     ) async throws -> Payload {
         let authenticatedRequest: URLRequest
         let requestEpoch: UInt64
@@ -340,6 +515,11 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
             try? await cookies.clear(for: baseURL, requestEpoch: requestEpoch)
             throw SnackdayAPIError.unauthorized
         default:
+            if extractsCoordinationFailure,
+               let failure = coordinationFailure(statusCode: http.statusCode, data: data)
+            {
+                throw failure
+            }
             throw SnackdayAPIError.requestFailed(statusCode: http.statusCode)
         }
 
@@ -349,6 +529,26 @@ public struct SnackdayAPIClient: SnackdayTransport, SnackdayInvitationTransport,
             // DecodingError context can quote payload fragments, so it never
             // escapes this boundary.
             throw SnackdayAPIError.invalidResponse
+        }
+    }
+
+    private func coordinationFailure(statusCode: Int, data: Data) -> CoordinationFailure? {
+        struct CodedFailure: Decodable { let code: String }
+        let code = (try? JSONDecoder().decode(CodedFailure.self, from: data))?.code
+        switch code {
+        case "duty_slot_taken", "duty_slot_changed":
+            return .dutyTaken
+        case "event_occurrence_unavailable":
+            return .occurrenceUnavailable
+        case "request_id_conflict":
+            return .requestConflict
+        case "unknown_time_zone", "no_occurrences", "too_many_occurrences",
+             "invalid_input", "WEB_VALIDATION_FAILED":
+            return .invalidInput
+        default:
+            if statusCode == 404 { return .notFound }
+            if statusCode == 400 || statusCode == 422 { return .invalidInput }
+            return nil
         }
     }
 

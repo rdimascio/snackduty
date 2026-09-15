@@ -6,19 +6,25 @@ struct AppLaunchView: View {
     @State private var model: NativeAppViewModel
     @State private var showingJoinTeam = false
     private let invitationTransport: (any SnackdayInvitationTransport)?
+    private let coordinationController: (any SnackdayCoordinationControlling)?
 
     @MainActor init(
         controller: any SnackdayApplicationControlling,
-        invitationTransport: (any SnackdayInvitationTransport)? = nil
+        invitationTransport: (any SnackdayInvitationTransport)? = nil,
+        coordinationController: (any SnackdayCoordinationControlling)? = nil
     ) {
-        _model = State(initialValue: NativeAppViewModel(controller: controller))
+        _model = State(initialValue: NativeAppViewModel(controller: controller, coordinationController: coordinationController))
         self.invitationTransport = invitationTransport
+        self.coordinationController = coordinationController
     }
 
     @MainActor init(arguments: [String] = ProcessInfo.processInfo.arguments) {
 #if DEBUG
         if let controller = UITestApplicationController(arguments: arguments) {
-            self.init(controller: controller)
+            let fixture = NativeAppViewModel.coordinationContext(for: controller.state).map {
+                CoordinationFixtureController(context: $0, scenarioName: uiTestState(arguments))
+            }
+            self.init(controller: controller, coordinationController: fixture)
             return
         }
 #endif
@@ -44,7 +50,9 @@ struct AppLaunchView: View {
             selectSeason: { seasonID in Task { await model.selectSeason(seasonID) } },
             retry: { Task { await model.retry() } },
             signOut: { Task { await model.signOut() } },
-            joinTeam: invitationTransport == nil ? nil : { showingJoinTeam = true }
+            joinTeam: invitationTransport == nil ? nil : { showingJoinTeam = true },
+            coordinationController: coordinationController,
+            sessionExpired: { await model.restoreSession() }
         )
         .task { await model.observeState() }
         .task { await model.restoreOnce() }
@@ -59,14 +67,20 @@ struct AppLaunchView: View {
 @MainActor @Observable
 final class NativeAppViewModel {
     private let controller: any SnackdayApplicationControlling
+    private let coordinationController: (any SnackdayCoordinationControlling)?
+    private var coordinationTask: Task<Void, Never>?
+    private var lastCoordinationContext: CoordinationContext?
+    private var didSetCoordinationContext = false
     private var didRestore = false
     var state: NativeAppState
     var challenge: AppleChallengeDTO?
     var isPreparingSignIn = false
     var signInPreparationFailed = false
 
-    init(controller: any SnackdayApplicationControlling) {
+    init(controller: any SnackdayApplicationControlling,
+         coordinationController: (any SnackdayCoordinationControlling)? = nil) {
         self.controller = controller
+        self.coordinationController = coordinationController
         state = controller.state
     }
 
@@ -74,6 +88,7 @@ final class NativeAppViewModel {
         for await update in controller.stateUpdates() {
             guard !Task.isCancelled else { return }
             state = update
+            synchronizeCoordination(update)
             if case .signedOut = update {
                 continue
             }
@@ -87,6 +102,41 @@ final class NativeAppViewModel {
         didRestore = true
         await controller.restore()
         state = controller.state
+        synchronizeCoordination(state)
+    }
+
+    func restoreSession() async {
+        // Restoring identity removes Schedule from the view tree. The app owns
+        // this work so cancellation of that view cannot strand restoration.
+        let restore = Task { await controller.restore() }
+        await restore.value
+    }
+
+    private func synchronizeCoordination(_ state: NativeAppState) {
+        guard let coordinationController else { return }
+        let context = Self.coordinationContext(for: state)
+        guard !didSetCoordinationContext || lastCoordinationContext != context else { return }
+        didSetCoordinationContext = true
+        lastCoordinationContext = context
+        coordinationTask?.cancel()
+        coordinationTask = Task {
+            guard !Task.isCancelled else { return }
+            await coordinationController.setContext(context)
+        }
+    }
+
+    static func coordinationContext(for state: NativeAppState) -> CoordinationContext? {
+        guard case .ready(let identity, let directory, _) = state,
+              let selection = directory.selection,
+              let entry = directory.teams.first(where: {
+                  $0.team.id == selection.teamID && $0.team.status == "active"
+              }),
+              let season = entry.seasons.first(where: {
+                  $0.id == selection.seasonID && $0.teamId == entry.team.id && $0.status == "active"
+              }) else { return nil }
+        return CoordinationContext(personID: identity.person.id, teamID: entry.team.id,
+                                   seasonID: season.id, timeZone: season.timeZone,
+                                   canManage: entry.capabilities?.manage == true)
     }
 
     func prepareSignIn() async {
@@ -169,6 +219,12 @@ private final class UnavailableApplicationController: SnackdayApplicationControl
 }
 
 #if DEBUG
+private func uiTestState(_ arguments: [String]) -> String {
+    guard let index = arguments.firstIndex(of: "-SNACKDAY_UI_TEST_STATE"),
+          arguments.indices.contains(index + 1) else { return "ready" }
+    return arguments[index + 1]
+}
+
 @MainActor
 private final class UITestApplicationController: SnackdayApplicationControlling {
     private let updates: AsyncStream<NativeAppState>
@@ -177,15 +233,7 @@ private final class UITestApplicationController: SnackdayApplicationControlling 
 
     init?(arguments: [String]) {
         guard arguments.contains("-SNACKDAY_UI_TEST_FIXTURE") else { return nil }
-        let requestedState: String
-        if
-            let index = arguments.firstIndex(of: "-SNACKDAY_UI_TEST_STATE"),
-            arguments.indices.contains(index + 1)
-        {
-            requestedState = arguments[index + 1]
-        } else {
-            requestedState = "ready"
-        }
+        let requestedState = uiTestState(arguments)
         guard let initialState = Self.fixtureState(named: requestedState) else { return nil }
         let channel = AsyncStream<NativeAppState>.makeStream()
         updates = channel.stream
@@ -268,7 +316,8 @@ private final class UITestApplicationController: SnackdayApplicationControlling 
 
     private static func fixtureState(named name: String) -> NativeAppState? {
         switch name {
-        case "ready": readyState()
+        case "ready", "coordination-ready", "coordination-loading", "coordination-error",
+             "coordination-empty", "coordination-cancelled": readyState()
         case "signed-out": .signedOut
         case "loading": .loading(identity: identity, directory: nil)
         case "empty-teams": .emptyTeams(identity: identity)
@@ -319,7 +368,8 @@ private final class UITestApplicationController: SnackdayApplicationControlling 
                 seasons: [
                     season(id: "season-fixture-spring", teamID: "team-fixture-a", label: "Fixture Spring"),
                     season(id: "season-fixture-fall", teamID: "team-fixture-a", label: "Fixture Fall"),
-                ]
+                ],
+                access: "manage", capabilities: TeamCapabilities(read: true, manage: true, delegate: true)
             ),
             TeamWithSeasonsDTO(
                 team: team(id: "team-fixture-b", name: "Second Fixture Team"),

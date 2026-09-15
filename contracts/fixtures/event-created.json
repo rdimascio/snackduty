@@ -1,0 +1,40 @@
+{
+  "series": {
+    "id": "event_series_fixture",
+    "teamId": "team_fixture_coached",
+    "seasonId": "season_fixture_coached",
+    "title": "Saturday practice",
+    "kind": "practice",
+    "location": "Community field",
+    "timeZone": "America/Los_Angeles",
+    "localTime": "10:00",
+    "durationMinutes": 60,
+    "frequency": "once",
+    "startDate": "2026-10-03",
+    "status": "active",
+    "createdAt": "2026-09-14T18:00:00.000Z",
+    "updatedAt": "2026-09-14T18:00:00.000Z"
+  },
+  "occurrences": [
+    {
+      "id": "event_occurrence_fixture",
+      "seriesId": "event_series_fixture",
+      "localDate": "2026-10-03",
+      "startsAt": "2026-10-03T17:00:00.000Z",
+      "durationMinutes": 60,
+      "status": "scheduled",
+      "createdAt": "2026-09-14T18:00:00.000Z",
+      "updatedAt": "2026-09-14T18:00:00.000Z"
+    }
+  ],
+  "dutySlots": [
+    {
+      "id": "duty_slot_fixture",
+      "occurrenceId": "event_occurrence_fixture",
+      "label": "Snacks",
+      "instructions": "Bring individually wrapped snacks.",
+      "createdAt": "2026-09-14T18:00:00.000Z",
+      "updatedAt": "2026-09-14T18:00:00.000Z"
+    }
+  ]
+}

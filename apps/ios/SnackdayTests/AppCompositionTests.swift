@@ -35,6 +35,23 @@ import Testing
     }
 }
 
+@MainActor
+@Test func sessionExpiryRestorationOutlivesTheScheduleView() async {
+    let transport = RefreshTransport()
+    let controller = SnackdayApplicationController(transport: transport)
+    let model = NativeAppViewModel(controller: controller)
+    await model.restoreOnce()
+    let scheduleCallback = Task { await model.restoreSession() }
+    await transport.waitForRefresh()
+    scheduleCallback.cancel()
+    await transport.finishRefresh()
+    await scheduleCallback.value
+    guard case .emptyTeams = controller.state else {
+        Issue.record("Removing Schedule must not strand the authentication restore")
+        return
+    }
+}
+
 private actor RefreshTransport: SnackdayTransport {
     private var calls = 0
     private var pending: CheckedContinuation<TeamsResponse, Never>?
@@ -73,6 +90,34 @@ private actor RefreshTransport: SnackdayTransport {
         appleNonceDigest("abc")
             == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     )
+}
+
+@MainActor
+@Test func coordinationContextRequiresReadyIdentityAndExactActiveSeason() {
+    let identity = AdultIdentityDTO(account: DevAccountDTO(id: "context-account"),
+                                    person: DevPersonDTO(id: "context-person", displayName: "Fixture Adult"))
+    let team = TeamDTO(id: "context-team", name: "Fixture Team", status: "active",
+                       createdAt: "2026-09-14T18:00:00Z", updatedAt: "2026-09-14T18:00:00Z")
+    func directory(seasonTeamID: String = "context-team", status: String = "active") -> TeamDirectory {
+        let season = SeasonDTO(id: "context-season", teamId: seasonTeamID, label: "Fixture Season",
+                               startDate: "2026-09-01", endDate: "2026-12-01",
+                               timeZone: "America/Los_Angeles", status: status,
+                               createdAt: "2026-09-14T18:00:00Z", updatedAt: "2026-09-14T18:00:00Z")
+        return TeamDirectory(teams: [TeamWithSeasonsDTO(team: team, seasons: [season])],
+                             selection: TeamSeasonSelection(teamID: team.id, seasonID: season.id))
+    }
+    let ready = NativeAppState.ready(identity: identity, directory: directory(), snapshot: .preview)
+    let context = NativeAppViewModel.coordinationContext(for: ready)
+    #expect(context?.personID == identity.person.id)
+    #expect(context?.canManage == false)
+    #expect(NativeAppViewModel.coordinationContext(for: .ready(
+        identity: identity, directory: directory(seasonTeamID: "foreign-team"), snapshot: .preview
+    )) == nil)
+    #expect(NativeAppViewModel.coordinationContext(for: .ready(
+        identity: identity, directory: directory(status: "archived"), snapshot: .preview
+    )) == nil)
+    #expect(NativeAppViewModel.coordinationContext(for: .loading(identity: identity, directory: directory())) == nil)
+    #expect(NativeAppViewModel.coordinationContext(for: .signedOut) == nil)
 }
 
 @MainActor

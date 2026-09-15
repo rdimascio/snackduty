@@ -34,16 +34,28 @@ import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
 import {
+  createEventInputSchema,
+  createEventResponseSchema,
   attendanceStatusSchema,
   eventKindSchema,
   eventOccurrenceSchema,
   eventScheduleSchema,
   eventSeriesSchema,
+  seasonEventsResponseSchema,
 } from "@snackday/domain";
-import type { EventSchedule } from "@snackday/domain";
+import type { CreateEventInput, EventSchedule } from "@snackday/domain";
 import { z } from "zod";
 
 import type { SessionService as Sessions } from "./application-contracts";
+import { activeApplicationActor } from "./coordination-actor";
+import type {
+  ApplicationActor,
+  CoordinationOperations,
+  CoordinationResult,
+  CoordinationServices,
+} from "./coordination-contracts";
+import { insertDutySlot, projectedDutySlot } from "./duties";
+import { eventCreationReceipts } from "./event-creation-receipts";
 import { instantFromWallTime, isValidTimeZone, scheduleDates } from "./event-time";
 import { authenticatedAdult, people } from "./identity";
 import {
@@ -126,6 +138,12 @@ export const eventSeriesInputSchema = z.strictObject({
   notes: z.string().trim().min(1).max(2_000).optional(),
   schedule: eventScheduleSchema,
 });
+
+const seasonTargetSchema = z.strictObject({
+  teamId: z.string().trim().min(1),
+  seasonId: z.string().trim().min(1),
+});
+const createEventCommandSchema = seasonTargetSchema.extend({ input: createEventInputSchema });
 
 export const cancelOccurrenceInputSchema = z.strictObject({
   reason: z.string().trim().min(1, "A cancellation reason is required.").max(500),
@@ -283,7 +301,7 @@ async function insertOccurrence(
   localDate: string,
   now: string,
 ) {
-  await tx
+  return tx
     .insert(eventOccurrences)
     .values({
       id: `event_occurrence_${crypto.randomUUID()}`,
@@ -298,7 +316,8 @@ async function insertOccurrence(
       createdAt: now,
       updatedAt: now,
     })
-    .run();
+    .returning()
+    .get();
 }
 
 /** Every occurrence of one series, ascending by date — the one read order. */
@@ -315,6 +334,258 @@ export async function seriesOccurrenceRows(tx: Db, seriesId: string): Promise<Oc
   return rows;
 }
 
+const operationError = <C extends string>(
+  status: 400 | 401 | 404 | 409 | 422,
+  code: C,
+  error: string,
+): CoordinationResult<never> => ({ ok: false, status, body: { error, code } });
+
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function canonicalEventInput(input: CreateEventInput): string {
+  return JSON.stringify({
+    title: input.title,
+    kind: input.kind,
+    location: input.location ?? null,
+    notes: input.notes ?? null,
+    schedule: {
+      timeZone: input.schedule.timeZone,
+      localTime: input.schedule.localTime,
+      durationMinutes: input.schedule.durationMinutes,
+      frequency: input.schedule.frequency,
+      byWeekday: input.schedule.byWeekday ?? null,
+      startDate: input.schedule.startDate,
+      untilDate: input.schedule.untilDate ?? null,
+    },
+    snackDuty:
+      input.snackDuty === undefined
+        ? null
+        : {
+            label: input.snackDuty.label,
+            instructions: input.snackDuty.instructions ?? null,
+          },
+  });
+}
+
+async function eventCreationReceipt(
+  tx: Db,
+  actor: ApplicationActor,
+  target: { teamId: string; seasonId: string },
+  requestId: string,
+) {
+  return tx
+    .select()
+    .from(eventCreationReceipts)
+    .where(
+      and(
+        eq(eventCreationReceipts.actorAccountId, actor.accountId),
+        eq(eventCreationReceipts.teamId, target.teamId),
+        eq(eventCreationReceipts.seasonId, target.seasonId),
+        eq(eventCreationReceipts.requestId, requestId),
+      ),
+    )
+    .get();
+}
+
+async function createdEventResponse(
+  tx: Db,
+  actor: ApplicationActor,
+  receipt: NonNullable<Awaited<ReturnType<typeof eventCreationReceipt>>>,
+) {
+  const resolved = await activeSeriesForOperation(tx, actor.personId, "team.operations.manage", {
+    teamId: receipt.teamId,
+    seriesId: receipt.seriesId,
+  });
+  if (resolved === undefined || resolved.series.seasonId !== receipt.seasonId) return;
+
+  const occurrences = await seriesOccurrenceRows(tx, resolved.series.id);
+  const duty =
+    receipt.dutySlotId === null
+      ? undefined
+      : await projectedDutySlot(tx, receipt.teamId, undefined, receipt.dutySlotId);
+  if (
+    receipt.dutySlotId !== null &&
+    (duty === undefined || !occurrences.some((occurrence) => occurrence.id === duty.occurrenceId))
+  ) {
+    throw new Error("Event creation receipt refers to a missing duty slot.");
+  }
+
+  return createEventResponseSchema.parse({
+    series: projectEventSeries(resolved.series),
+    occurrences: occurrences.map(projectEventOccurrence),
+    dutySlots: duty === undefined ? [] : [duty],
+  });
+}
+
+export function createEventOperations(
+  services: CoordinationServices,
+): Pick<CoordinationOperations, "createEvent" | "listSeasonEvents"> {
+  return {
+    async createEvent(candidateActor, command) {
+      const parsed = createEventCommandSchema.safeParse(command);
+      if (!parsed.success) {
+        return operationError(400, "invalid_request", "request body is invalid");
+      }
+
+      const { teamId, seasonId, input } = parsed.data;
+      const materialized = materializableDates(input.schedule);
+      if (!materialized.ok) {
+        return operationError(422, materialized.rejection.code, materialized.rejection.error);
+      }
+      const requestHash =
+        input.requestId === undefined ? undefined : await sha256(canonicalEventInput(input));
+
+      return services.db.transaction(async (tx) => {
+        const actor = await activeApplicationActor(tx, candidateActor);
+        if (actor === undefined) {
+          return operationError(401, "authentication_required", "authentication required");
+        }
+        const team = await manageableActiveTeam(tx, teamId, actor.personId);
+        if (team === undefined) return operationError(404, "team_not_found", "team not found");
+        const season = await activeSeasonForOperation(
+          tx,
+          actor.personId,
+          "team.operations.manage",
+          { teamId, seasonId },
+        );
+        if (season === undefined) return operationError(404, "team_not_found", "team not found");
+
+        if (input.requestId !== undefined) {
+          const receipt = await eventCreationReceipt(
+            tx,
+            actor,
+            { teamId: team.id, seasonId: season.id },
+            input.requestId,
+          );
+          if (receipt !== undefined) {
+            if (receipt.actorPersonId !== actor.personId || receipt.requestHash !== requestHash) {
+              return operationError(
+                409,
+                "request_id_conflict",
+                "requestId was already used for a different event",
+              );
+            }
+            const response = await createdEventResponse(tx, actor, receipt);
+            if (response === undefined) {
+              return operationError(404, "event_not_found", "event not found");
+            }
+            return { ok: true, value: response };
+          }
+        }
+
+        const now = new Date(services.clock()).toISOString();
+        if (input.snackDuty !== undefined) {
+          const localDate = materialized.dates[0];
+          if (
+            localDate === undefined ||
+            instantFromWallTime(localDate, input.schedule.localTime, input.schedule.timeZone) <= now
+          ) {
+            return operationError(
+              409,
+              "event_occurrence_unavailable",
+              "event occurrence is not available for duty assignment",
+            );
+          }
+        }
+        const row = await tx
+          .insert(eventSeries)
+          .values({
+            id: `event_series_${crypto.randomUUID()}`,
+            teamId: team.id,
+            seasonId: season.id,
+            title: input.title,
+            kind: input.kind,
+            location: input.location ?? null,
+            notes: input.notes ?? null,
+            ...scheduleColumns(input.schedule),
+            status: "active",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+          .get();
+        const occurrenceRows = [];
+        for (const localDate of materialized.dates) {
+          occurrenceRows.push(await insertOccurrence(tx, row, input.schedule, localDate, now));
+        }
+
+        let duty;
+        if (input.snackDuty !== undefined) {
+          const occurrence = occurrenceRows[0];
+          if (occurrence === undefined) throw new Error("Single event did not materialize.");
+          duty = await insertDutySlot(tx, {
+            teamId: team.id,
+            occurrenceId: occurrence.id,
+            input: input.snackDuty,
+            actorPersonId: actor.personId,
+            now,
+          });
+        }
+
+        if (input.requestId !== undefined && requestHash !== undefined) {
+          await tx
+            .insert(eventCreationReceipts)
+            .values({
+              id: `event_creation_receipt_${crypto.randomUUID()}`,
+              actorAccountId: actor.accountId,
+              actorPersonId: actor.personId,
+              teamId: team.id,
+              seasonId: season.id,
+              requestId: input.requestId,
+              requestHash,
+              seriesId: row.id,
+              dutySlotId: duty?.id ?? null,
+              createdAt: now,
+            })
+            .run();
+        }
+
+        return {
+          ok: true,
+          value: createEventResponseSchema.parse({
+            series: projectEventSeries(row),
+            occurrences: occurrenceRows.map(projectEventOccurrence),
+            dutySlots:
+              duty === undefined
+                ? []
+                : [await projectedDutySlot(tx, team.id, duty.occurrenceId, duty.id)],
+          }),
+        };
+      });
+    },
+
+    async listSeasonEvents(candidateActor, targetInput) {
+      const target = seasonTargetSchema.safeParse(targetInput);
+      if (!target.success) return operationError(400, "invalid_request", "request is invalid");
+
+      return services.db.transaction(async (tx) => {
+        const actor = await activeApplicationActor(tx, candidateActor);
+        if (actor === undefined) {
+          return operationError(401, "authentication_required", "authentication required");
+        }
+        const team = await readableActiveTeam(tx, target.data.teamId, actor.personId);
+        if (team === undefined) return operationError(404, "team_not_found", "team not found");
+        const season = await activeSeasonForOperation(
+          tx,
+          actor.personId,
+          "season.read",
+          target.data,
+        );
+        if (season === undefined) return operationError(404, "team_not_found", "team not found");
+        return {
+          ok: true,
+          value: seasonEventsResponseSchema.parse({
+            events: await loadSeasonEvents(tx, team.id, season.id),
+          }),
+        };
+      });
+    },
+  };
+}
+
 async function createSeries(
   c: Context<"/api/teams/:teamId/seasons/:seasonId/events">,
   db: Db,
@@ -324,56 +595,20 @@ async function createSeries(
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const input = c.valid(eventSeriesInputSchema);
-  const materialized = materializableDates(input.schedule);
-  if (!materialized.ok) return c.json(materialized.rejection, 422);
-
-  const outcome = await db.transaction(async (tx) => {
-    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
-    if (team === undefined) return null;
-
-    const season = await activeSeasonForOperation(
-      tx,
-      identity.person.id,
-      "team.operations.manage",
-      { teamId: team.id, seasonId: c.param("seasonId") },
-    );
-    if (season === undefined) return null;
-
-    const now = new Date(clock()).toISOString();
-    const row = await tx
-      .insert(eventSeries)
-      .values({
-        id: `event_series_${crypto.randomUUID()}`,
-        teamId: team.id,
-        seasonId: season.id,
-        title: input.title,
-        kind: input.kind,
-        location: input.location ?? null,
-        notes: input.notes ?? null,
-        ...scheduleColumns(input.schedule),
-        status: "active",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning()
-      .get();
-    for (const localDate of materialized.dates) {
-      await insertOccurrence(tx, row, input.schedule, localDate, now);
-    }
-
-    return { series: row, occurrences: await seriesOccurrenceRows(tx, row.id) };
-  });
-
-  if (outcome === null) return c.json(teamNotFound, 404);
-
-  return c.json(
-    {
-      series: projectEventSeries(outcome.series),
-      occurrences: outcome.occurrences.map((row) => projectEventOccurrence(row)),
-    },
-    201,
+  const input = c.valid(createEventInputSchema);
+  const outcome = await createEventOperations({ db, clock }).createEvent(
+    { accountId: identity.account.id, personId: identity.person.id },
+    { teamId: c.param("teamId"), seasonId: c.param("seasonId"), input },
   );
+  if (!outcome.ok) {
+    const body = ["authentication_required", "team_not_found", "event_not_found"].includes(
+      outcome.body.code,
+    )
+      ? { error: outcome.body.error }
+      : outcome.body;
+    return c.json(body, outcome.status);
+  }
+  return c.json(outcome.value, 201);
 }
 
 /**
@@ -670,6 +905,58 @@ export async function loadTeamEvents(db: Db, teamId: string, personId: string) {
   }));
 }
 
+/** The selected-season projection used by native coordination. */
+export async function loadSeasonEvents(db: Db, teamId: string, seasonId: string) {
+  const seriesRows = await db
+    .select()
+    .from(eventSeries)
+    .where(
+      and(
+        eq(eventSeries.teamId, teamId),
+        eq(eventSeries.seasonId, seasonId),
+        eq(eventSeries.status, "active"),
+      ),
+    )
+    .all();
+  seriesRows.sort(
+    (left, right) =>
+      left.startDate.localeCompare(right.startDate) || left.id.localeCompare(right.id),
+  );
+  if (seriesRows.length === 0) return [];
+
+  const occurrenceRows = await db
+    .select()
+    .from(eventOccurrences)
+    .where(
+      and(
+        eq(eventOccurrences.teamId, teamId),
+        inList(
+          eventOccurrences.seriesId,
+          seriesRows.map((row) => row.id),
+        ),
+      ),
+    )
+    .all();
+  occurrenceRows.sort(
+    (left, right) =>
+      left.localDate.localeCompare(right.localDate) || left.id.localeCompare(right.id),
+  );
+  const counts = await attendanceCountsByOccurrence(
+    db,
+    occurrenceRows.map((row) => row.id),
+  );
+
+  return seriesRows.map((row) => ({
+    series: projectEventSeries(row),
+    occurrences: occurrenceRows
+      .filter((occurrence) => occurrence.seriesId === row.id)
+      .map((occurrence) => ({
+        ...projectEventOccurrence(occurrence),
+        attendance: counts.get(occurrence.id) ?? emptyAttendanceCounts(),
+      })),
+  }));
+}
+
 async function listTeamEvents(c: Context<"/api/teams/:teamId/events">, db: Db, sessions: Sessions) {
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
@@ -684,6 +971,23 @@ async function listTeamEvents(c: Context<"/api/teams/:teamId/events">, db: Db, s
   return c.json({ events });
 }
 
+async function listSelectedSeasonEvents(
+  c: Context<"/api/teams/:teamId/seasons/:seasonId/events">,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock,
+) {
+  const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
+  if (identity === undefined) return c.json(unauthorized, 401);
+
+  const outcome = await createEventOperations({ db, clock }).listSeasonEvents(
+    { accountId: identity.account.id, personId: identity.person.id },
+    { teamId: c.param("teamId"), seasonId: c.param("seasonId") },
+  );
+  if (!outcome.ok) return c.json({ error: outcome.body.error }, outcome.status);
+  return c.json(outcome.value);
+}
+
 export function registerEventRoutes(
   app: Lesto,
   db: Db,
@@ -693,6 +997,9 @@ export function registerEventRoutes(
   return app
     .post("/api/teams/:teamId/seasons/:seasonId/events", (c) =>
       createSeries(c, db, sessions, clock),
+    )
+    .get("/api/teams/:teamId/seasons/:seasonId/events", (c) =>
+      listSelectedSeasonEvents(c, db, sessions, clock),
     )
     .post("/api/teams/:teamId/events/:seriesId/update", (c) => updateSeries(c, db, sessions, clock))
     .post("/api/teams/:teamId/occurrences/:occurrenceId/cancel", (c) =>

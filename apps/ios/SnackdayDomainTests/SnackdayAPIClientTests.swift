@@ -77,6 +77,13 @@ private struct LiveCreateInvitationRequest: Encodable {
     let invitedRole: String
     let inviteeLabel: String
     let recipientBinding: RecipientBinding
+    var participantId: String? = nil
+    var relationship: String? = nil
+}
+private struct LiveSeasonResponse: Decodable { let season: SeasonDTO }
+private struct LiveParticipantResponse: Decodable {
+    struct Participant: Decodable { let participantId: String }
+    let participant: Participant
 }
 private struct LiveCreateInvitationResponse: Decodable {
     struct Invitation: Decodable { let inviteUrl: String }
@@ -573,6 +580,11 @@ private func livePost<Input: Encodable, Output: Decodable>(
         #expect(acceptance.membership.role == .adult)
         let recipientTeams = try await recipientClient.listTeams()
         #expect(recipientTeams.teams.contains { $0.team.id == createdTeam.team.id })
+        try await liveCoordinationJourney(
+            baseURL: baseURL, owner: ownerClient, parent: recipientClient,
+            ownerCookie: ownerCookie, parentIdentity: recipientIdentity,
+            teamID: createdTeam.team.id
+        )
         try await recipientClient.signOut()
         try await ownerClient.signOut()
 #else
@@ -580,3 +592,87 @@ private func livePost<Input: Encodable, Output: Decodable>(
 #endif
     }
 }
+
+#if DEBUG
+@MainActor
+private func liveCoordinationJourney(
+    baseURL: URL, owner: SnackdayAPIClient, parent: SnackdayAPIClient,
+    ownerCookie: String, parentIdentity: AdultIdentityDTO, teamID: String
+) async throws {
+    let season = try await livePost(
+        baseURL: baseURL, path: "api/teams/\(teamID)/seasons", cookie: ownerCookie,
+        body: ["label": "Native coordination", "startDate": "2099-09-01",
+               "endDate": "2099-12-01", "timeZone": "America/Los_Angeles"],
+        decoding: LiveSeasonResponse.self
+    ).season
+    let childPath = "api/teams/\(teamID)/seasons/\(season.id)/participants"
+    let ownChild = try await livePost(
+        baseURL: baseURL, path: childPath, cookie: ownerCookie,
+        body: ["displayName": "Native Own Player"], decoding: LiveParticipantResponse.self
+    ).participant.participantId
+    _ = try await livePost(
+        baseURL: baseURL, path: childPath, cookie: ownerCookie,
+        body: ["displayName": "Native Peer Player"], decoding: LiveParticipantResponse.self
+    )
+    let ownerIdentity = try await owner.currentSession()
+    let coachController = SnackdayCoordinationController(transport: owner)
+    await coachController.setContext(CoordinationContext(
+        personID: ownerIdentity.person.id, teamID: teamID, seasonID: season.id,
+        timeZone: season.timeZone, canManage: true
+    ))
+    let input = CreateEventRequestDTO(
+        title: "Native practice", kind: .practice,
+        schedule: EventScheduleDTO(timeZone: season.timeZone, localTime: "17:00",
+                                   durationMinutes: 60, frequency: .once, startDate: "2099-10-03"),
+        requestId: UUID().uuidString, snackDuty: DutySlotInputDTO(label: "Snacks")
+    )
+    #expect(await coachController.createEvent(input))
+    let replay = try await owner.createEvent(teamID: teamID, seasonID: season.id, input: input)
+    let occurrenceID = try #require(replay.occurrences.first?.id)
+    let slotID = try #require(replay.dutySlots.first?.id)
+    let schedule = try await parent.listEvents(teamID: teamID, seasonID: season.id)
+    #expect(schedule.events.count == 1)
+    #expect(schedule.events.first?.series.id == replay.series.id)
+    #expect(try await parent.readAttendance(teamID: teamID, occurrenceID: occurrenceID)
+        .attendance.responseOptions.isEmpty)
+
+    // Ordinary team acceptance grants no child authority. The owner explicitly
+    // targets this child in a second recipient-bound invitation.
+    let guardianInvite = try await livePost(
+        baseURL: baseURL, path: "api/teams/\(teamID)/invitations", cookie: ownerCookie,
+        body: LiveCreateInvitationRequest(
+            invitedRole: "adult", inviteeLabel: "Native synthetic parent",
+            recipientBinding: .init(kind: "confirmed_person", personId: parentIdentity.person.id),
+            participantId: ownChild, relationship: "parent"
+        ), decoding: LiveCreateInvitationResponse.self
+    )
+    let token = try #require(URL(string: guardianInvite.invitation.inviteUrl)?.fragment)
+    _ = try await parent.acceptInvitation(token: token)
+    let parentController = SnackdayCoordinationController(transport: parent)
+    await parentController.setContext(CoordinationContext(
+        personID: parentIdentity.person.id, teamID: teamID, seasonID: season.id,
+        timeZone: season.timeZone, canManage: false
+    ))
+    await parentController.openOccurrence(occurrenceID)
+    guard case .loaded(let detail) = parentController.state.detail else {
+        Issue.record("The real parent event detail did not load"); return
+    }
+    #expect(detail.attendance.responseOptions.map(\.participantId) == [ownChild])
+    #expect(detail.attendance.responseOptions.first?.status == nil)
+    await parentController.recordAttendance(participantID: ownChild, status: .yes)
+    if case .loaded(let refreshedEvents) = parentController.state.schedule {
+        #expect(refreshedEvents.flatMap(\.occurrences).first(where: { $0.id == occurrenceID })?.attendance?.yes == 1)
+    } else {
+        Issue.record("An RSVP must retain the selected season schedule")
+    }
+    await parentController.claimDuty(slotID: slotID)
+    let confirmed = try await owner.readAttendance(teamID: teamID, occurrenceID: occurrenceID)
+    #expect(confirmed.attendance.counts.yes == 1)
+    #expect(confirmed.attendance.entries.first?.participantId == ownChild)
+    let duties = try await owner.listDutySlots(teamID: teamID, occurrenceID: occurrenceID)
+    #expect(duties.dutySlots.first?.assignee?.personId == parentIdentity.person.id)
+    await #expect(throws: CoordinationFailure.notFound) {
+        _ = try await parent.createEvent(teamID: teamID, seasonID: season.id, input: input)
+    }
+}
+#endif

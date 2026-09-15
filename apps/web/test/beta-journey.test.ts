@@ -3,6 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
+import {
+  attendanceReadResponseSchema,
+  attendanceResponseSchema,
+  createEventResponseSchema,
+  dutySlotResponseSchema,
+  dutySlotsResponseSchema,
+  seasonEventsResponseSchema,
+} from "@snackday/domain";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createAppleIdentityVerifier } from "../app/lib/server/apple-identity";
@@ -473,6 +481,217 @@ describe("coach-parent beta composed runtime", () => {
       ).status,
     ).toBe(404);
 
+    // The first coordination journey stays on the selected family season:
+    // its owner creates once, then the parent responds only for their own
+    // child and claims the snack slot as themselves.
+    const eventRequestId = "f15f9510-7369-4d5f-a33e-68b6d59eb768";
+    const eventInput = {
+      title: "Saturday practice",
+      kind: "practice",
+      location: "Community field",
+      schedule: {
+        timeZone: "America/Los_Angeles",
+        localTime: "10:00",
+        durationMinutes: 60,
+        frequency: "once",
+        startDate: "2026-10-03",
+      },
+      requestId: eventRequestId,
+      snackDuty: {
+        label: "Snacks",
+        instructions: "Bring individually wrapped snacks.",
+      },
+    };
+    const createdEvent = await post(
+      app,
+      `/api/teams/${family.teamId}/seasons/${family.seasonId}/events`,
+      familyOwner.cookie,
+      eventInput,
+    );
+    expect(createdEvent.status).toBe(201);
+    const createdCoordination = createEventResponseSchema.parse(json(createdEvent));
+    expect(createdCoordination.series).toMatchObject({
+      teamId: family.teamId,
+      seasonId: family.seasonId,
+    });
+    expect(createdCoordination.occurrences).toHaveLength(1);
+    expect(createdCoordination.dutySlots).toHaveLength(1);
+    const occurrenceId = createdCoordination.occurrences[0]!.id;
+    const dutySlotId = createdCoordination.dutySlots[0]!.id;
+    expect(createdCoordination.occurrences[0]!.seriesId).toBe(createdCoordination.series.id);
+    expect(createdCoordination.dutySlots[0]!.occurrenceId).toBe(occurrenceId);
+    expect(createdCoordination.dutySlots[0]!.assignee).toBeUndefined();
+
+    const replayedEvent = await post(
+      app,
+      `/api/teams/${family.teamId}/seasons/${family.seasonId}/events`,
+      familyOwner.cookie,
+      eventInput,
+    );
+    expect(replayedEvent.status).toBe(201);
+    expect(json(replayedEvent)).toEqual(json(createdEvent));
+    const conflictingReplay = await post(
+      app,
+      `/api/teams/${family.teamId}/seasons/${family.seasonId}/events`,
+      familyOwner.cookie,
+      { ...eventInput, title: "Conflicting retry" },
+    );
+    expect(conflictingReplay.status).toBe(409);
+    expect(json(conflictingReplay)).toMatchObject({ code: "request_id_conflict" });
+
+    const schedule = await app.handle(
+      "GET",
+      `/api/teams/${family.teamId}/seasons/${family.seasonId}/events`,
+      { headers: { cookie: alex.cookie } },
+    );
+    expect(schedule.status).toBe(200);
+    const scheduleBody = seasonEventsResponseSchema.parse(json(schedule));
+    expect(scheduleBody.events).toHaveLength(1);
+    expect(scheduleBody).toMatchObject({
+      events: [
+        {
+          series: { id: createdCoordination.series.id },
+          occurrences: [{ id: occurrenceId, attendance: { yes: 0, no: 0, maybe: 0 } }],
+        },
+      ],
+    });
+
+    const firstAttendance = await app.handle(
+      "GET",
+      `/api/teams/${family.teamId}/occurrences/${occurrenceId}/attendance`,
+      { headers: { cookie: alex.cookie } },
+    );
+    expect(firstAttendance.status).toBe(200);
+    const firstAttendanceBody = attendanceReadResponseSchema.parse(json(firstAttendance));
+    expect(firstAttendanceBody.attendance.counts).toEqual({ yes: 0, no: 0, maybe: 0 });
+    expect(firstAttendanceBody.attendance.entries).toEqual([]);
+    expect(firstAttendanceBody.attendance.responseOptions).toEqual([
+      { participantId: ownChildId, displayName: "Alex's Player" },
+    ]);
+    expect(firstAttendanceBody.attendance.responseOptions).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ participantId: peerChildId })]),
+    );
+
+    const recordedAttendance = await post(
+      app,
+      `/api/teams/${family.teamId}/occurrences/${occurrenceId}/attendance`,
+      alex.cookie,
+      { participantId: ownChildId, status: "yes" },
+    );
+    expect(recordedAttendance.status).toBe(200);
+    expect(attendanceResponseSchema.parse(json(recordedAttendance))).toEqual({
+      attendance: { participantId: ownChildId, status: "yes" },
+    });
+    expect(
+      (
+        await post(
+          app,
+          `/api/teams/${family.teamId}/occurrences/${occurrenceId}/attendance`,
+          alex.cookie,
+          { participantId: peerChildId, status: "yes" },
+        )
+      ).status,
+    ).toBe(404);
+
+    const persistedAttendance = await app.handle(
+      "GET",
+      `/api/teams/${family.teamId}/occurrences/${occurrenceId}/attendance`,
+      { headers: { cookie: alex.cookie } },
+    );
+    expect(persistedAttendance.status).toBe(200);
+    expect(attendanceReadResponseSchema.parse(json(persistedAttendance))).toEqual({
+      attendance: {
+        counts: { yes: 1, no: 0, maybe: 0 },
+        entries: [
+          {
+            participantId: ownChildId,
+            displayName: "Alex's Player",
+            status: "yes",
+          },
+        ],
+        responseOptions: [
+          {
+            participantId: ownChildId,
+            displayName: "Alex's Player",
+            status: "yes",
+          },
+        ],
+      },
+    });
+
+    const unclaimedSlots = await app.handle(
+      "GET",
+      `/api/teams/${family.teamId}/occurrences/${occurrenceId}/duty-slots`,
+      { headers: { cookie: alex.cookie } },
+    );
+    expect(unclaimedSlots.status).toBe(200);
+    expect(dutySlotsResponseSchema.parse(json(unclaimedSlots))).toMatchObject({
+      dutySlots: [{ id: dutySlotId, occurrenceId }],
+    });
+
+    const claimedDuty = await post(
+      app,
+      `/api/teams/${family.teamId}/occurrences/${occurrenceId}/duty-slots/${dutySlotId}/claim`,
+      alex.cookie,
+      {},
+    );
+    expect(claimedDuty.status).toBe(200);
+    expect(dutySlotResponseSchema.parse(json(claimedDuty))).toMatchObject({
+      dutySlot: {
+        id: dutySlotId,
+        occurrenceId,
+        assignee: {
+          personId: alex.identity.person.id,
+          displayName: dualRoleAdult.displayName,
+        },
+      },
+    });
+    const persistedSlots = await app.handle(
+      "GET",
+      `/api/teams/${family.teamId}/occurrences/${occurrenceId}/duty-slots`,
+      { headers: { cookie: alex.cookie } },
+    );
+    expect(persistedSlots.status).toBe(200);
+    expect(dutySlotsResponseSchema.parse(json(persistedSlots))).toMatchObject({
+      dutySlots: [
+        {
+          id: dutySlotId,
+          assignee: {
+            personId: alex.identity.person.id,
+            displayName: dualRoleAdult.displayName,
+          },
+        },
+      ],
+    });
+
+    expect(
+      (
+        await app.handle("GET", `/api/teams/${family.teamId}/seasons/${coached.seasonId}/events`, {
+          headers: { cookie: alex.cookie },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await post(
+          app,
+          `/api/teams/${coached.teamId}/occurrences/${occurrenceId}/attendance`,
+          alex.cookie,
+          { participantId: ownChildId, status: "maybe" },
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await post(
+          app,
+          `/api/teams/${family.teamId}/occurrences/${occurrenceId}/duty-slots/${dutySlotId}/claim`,
+          forwarded.cookie,
+          {},
+        )
+      ).status,
+    ).toBe(404);
+
     expect(
       (
         await post(
@@ -491,6 +710,20 @@ describe("coach-parent beta composed runtime", () => {
           endDate: "2027-08-01",
           timeZone: "America/Los_Angeles",
         })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await post(
+          app,
+          `/api/teams/${coached.teamId}/seasons/${coached.seasonId}/events`,
+          alex.cookie,
+          {
+            ...eventInput,
+            requestId: "8b363a3d-a183-4c8e-8ab1-e55eef95c132",
+            title: "Revoked coach cannot create",
+          },
+        )
       ).status,
     ).toBe(404);
     expect(
@@ -532,6 +765,8 @@ describe("coach-parent beta composed runtime", () => {
     const { app } = runtime;
     const first = await signIn(app, dualRoleAdult, clock);
 
+    const sessionTeam = await createTeamFixture(app, first.cookie, "Session Revocation Team");
+
     expect(
       (await app.handle("GET", "/api/session", { headers: { cookie: first.cookie } })).status,
     ).toBe(200);
@@ -561,6 +796,15 @@ describe("coach-parent beta composed runtime", () => {
     await runtime.sessions.revoke(sessionToken(first.cookie));
     expect(
       (await app.handle("GET", "/api/session", { headers: { cookie: first.cookie } })).status,
+    ).toBe(401);
+    expect(
+      (
+        await app.handle(
+          "GET",
+          `/api/teams/${sessionTeam.teamId}/seasons/${sessionTeam.seasonId}/events`,
+          { headers: { cookie: first.cookie } },
+        )
+      ).status,
     ).toBe(401);
 
     const second = await signIn(app, dualRoleAdult, clock);

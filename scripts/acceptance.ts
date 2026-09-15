@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import type { Subprocess } from "bun";
 
 import { namedTestProblems, zeroTestProblems } from "./lib/xcodebuild-verdict";
+import { seedDevScenario } from "./lib/dev-scenario-seed";
 import {
   type AcceptanceProvenance,
   acceptanceProvenance,
@@ -1373,7 +1374,7 @@ async function verifyEventsJourney(
   await verifyCalendarFeed(base, ownerCookie, ids, cancelTarget);
 }
 
-async function runIosLiveCheck(port: number, scratchDir: string): Promise<void> {
+async function runIosLiveCheck(port: number, scratchDir: string, teamId: string): Promise<void> {
   const step = "ios-live-round-trip";
   // localhost inside the simulator IS the host loopback, and http://localhost
   // is ATS-exempt — this reaches the same server the web legs just verified.
@@ -1381,7 +1382,7 @@ async function runIosLiveCheck(port: number, scratchDir: string): Promise<void> 
   const child = Bun.spawn({
     cmd: ["bash", join(ROOT, "scripts", "ios-live-test.sh")],
     cwd: ROOT,
-    env: { ...process.env, SNACKDAY_LIVE_API: liveBase },
+    env: { ...process.env, SNACKDAY_LIVE_API: liveBase, SNACKDAY_LIVE_UI_TEAM_ID: teamId },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -1400,6 +1401,11 @@ async function runIosLiveCheck(port: number, scratchDir: string): Promise<void> 
   const problems = [
     ...zeroTestProblems(exitCode, output),
     ...namedTestProblems(output, "the live round-trip test", "LIVE API|liveDevServerRoundTrip"),
+    ...namedTestProblems(
+      output,
+      "the live native coordination UI journey",
+      "LiveCoordinationUITests.*testRealCoachParentCoordination",
+    ),
   ];
   ensure(step, problems.length === 0, `${problems.join("; ")}; log tail:\n${tail}`);
 }
@@ -1465,7 +1471,8 @@ async function main(): Promise<void> {
     await verifyRosterImport(base, cookie, ids);
     await verifyInvitationJourney(base, cookie, ids);
     await verifyEventsJourney(base, cookie, ids);
-    await runIosLiveCheck(port, scratchDir);
+    const coordination = await seedDevScenario(base);
+    await runIosLiveCheck(port, scratchDir, coordination.manifest.teams.family.teamId);
   } catch (error) {
     failedStep = error instanceof StepFailure ? error.step : "unexpected";
     if (server !== undefined) await dumpServerLogs(server);
@@ -1487,7 +1494,7 @@ async function main(): Promise<void> {
       "visible with its reason, guardian-scoped attendance with hiding 404s, child-free calendar " +
       "feed polled unauthenticated with noindex, re-mint rotates the feed URL, authenticated " +
       "single-event ICS export, revoke), " +
-      "iOS live round trip.",
+      "iOS live controller/API round trip and coach-create → parent-RSVP → snack-claim UI journey with independent team switching.",
   );
 }
 

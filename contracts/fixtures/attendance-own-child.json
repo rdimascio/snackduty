@@ -1,0 +1,27 @@
+{
+  "attendance": {
+    "counts": {
+      "yes": 1,
+      "no": 0,
+      "maybe": 0
+    },
+    "entries": [
+      {
+        "participantId": "participant_fixture_child",
+        "displayName": "Fixture Player",
+        "status": "yes"
+      }
+    ],
+    "responseOptions": [
+      {
+        "participantId": "participant_fixture_child",
+        "displayName": "Fixture Player",
+        "status": "yes"
+      },
+      {
+        "participantId": "participant_fixture_sibling",
+        "displayName": "Fixture Sibling"
+      }
+    ]
+  }
+}

@@ -211,6 +211,12 @@ describe("recording attendance", () => {
     const fixture = await buildFixture(ownerCookie);
     const guardianCookie = await joinAsGuardianOfChildA(ownerCookie, fixture);
 
+    expect(json(await read(guardianCookie, fixture))).toMatchObject({
+      attendance: {
+        entries: [],
+        responseOptions: [{ participantId: fixture.childA, displayName: "Casey Kid" }],
+      },
+    });
     const own = await record(guardianCookie, fixture, fixture.childA, "maybe");
     expect(own.status).toBe(200);
     expect(json(own)).toEqual({ attendance: { participantId: fixture.childA, status: "maybe" } });
@@ -301,6 +307,10 @@ describe("reading attendance", () => {
           { participantId: fixture.childA, displayName: "Casey Kid", status: "yes" },
           { participantId: fixture.childB, displayName: "Robin Kid", status: "maybe" },
         ],
+        responseOptions: [
+          { participantId: fixture.childA, displayName: "Casey Kid", status: "yes" },
+          { participantId: fixture.childB, displayName: "Robin Kid", status: "maybe" },
+        ],
       },
     });
 
@@ -310,6 +320,9 @@ describe("reading attendance", () => {
       attendance: {
         counts: { yes: 1, no: 0, maybe: 1 },
         entries: [{ participantId: fixture.childA, displayName: "Casey Kid", status: "yes" }],
+        responseOptions: [
+          { participantId: fixture.childA, displayName: "Casey Kid", status: "yes" },
+        ],
       },
     });
 
@@ -337,7 +350,7 @@ describe("reading attendance", () => {
     const asMember = await read(memberCookie, fixture);
     expect(asMember.status).toBe(200);
     expect(json(asMember)).toEqual({
-      attendance: { counts: { yes: 1, no: 0, maybe: 1 }, entries: [] },
+      attendance: { counts: { yes: 1, no: 0, maybe: 1 }, entries: [], responseOptions: [] },
     });
     const serialized = asMember.body.toLowerCase();
     for (const forbidden of ["casey", "robin", "participant_"]) {

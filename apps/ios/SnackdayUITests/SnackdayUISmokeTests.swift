@@ -39,7 +39,10 @@ final class SnackdayUISmokeTests: XCTestCase {
 
         app.tabBars.buttons["Schedule"].tap()
         XCTAssertTrue(app.navigationBars["Schedule"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["Schedule details are not available in this beta yet."].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["schedule-event-occurrence-fixture"]
+                .waitForExistence(timeout: 2)
+        )
     }
 
     @MainActor
