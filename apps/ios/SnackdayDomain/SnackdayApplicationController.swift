@@ -104,7 +104,9 @@ import Foundation
 
     public func selectTeam(_ teamID: String) async {
         guard let identity, let currentDirectory = directory,
-              let team = currentDirectory.teams.first(where: { $0.team.id == teamID })
+              let team = currentDirectory.teams.first(where: {
+                  $0.team.id == teamID && $0.team.status == "active"
+              })
         else { return }
 
         let task = replaceLoad { [weak self] generation in
@@ -130,8 +132,12 @@ import Foundation
     public func selectSeason(_ seasonID: String) async {
         guard let identity, let currentDirectory = directory,
               let teamID = currentDirectory.selection?.teamID,
-              let team = currentDirectory.teams.first(where: { $0.team.id == teamID }),
-              team.seasons.contains(where: { $0.id == seasonID })
+              let team = currentDirectory.teams.first(where: {
+                  $0.team.id == teamID && $0.team.status == "active"
+              }),
+              team.seasons.contains(where: {
+                  $0.id == seasonID && $0.teamId == teamID && $0.status == "active"
+              })
         else { return }
 
         let task = replaceLoad { [weak self] generation in
@@ -184,7 +190,8 @@ import Foundation
         do {
             let response = try await transport.listTeams()
             guard isCurrent(generation) else { return }
-            if response.teams.isEmpty {
+            let activeTeams = activeDirectoryTeams(response.teams)
+            if activeTeams.isEmpty {
                 await selectionStore.clearSelection(for: identity.person.id)
                 guard isCurrent(generation) else { return }
                 directory = nil
@@ -194,11 +201,11 @@ import Foundation
 
             let saved = await selectionStore.selection(for: identity.person.id)
             guard isCurrent(generation) else { return }
-            if let selection = valid(saved, in: response.teams) ?? defaultSelection(in: response.teams) {
+            if let selection = valid(saved, in: activeTeams) ?? defaultSelection(in: activeTeams) {
                 await loadSelection(
                     selection,
                     identity: identity,
-                    teams: response.teams,
+                    teams: activeTeams,
                     generation: generation
                 )
                 return
@@ -206,13 +213,13 @@ import Foundation
 
             await selectionStore.clearSelection(for: identity.person.id)
             guard isCurrent(generation) else { return }
-            let empty = TeamDirectory(teams: response.teams, selection: nil)
+            let empty = TeamDirectory(teams: activeTeams, selection: nil)
             directory = empty
             publish(
                 .emptySeasons(
                     identity: identity,
                     directory: empty,
-                    teamID: response.teams[0].team.id
+                    teamID: activeTeams[0].team.id
                 )
             )
         } catch {
@@ -312,17 +319,37 @@ import Foundation
     }
 
     private func preferredSeason(in seasons: [SeasonDTO]) -> SeasonDTO? {
-        seasons.first(where: { $0.status == "active" }) ?? seasons.first
+        seasons.first(where: { $0.status == "active" })
     }
 
     private func selectedDTO(
         _ selection: TeamSeasonSelection,
         in teams: [TeamWithSeasonsDTO]
     ) -> (team: TeamDTO, season: SeasonDTO)? {
-        guard let entry = teams.first(where: { $0.team.id == selection.teamID }),
-              let season = entry.seasons.first(where: { $0.id == selection.seasonID })
+        guard let entry = teams.first(where: {
+            $0.team.id == selection.teamID && $0.team.status == "active"
+        }),
+              let season = entry.seasons.first(where: {
+                  $0.id == selection.seasonID
+                      && $0.teamId == entry.team.id
+                      && $0.status == "active"
+              })
         else { return nil }
         return (entry.team, season)
+    }
+
+    private func activeDirectoryTeams(_ teams: [TeamWithSeasonsDTO]) -> [TeamWithSeasonsDTO] {
+        teams.compactMap { entry in
+            guard entry.team.status == "active" else { return nil }
+            return TeamWithSeasonsDTO(
+                team: entry.team,
+                seasons: entry.seasons.filter {
+                    $0.teamId == entry.team.id && $0.status == "active"
+                },
+                access: entry.access,
+                capabilities: entry.capabilities
+            )
+        }
     }
 
     private func sanitized(_ error: any Error) -> SnackdayAPIError {

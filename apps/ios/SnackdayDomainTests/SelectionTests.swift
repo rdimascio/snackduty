@@ -15,9 +15,14 @@ private actor DelayedRosterTransport: SnackdayTransport {
         person: DevPersonDTO(id: "person_dual", displayName: "Coach Parent")
     )
     let teams: TeamsResponse
+    private let delaysRoster: Bool
     private var continuations: [String: CheckedContinuation<RosterResponse, Error>] = [:]
+    private var requests: [TeamSeasonSelection] = []
 
-    init(teams: TeamsResponse = selectionTeams()) { self.teams = teams }
+    init(teams: TeamsResponse = selectionTeams(), delaysRoster: Bool = true) {
+        self.teams = teams
+        self.delaysRoster = delaysRoster
+    }
 
     func currentSession() -> AdultIdentityDTO { identity }
     func beginAppleSignIn() -> AppleChallengeDTO {
@@ -27,12 +32,15 @@ private actor DelayedRosterTransport: SnackdayTransport {
     func signOut() {}
     func listTeams() -> TeamsResponse { teams }
     func loadRoster(teamId: String, seasonId: String) async throws -> RosterResponse {
+        requests.append(TeamSeasonSelection(teamID: teamId, seasonID: seasonId))
+        if !delaysRoster { return RosterResponse(roster: []) }
         try await withCheckedThrowingContinuation { continuation in
             continuations[teamId] = continuation
         }
     }
 
     func hasPendingRoster(for teamID: String) -> Bool { continuations[teamID] != nil }
+    func rosterRequests() -> [TeamSeasonSelection] { requests }
     func finishRoster(for teamID: String, player: String) {
         continuations.removeValue(forKey: teamID)?.resume(
             returning: RosterResponse(roster: [
@@ -46,6 +54,41 @@ private actor DelayedRosterTransport: SnackdayTransport {
             ])
         )
     }
+}
+
+private func selectionSeason(
+    id: String,
+    teamID: String,
+    status: String = "active"
+) -> SeasonDTO {
+    SeasonDTO(
+        id: id,
+        teamId: teamID,
+        label: id,
+        startDate: "2026-09-01",
+        endDate: "2026-12-01",
+        timeZone: "America/Los_Angeles",
+        status: status,
+        createdAt: "2026-09-14T00:00:00.000Z",
+        updatedAt: "2026-09-14T00:00:00.000Z"
+    )
+}
+
+private func selectionEntry(
+    teamID: String,
+    status: String = "active",
+    seasons: [SeasonDTO]
+) -> TeamWithSeasonsDTO {
+    TeamWithSeasonsDTO(
+        team: TeamDTO(
+            id: teamID,
+            name: teamID,
+            status: status,
+            createdAt: "2026-09-14T00:00:00.000Z",
+            updatedAt: "2026-09-14T00:00:00.000Z"
+        ),
+        seasons: seasons
+    )
 }
 
 private func selectionTeams() -> TeamsResponse {
@@ -146,4 +189,106 @@ private func selectionTeams() -> TeamsResponse {
     }
     #expect(teamID == "team_coached")
     #expect(directory.selection == nil)
+}
+
+@MainActor @Test func archivedOnlySeasonsProduceEmptyStateWithoutRosterRequest() async {
+    let teamID = "team_archived_seasons"
+    let transport = DelayedRosterTransport(
+        teams: TeamsResponse(teams: [
+            selectionEntry(
+                teamID: teamID,
+                seasons: [selectionSeason(id: "season_archived", teamID: teamID, status: "archived")]
+            )
+        ]),
+        delaysRoster: false
+    )
+    let controller = SnackdayApplicationController(
+        transport: transport,
+        selectionStore: SelectionMemoryStore()
+    )
+
+    await controller.restore()
+
+    guard case .emptySeasons(_, let directory, let emptyTeamID) = controller.state else {
+        Issue.record("Expected archived-only seasons to produce an empty-seasons state")
+        return
+    }
+    #expect(emptyTeamID == teamID)
+    #expect(directory.teams.map(\.team.id) == [teamID])
+    #expect(directory.teams[0].seasons.isEmpty)
+    #expect((await transport.rosterRequests()).isEmpty)
+}
+
+@MainActor @Test func archivedSavedSelectionFallsBackToAnActiveSeason() async {
+    let teamID = "team_one"
+    let archived = selectionSeason(id: "season_archived", teamID: teamID, status: "archived")
+    let active = selectionSeason(id: "season_active", teamID: teamID)
+    let transport = DelayedRosterTransport(
+        teams: TeamsResponse(teams: [
+            selectionEntry(teamID: teamID, seasons: [archived, active])
+        ])
+    )
+    let selections = SelectionMemoryStore()
+    await selections.saveSelection(
+        TeamSeasonSelection(teamID: teamID, seasonID: archived.id),
+        for: "person_dual"
+    )
+    let controller = SnackdayApplicationController(transport: transport, selectionStore: selections)
+
+    let restore = Task { await controller.restore() }
+    while (await transport.rosterRequests()).isEmpty { await Task.yield() }
+    #expect(
+        await transport.rosterRequests()
+            == [TeamSeasonSelection(teamID: teamID, seasonID: active.id)]
+    )
+    await transport.finishRoster(for: teamID, player: "Active Player")
+    await restore.value
+
+    guard case .ready(_, let directory, _) = controller.state else {
+        Issue.record("Expected fallback to the active season")
+        return
+    }
+    #expect(directory.selection == TeamSeasonSelection(teamID: teamID, seasonID: active.id))
+    #expect(await selections.selection(for: "person_dual") == directory.selection)
+}
+
+@MainActor @Test func explicitInactiveSelectionsCannotStartRosterRequests() async {
+    let activeTeamID = "team_active"
+    let archivedTeamID = "team_archived"
+    let active = selectionSeason(id: "season_active", teamID: activeTeamID)
+    let archived = selectionSeason(id: "season_archived", teamID: activeTeamID, status: "archived")
+    let mismatched = selectionSeason(id: "season_mismatched", teamID: archivedTeamID)
+    let transport = DelayedRosterTransport(
+        teams: TeamsResponse(teams: [
+            selectionEntry(teamID: activeTeamID, seasons: [active, archived, mismatched]),
+            selectionEntry(
+                teamID: archivedTeamID,
+                status: "archived",
+                seasons: [selectionSeason(id: "season_archived_team", teamID: archivedTeamID)]
+            ),
+        ])
+    )
+    let controller = SnackdayApplicationController(
+        transport: transport,
+        selectionStore: SelectionMemoryStore()
+    )
+
+    let restore = Task { await controller.restore() }
+    while (await transport.rosterRequests()).isEmpty { await Task.yield() }
+    await transport.finishRoster(for: activeTeamID, player: "Active Player")
+    await restore.value
+    let initialRequests = await transport.rosterRequests()
+
+    await controller.selectSeason(archived.id)
+    await controller.selectSeason(mismatched.id)
+    await controller.selectTeam(archivedTeamID)
+
+    #expect(await transport.rosterRequests() == initialRequests)
+    guard case .ready(_, let directory, _) = controller.state else {
+        Issue.record("Expected the active selection to remain ready")
+        return
+    }
+    #expect(directory.teams.map(\.team.id) == [activeTeamID])
+    #expect(directory.teams[0].seasons.map(\.id) == [active.id])
+    #expect(directory.selection == TeamSeasonSelection(teamID: activeTeamID, seasonID: active.id))
 }
