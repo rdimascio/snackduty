@@ -30,14 +30,14 @@ export const eventCreationReceipts = defineTable("event_creation_receipts", {
 export const createEventCreationReceipts: MigrationEntry = {
   version: "013_create_event_creation_receipts",
   migration: {
-    up(schema) {
-      schema.execute(createTableSql(eventCreationReceipts));
-      schema.execute(
+    async up(schema) {
+      await schema.execute(createTableSql(eventCreationReceipts, schema.dialect));
+      await schema.execute(
         "CREATE UNIQUE INDEX event_creation_receipts_request_idx ON event_creation_receipts (actor_account_id, team_id, season_id, request_id)",
       );
     },
-    down(schema) {
-      schema.execute(dropTableSql(eventCreationReceipts));
+    async down(schema) {
+      await schema.execute(dropTableSql(eventCreationReceipts));
     },
   },
 };

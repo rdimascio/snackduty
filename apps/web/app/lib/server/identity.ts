@@ -33,13 +33,13 @@ export const accounts = defineTable("accounts", {
 export const createIdentity: MigrationEntry = {
   version: "003_create_identity",
   migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(people));
-      schema.execute(createTableSql(accounts));
+    up: async (schema) => {
+      await schema.execute(createTableSql(people, schema.dialect));
+      await schema.execute(createTableSql(accounts, schema.dialect));
     },
-    down: (schema) => {
-      schema.execute(dropTableSql(accounts));
-      schema.execute(dropTableSql(people));
+    down: async (schema) => {
+      await schema.execute(dropTableSql(accounts));
+      await schema.execute(dropTableSql(people));
     },
   },
 };

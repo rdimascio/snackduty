@@ -67,14 +67,14 @@ export const calendarFeedTokens = defineTable("calendar_feed_tokens", {
 export const createCalendarFeeds: MigrationEntry = {
   version: "008_create_calendar_feeds",
   migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(calendarFeedTokens));
-      schema.execute(
+    up: async (schema) => {
+      await schema.execute(createTableSql(calendarFeedTokens, schema.dialect));
+      await schema.execute(
         "CREATE INDEX calendar_feed_tokens_team_person_idx ON calendar_feed_tokens (team_id, person_id)",
       );
     },
-    down: (schema) => {
-      schema.execute(dropTableSql(calendarFeedTokens));
+    down: async (schema) => {
+      await schema.execute(dropTableSql(calendarFeedTokens));
     },
   },
 };

@@ -33,16 +33,18 @@ export const invitationOutbox = defineTable("invitation_delivery_outbox", {
 export const createInvitationOutbox: MigrationEntry = {
   version: "012_create_invitation_outbox",
   migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(invitationOutbox));
-      schema.execute(
+    up: async (schema) => {
+      await schema.execute(createTableSql(invitationOutbox, schema.dialect));
+      await schema.execute(
         "CREATE INDEX invitation_delivery_outbox_invitation_id_idx ON invitation_delivery_outbox (invitation_id)",
       );
-      schema.execute(
+      await schema.execute(
         "CREATE INDEX invitation_delivery_outbox_status_idx ON invitation_delivery_outbox (status)",
       );
     },
-    down: (schema) => schema.execute(dropTableSql(invitationOutbox)),
+    down: async (schema) => {
+      await schema.execute(dropTableSql(invitationOutbox));
+    },
   },
 };
 

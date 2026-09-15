@@ -94,17 +94,17 @@ export const invitations = defineTable("invitations", {
 export const createInvitations: MigrationEntry = {
   version: "006_create_invitations",
   migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(invitationsV006));
-      schema.execute(createTableSql(adultMemberships));
-      schema.execute("CREATE INDEX invitations_team_id_idx ON invitations (team_id)");
-      schema.execute(
+    up: async (schema) => {
+      await schema.execute(createTableSql(invitationsV006, schema.dialect));
+      await schema.execute(createTableSql(adultMemberships, schema.dialect));
+      await schema.execute("CREATE INDEX invitations_team_id_idx ON invitations (team_id)");
+      await schema.execute(
         "CREATE INDEX adult_memberships_team_id_person_id_idx ON adult_memberships (team_id, person_id)",
       );
     },
-    down: (schema) => {
-      schema.execute(dropTableSql(adultMemberships));
-      schema.execute(dropTableSql(invitations));
+    down: async (schema) => {
+      await schema.execute(dropTableSql(adultMemberships));
+      await schema.execute(dropTableSql(invitations));
     },
   },
 };
@@ -112,21 +112,21 @@ export const createInvitations: MigrationEntry = {
 export const createInvitationRecipientBinding: MigrationEntry = {
   version: "011_create_invitation_recipient_binding",
   migration: {
-    up: (schema) => {
-      schema.execute("ALTER TABLE invitations ADD COLUMN recipient_kind TEXT");
-      schema.execute("ALTER TABLE invitations ADD COLUMN recipient_email TEXT");
-      schema.execute("ALTER TABLE invitations ADD COLUMN recipient_person_id TEXT");
-      schema.execute("ALTER TABLE invitations ADD COLUMN replaces_guardian_relationship_id TEXT");
-      schema.execute(
+    up: async (schema) => {
+      await schema.execute("ALTER TABLE invitations ADD COLUMN recipient_kind TEXT");
+      await schema.execute("ALTER TABLE invitations ADD COLUMN recipient_email TEXT");
+      await schema.execute("ALTER TABLE invitations ADD COLUMN recipient_person_id TEXT");
+      await schema.execute("ALTER TABLE invitations ADD COLUMN replaces_guardian_relationship_id TEXT");
+      await schema.execute(
         "CREATE INDEX invitations_recipient_person_id_idx ON invitations (recipient_person_id)",
       );
     },
-    down: (schema) => {
-      schema.execute("DROP INDEX invitations_recipient_person_id_idx");
-      schema.execute("ALTER TABLE invitations DROP COLUMN replaces_guardian_relationship_id");
-      schema.execute("ALTER TABLE invitations DROP COLUMN recipient_person_id");
-      schema.execute("ALTER TABLE invitations DROP COLUMN recipient_email");
-      schema.execute("ALTER TABLE invitations DROP COLUMN recipient_kind");
+    down: async (schema) => {
+      await schema.execute("DROP INDEX invitations_recipient_person_id_idx");
+      await schema.execute("ALTER TABLE invitations DROP COLUMN replaces_guardian_relationship_id");
+      await schema.execute("ALTER TABLE invitations DROP COLUMN recipient_person_id");
+      await schema.execute("ALTER TABLE invitations DROP COLUMN recipient_email");
+      await schema.execute("ALTER TABLE invitations DROP COLUMN recipient_kind");
     },
   },
 };

@@ -55,21 +55,21 @@ export const memberships = defineTable("memberships", {
 export const createRoster: MigrationEntry = {
   version: "005_create_roster",
   migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(participants));
-      schema.execute(createTableSql(guardianRelationships));
-      schema.execute(createTableSql(memberships));
-      schema.execute(
+    up: async (schema) => {
+      await schema.execute(createTableSql(participants, schema.dialect));
+      await schema.execute(createTableSql(guardianRelationships, schema.dialect));
+      await schema.execute(createTableSql(memberships, schema.dialect));
+      await schema.execute(
         "CREATE INDEX guardian_relationships_participant_id_idx ON guardian_relationships (participant_id)",
       );
-      schema.execute(
+      await schema.execute(
         "CREATE INDEX memberships_team_id_season_id_idx ON memberships (team_id, season_id)",
       );
     },
-    down: (schema) => {
-      schema.execute(dropTableSql(memberships));
-      schema.execute(dropTableSql(guardianRelationships));
-      schema.execute(dropTableSql(participants));
+    down: async (schema) => {
+      await schema.execute(dropTableSql(memberships));
+      await schema.execute(dropTableSql(guardianRelationships));
+      await schema.execute(dropTableSql(participants));
     },
   },
 };

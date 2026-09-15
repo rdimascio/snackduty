@@ -44,15 +44,15 @@ export const seasons = defineTable("seasons", {
 export const createTeamsAndSeasons: MigrationEntry = {
   version: "004_create_teams_and_seasons",
   migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(teams));
-      schema.execute(createTableSql(seasons));
-      schema.execute("CREATE INDEX teams_created_by_person_id_idx ON teams (created_by_person_id)");
-      schema.execute("CREATE INDEX seasons_team_id_idx ON seasons (team_id)");
+    up: async (schema) => {
+      await schema.execute(createTableSql(teams, schema.dialect));
+      await schema.execute(createTableSql(seasons, schema.dialect));
+      await schema.execute("CREATE INDEX teams_created_by_person_id_idx ON teams (created_by_person_id)");
+      await schema.execute("CREATE INDEX seasons_team_id_idx ON seasons (team_id)");
     },
-    down: (schema) => {
-      schema.execute(dropTableSql(seasons));
-      schema.execute(dropTableSql(teams));
+    down: async (schema) => {
+      await schema.execute(dropTableSql(seasons));
+      await schema.execute(dropTableSql(teams));
     },
   },
 };

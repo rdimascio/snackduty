@@ -92,25 +92,25 @@ export const eventAttendance = defineTable("event_attendance", {
 export const createEvents: MigrationEntry = {
   version: "007_create_events",
   migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(eventSeries));
-      schema.execute(createTableSql(eventOccurrences));
-      schema.execute(createTableSql(eventAttendance));
-      schema.execute("CREATE INDEX event_series_team_id_idx ON event_series (team_id)");
-      schema.execute(
+    up: async (schema) => {
+      await schema.execute(createTableSql(eventSeries, schema.dialect));
+      await schema.execute(createTableSql(eventOccurrences, schema.dialect));
+      await schema.execute(createTableSql(eventAttendance, schema.dialect));
+      await schema.execute("CREATE INDEX event_series_team_id_idx ON event_series (team_id)");
+      await schema.execute(
         "CREATE UNIQUE INDEX event_occurrences_series_local_date_idx ON event_occurrences (series_id, local_date)",
       );
-      schema.execute(
+      await schema.execute(
         "CREATE INDEX event_occurrences_team_starts_idx ON event_occurrences (team_id, starts_at_utc)",
       );
-      schema.execute(
+      await schema.execute(
         "CREATE UNIQUE INDEX event_attendance_occurrence_participant_idx ON event_attendance (occurrence_id, participant_id)",
       );
     },
-    down: (schema) => {
-      schema.execute(dropTableSql(eventAttendance));
-      schema.execute(dropTableSql(eventOccurrences));
-      schema.execute(dropTableSql(eventSeries));
+    down: async (schema) => {
+      await schema.execute(dropTableSql(eventAttendance));
+      await schema.execute(dropTableSql(eventOccurrences));
+      await schema.execute(dropTableSql(eventSeries));
     },
   },
 };
