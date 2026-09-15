@@ -84,9 +84,22 @@ Simulator and shared DerivedData access are serialized by root.
 | J-F Sol         | `373db5f`, `d648c17` | `1a6cb85` plus root integration | Views, fixture UI/model tests; sorting simplification incorporated centrally after an actual Swift compiler timeout.              |
 | J-G Sol         | `fe33c40`            | `17ff976`                       | 2 real composed-runtime tests / 128 assertions passed; the same tests fail against the frozen contracts without J-A routes.       |
 
-Root integration and final Mac/release evidence remain pending. Shared app/Xcode
-wiring and actual native/server/UI acceptance are root-owned. An independent
-gpt-5.5 review found no additional material issues beyond root's pending session
-restoration lifetime and stale RSVP schedule count regressions. The requested
-additional Claude review hit its account session limit; no Claude coordination
-review pass is claimed.
+Root integrated shared app/Xcode wiring and actual native/server/UI acceptance in
+`a8671ed`; Sol UI follow-up `e041c1e` became `0ab4097`. Final source `1f9e10a`
+adds the acceptance summary and developer guidance. No required stubs remain.
+
+The root session-restoration and stale RSVP count regressions failed before their
+fixes, then passed with the real controller/server. Actual simulator UI runs also
+reproduced fractional timestamp and RSVP hit-target failures; both are fixed.
+An independent gpt-5.5 review cleared the complete diff and final deltas through
+`1f9e10a`. The additional Claude review hit its account session limit; no Claude
+coordination review pass is claimed.
+
+All required local commands pass: fast checks (295 web / 29 domain / 39 manifest /
+12 harness tests), scenario, explicit UI, acceptance and full Mac gate. The gate
+includes 81 Swift tests, seven fixture UI tests, Debug/Release builds and named
+real controller/API plus coach–parent UI journeys. The clean gate acceptance
+receipt is `.artifacts/acceptance/run-1AgTjP/receipt.json`, source `1f9e10a`.
+Focused clean acceptance also passed at `0ab4097` in `run-dYDR3Y`. Runtime
+migration 013, restart and backup/restore pass locally. Hosted checks remain
+required before merge; staging and TestFlight remain unverified.

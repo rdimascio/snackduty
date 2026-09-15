@@ -2,7 +2,7 @@
 
 ## Current beta foundation — September 14, 2026
 
-The beta foundation merged in PR #4 as `4c11695` after independent review and all local/hosted checks. The first native coordination journey is being implemented in `feat/native-coordination`, with three isolated Sol lanes cut from frozen contracts `82d19b4`. The [integration ledger](./beta-integration-ledger.md) records isolated Sol ownership and commit receipts; [release evidence](./beta-release-evidence.md) separates local and external verification.
+The beta foundation merged in PR #4 as `4c11695` after independent review and all local/hosted checks. The first native coordination journey is implemented and locally verified on `1f9e10a`, with four isolated Sol tickets cut from frozen contracts `82d19b4` and three implementation slots reused as dependencies cleared. Its hosted PR checks remain required. The [foundation ledger](./beta-integration-ledger.md) and [coordination ledger](./coordination-integration-ledger.md) record ownership and commits; [release evidence](./beta-release-evidence.md) separates local and external verification.
 
 Implemented and integrated locally:
 
@@ -15,17 +15,25 @@ Implemented and integrated locally:
 
 ### Local verification
 
-The composed runtime journey passes 2 tests and 91 assertions using real generated RS256 tokens and durable database/session/outbox implementations. This establishes local cryptographic integration, dual coach–parent identity, two-team privacy, recipient/replay boundaries and session expiry/revocation. Its keys and delivery recorder are synthetic; it is not a live Apple or mail-provider test.
+The composed runtime journey now passes 2 tests and 128 assertions using real generated RS256 tokens and durable database/session/outbox implementations. This establishes local cryptographic integration, dual coach–parent identity, two-team privacy, recipient/replay boundaries, session expiry/revocation and event/RSVP/snack operations. Its keys and delivery recorder are synthetic; it is not a live Apple or mail-provider test.
 
 The complete Mac gate passed on `afe87e8`: 288 web tests, 22 domain tests, 39 manifest tests, 12 harness tests, 59 Swift tests, four UI tests, Debug/Release simulator builds and real native/API acceptance. Xcode 16.2 discovered iPhone 16 Pro on iOS 18.3. The acceptance receipt is `.artifacts/acceptance/run-1FLROh/receipt.json`; its dirty flag reflects the preserved unrelated untracked file.
 
 Two independent integrated reviews completed. Reproduced findings have regressions for redirect credentials, local logout, rejected sign-in, archived-season privacy and selection. The final review found cancellation of the invitation sheet could strand the application refresh. `d54a2f4` fixes the refresh lifetime; its regression failed before the fix and passed after it. A repeated gate exposed a scheduler-dependent test wait; `fc29d3d` uses deterministic request-registration barriers. Both deltas passed independent review and the complete gate. Hosted checks passed on PR head `1b894f3` before merge. The clean CI acceptance receipt records GitHub’s merge-test commit `a400ac4`, Bun 1.3.5 and Xcode 16.4; local checks used Bun 1.4.2 and Xcode 16.2.
 
+### First usable coordination journey
+
+The native app now lists the selected season's events, creates a single event with optional snack duty, presents only server-authorized child RSVP choices, and claims duty as the current adult. HTTP and native callers share explicit application operations. Event, snack slot and idempotent request receipt commit atomically; unchanged retries cannot create duplicates. Native state handles cancellation, stale replies, typed failures, empty seasons and session expiry.
+
+All requested local checks pass on the integrated source: `check:fast`, `check:scenario`, `ios:test:ui`, `accept` and the complete Mac `gate`. The gate on clean `1f9e10a` passed 295 web tests, 29 domain tests, 39 manifest tests, 12 harness tests, 81 Swift tests, seven fixture UI tests, Debug/Release simulator builds and the separately required live UI journey. The live-only UI test is intentionally skipped outside acceptance; acceptance requires its named pass. Receipt `.artifacts/acceptance/run-1AgTjP/receipt.json` records clean source, Bun 1.4.2 and Xcode 16.2 on the discovered iPhone 16 Pro / iOS 18.3 simulator. The durable runtime verification also passes migration 013, restart, backup and restore; it still reports `stagingVerified: false`.
+
+The actual UI creates an event as coach, relaunches as the parent, records an own-child RSVP, claims snacks, verifies saved server results, and switches to a different team where that adult coaches. Screenshots were inspected. Regressions reproduced and fixed navigation cancelling session restoration, stale cached RSVP counts, fractional timestamps displaying “Date unavailable”, and the RSVP row's untappable center. Independent integrated-diff and final-delta review found no remaining material issues through `1f9e10a`. Claude's additional coordination review hit its account quota; the completed independent review used gpt-5.5.
+
 ### External requirements still incomplete
 
 No staging hosting account, hostname, persistent volume or verified invitation sender has been selected. No live Apple sign-in, external delivery, remote restart/restore/rollback journey, signed archive, physical-device journey or TestFlight release has been verified. Local Xcode account metadata lists a Personal Team; that is not distribution evidence. The source bundle identifier is `com.snackday.app`; app registration, paid-team/capability configuration and an upload-capable Xcode remain prerequisites.
 
-The foundation is therefore implemented in substantial local slices, not a completed staging/TestFlight beta. Verified-email authentication onboarding, native coordination screens, broader role audit/jobs, delivery and onboarding work remain open. League operations stay R4; branded apps stay last at R5.
+The foundation is therefore implemented in substantial local slices, not a completed staging/TestFlight beta. Verified-email authentication onboarding, native recurrence editing/calendar subscription, duty swaps/reminders, broader role audit/jobs, delivery and onboarding work remain open. League operations stay R4; branded apps stay last at R5.
 
 ## Published baseline receipts
 

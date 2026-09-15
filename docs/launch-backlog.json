@@ -2,8 +2,8 @@
   "schema_version": 1,
   "as_of": "2026-09-14",
   "repository": "rdimascio/snackduty",
-  "audited_commit": "afe87e8",
-  "note": "PRs #1\u2013#4 are merged after independent review and local/hosted checks. The first native coordination journey is integrated on feat/native-coordination; final UI convergence and full checks remain in progress. Local cryptographic tests are not live Apple, hosted staging, external delivery, or TestFlight evidence. See implementation-status.md and beta-release-evidence.md. League remains R4 and branded apps R5.",
+  "audited_commit": "1f9e10a",
+  "note": "PRs #1\u2013#4 are merged after independent review and local/hosted checks. The first native coordination journey is implemented and locally verified on feat/native-coordination; independent review and all requested local checks, including the complete Mac gate, pass. Hosted checks remain required before merge. Local cryptographic tests are not live Apple, hosted staging, external delivery, or TestFlight evidence. See implementation-status.md and beta-release-evidence.md. League remains R4 and branded apps R5.",
   "tasks": [
     {
       "id": "SD-001",
@@ -122,7 +122,7 @@
       "depends_on": ["SD-001", "SD-003", "SD-005"],
       "acceptance": "List and edit permitted events, preserve recurrence/DST/cancellations, RSVP only for authorized children and expose revocable one-way feed. Prove actual API logs/traces hide feed secrets; omit unsafe free-text feed fields. Test calendar re-import/update behavior.",
       "code_areas": "apps/web/app/lib/server/events.ts; attendance.ts; calendar-feeds.ts; apps/ios",
-      "note": "Reusable authorized application operations, atomic single-event/snack creation with request replay receipts, native schedule/detail/create and own-child RSVP are integrated. Real SQL/HTTP and cryptographic journey tests pass; native UI convergence is in progress. Native recurrence editing, calendar subscription and staging evidence remain incomplete."
+      "note": "Reusable authorized application operations, atomic single-event/snack creation with request replay receipts, native schedule/detail/create and own-child RSVP are implemented. Real SQL/HTTP, cryptographic journey, native controller/API and actual coach-parent UI journeys pass through the full local Mac gate. Native recurrence editing, calendar subscription and staging evidence remain incomplete."
     },
     {
       "id": "SD-011",
@@ -134,7 +134,7 @@
       "depends_on": ["SD-003", "SD-007", "SD-010"],
       "acceptance": "Persist event-linked slots, assignment/claim/release/swap states and due reminders. Concurrent claims cannot overfill capacity; event cancellation/reschedule invalidates stale reminders; parent confirms own responsibility.",
       "code_areas": "new duty domain/service/UI",
-      "note": "Server-side slot/claim/release/assignment slice merged in PR #1, including protection against clearing past/cancelled duty history. Native self-claim and event-linked snack creation are integrated through shared authorized operations; UI convergence is in progress. Swaps, rotation and reminders remain incomplete."
+      "note": "Server-side slot/claim/release/assignment slice merged in PR #1, including protection against clearing past/cancelled duty history. Native self-claim and event-linked snack creation now pass the real controller/API and coach-parent UI journeys through shared authorized operations. Swaps, rotation and reminders remain incomplete."
     },
     {
       "id": "SD-012",
