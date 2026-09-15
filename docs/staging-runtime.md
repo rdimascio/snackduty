@@ -31,21 +31,23 @@ The runtime fails closed:
 
 ## Required configuration
 
-| Variable                                         | Example                        | Requirement                                             |
-| ------------------------------------------------ | ------------------------------ | ------------------------------------------------------- |
-| `SNACKDAY_RUNTIME_MODE`                          | `staging`                      | Explicitly `staging` or `production`                    |
-| `LESTO_DB`                                       | `/data/snackduty/snackduty.db` | Absolute path on the mounted persistent volume          |
-| `SNACKDAY_PUBLIC_BASE_URL`                       | `https://staging.example.com`  | Public HTTPS origin, without credentials/query/fragment |
-| `HOST`                                           | `0.0.0.0`                      | Optional; defaults to `0.0.0.0`                         |
-| `PORT`                                           | `3000`                         | Optional; defaults to `3000`                            |
-| `SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE` | `false`                        | Optional explicit Boolean; defaults to false            |
+| Variable                                         | Example                        | Requirement                                                                                 |
+| ------------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------- |
+| `SNACKDAY_RUNTIME_MODE`                          | `staging`                      | Explicitly `staging` or `production`                                                        |
+| `LESTO_DB`                                       | `/data/snackduty/snackduty.db` | Absolute path on the mounted persistent volume                                              |
+| `SNACKDAY_PUBLIC_BASE_URL`                       | `https://staging.example.com`  | Public HTTPS origin, without credentials/query/fragment                                     |
+| `SNACKDAY_APPLE_CLIENT_ID`                       | `com.snackday.app`             | Required exact registered Apple token audience; example is not account verification         |
+| `SNACKDAY_INVITATION_OUTBOX_KEY`                 | Secret store only              | Canonical base64 32-byte encryption key, required when real invitation delivery is injected |
+| `HOST`                                           | `0.0.0.0`                      | Optional; defaults to `0.0.0.0`                                                             |
+| `PORT`                                           | `3000`                         | Optional; defaults to `3000`                                                                |
+| `SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE` | `false`                        | Optional explicit Boolean; defaults to false                                                |
 
-Apple authentication configuration and invitation delivery configuration are owned
-by their provider lanes and must be injected by the central application wiring. A
-remote release must not substitute the development persona provider.
-
-The central manifest owner must expose `bun apps/web/runtime/server.ts` as the remote
-start command and include `apps/web/runtime/**/*.ts` in the web TypeScript project.
+`bun run runtime:serve` starts this runtime; runtime sources are included in the
+web TypeScript project. The configured Apple audience creates the real Apple JWKS
+verifier. A real invitation adapter must still be injected through
+`runRuntimeFromEnvironment` together with its encrypted outbox key. The default
+unavailable adapter fails closed; it does not send mail. Never substitute the
+development persona or recorder for a remote provider.
 
 ## Local durability proof
 
@@ -135,8 +137,8 @@ verified:
 - persistent volume identifier, mount path, size, and backup retention target;
 - immutable application artifact/image identifier;
 - upstream proxy/load-balancer request logging policy and its verification receipt;
-- Apple team ID, Services ID/client audience, iOS bundle ID, and real adult test
-  account identifiers;
+- Apple team ID, registered iOS bundle ID (the native token audience), and real
+  adult test account identifiers;
 - verified invitation sender/domain and safe recipient test addresses.
 
 Keep `staging verified` and `TestFlight released` incomplete until those real-host,

@@ -28,16 +28,65 @@ identity/session, 011 invitation recipient binding, 012 invitation delivery inte
 Root integrates leaf commits, registers migrations and new Swift files, and alone
 runs simulator/DerivedData checks. Sol agents run focused non-simulator checks.
 
-## Evidence
-
-- Wave 0: prior 232 web tests still pass after removing import-time application
-  database creation and global page services; web typecheck passes.
-- Runtime staging hostname/provider, Apple audience/team/bundle and verified
-  sender are requested. No remote staging, real Apple login, email delivery,
-  signing or TestFlight release is claimed.
-
 ## Integration receipts
 
-Pending foundation commit and leaf implementation. All required stubs must be
-removed before claiming integrated completion. The final reviewed commit must
-pass local fast/scenario/UI/accept/full Mac gate and hosted checks before merge.
+All initial leaves were cut from frozen foundation `66e03cb`; source commits were
+cherry-picked in the root worktree. Follow-up E2/C2/A3 leaves share the newly frozen
+`d3ab7a8` seam. Root alone owns simulator and DerivedData execution.
+
+| Owner / ticket            | Integration commit(s) | Scope / evidence                                                                                                                                                                        |
+| ------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| root / foundation         | `66e03cb`, `85625e0`  | Contracts, canonical fixtures, factory/context composition, injected clocks and Release build check. Existing 232 web tests passed after composition split.                             |
+| root / A                  | `13f1e13`             | Domain policy wired into team/child authorization and privacy reads; focused policy/tenancy coverage.                                                                                   |
+| Sol identity / B          | `c4b0d5c`             | Cryptographic Apple verification, provider links and durable sessions.                                                                                                                  |
+| Sol runtime / D           | `e56f6a9`             | Bun/SQLite remote composition, health, backup/restore/probe tooling and focused persistence tests.                                                                                      |
+| Sol transport / E         | `a99892b`             | Native Keychain transport, session/selection controller and domain tests.                                                                                                               |
+| root / integration        | `d91d9e4`, `9439d7c`  | Real runtime file/API routes, required Apple audience, session-mode enforcement, migrations and encrypted invitation outbox wiring.                                                     |
+| Sol native shell / F      | `3a38619`, `16d948c`  | Honest SwiftUI shell and navigation tests.                                                                                                                                              |
+| Sol invitations / C       | `4d83672`             | Recipient binding, explicit child relationship targeting, delivery outbox and retry tests.                                                                                              |
+| Sol acceptance / G        | `faf328c`, `f46c3a9`  | Real composed-runtime RS256 journey: 2 tests / 91 assertions. Synthetic keys and delivery explicitly labelled.                                                                          |
+| Sol harness / G2          | `4a02172`             | Recipient-bound existing scenario/acceptance fixtures; 50 focused API tests passed.                                                                                                     |
+| root / native integration | `eb687a4`, `d3ab7a8`  | Live app client composition, challenge race/body-stream regressions, entitlement/fixtures and native invitation contracts. 35 domain and four UI tests passed before follow-up changes. |
+| Sol authorization / A2    | `4e81ed5`, `85fe1f5`  | Active-season event/duty scope; 30 API and 13 policy tests passed.                                                                                                                      |
+
+| Sol clocks / A3 | `340bc38` | Roster/import/status clocks injected; composition also passes clock through page request services. |
+| Sol attendance / A3 | `9910be1` | Reproduced archived aggregate leak; read/write now require canonical active occurrence scope. |
+| Sol native join / C2 | `ee97c32` | Native invitation entry/preview/accept, cancellation and generic recipient failures. |
+| Sol session repair / E2 | `6e28a29`, `b678eba`, `7b00632` | Redirect rejection, immediate durable local logout, stale completion protection and visible rejected sign-in. |
+| Sol retention / B3 | `b38bf46` | Expired challenge cleanup and concurrent stable-subject sign-in regression; alleged unique race refuted on the real SQLite adapter. |
+| Sol active selection / A4, E3 | `4c8cf8a`, `76e0828` | Inactive season directories/rosters denied; native saved/default/explicit selections revalidated. |
+| root / convergence | `40fe367` | Join/picker wiring, mandatory outbox intent, app-hosted signed simulator tests with real Keychain, native live invitation acceptance and Xcode receipt discovery. |
+
+## Follow-up ownership
+
+- E2 (`fix/native-session-boundaries`, Sol runtime agent): only native API client,
+  Keychain store, application controller and client/session/selection tests.
+  Reject redirects and clear local identity on failed-network logout without
+  overwriting a newer login. No contracts or UI edits.
+- C2 (`feat/native-join-team`, Sol native agent): only new `JoinTeamView.swift` and
+  `JoinTeamTests.swift`. Consume frozen invitation DTOs/protocol and exercise
+  explicit preview/accept with cancellation and safe errors. Root wires it.
+- A3 (`fix/injected-operation-clock`, Sol identity agent): roster, roster-import,
+  team-reads and a dedicated operation-clock test. Expanded exclusively to
+  attendance and its API test after reproducing archived-season aggregate leakage.
+  Root handles composition and request service wiring.
+- Root: shared files above, existing native picker/shell wiring and UI regression,
+  old overview fixture migration, project registration, status/backlog and review.
+
+## Current verification and blockers
+
+The latest fast run passes after updating old overview tests to provide recipient
+binding. Its complete integrated successor, scenario, native UI, acceptance and
+Mac gate must pass on the reviewed commit before merge. Claude reviewed the complete baseline diff; a different-model integrated review
+also ran. Retained findings were reproduced and corrected; final delta review is
+running. The alleged concurrent first Apple sign-in race was refuted with two
+real simultaneous sign-ins producing exactly one account and provider link.
+
+No remote staging, live Apple login, external delivery, signed archive or
+TestFlight release is claimed. Hosting/volume/sender configuration and Apple
+registration/distribution access remain unresolved. The user's account setup is
+not yet decided; independent implementation continues without invented targets.
+
+An unrelated untracked `test.jsonl` is preserved and excluded from commits. Local
+receipts must retain truthful dirty-source provenance; hosted checks will provide
+clean commit evidence.

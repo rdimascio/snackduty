@@ -83,7 +83,8 @@ flowchart TD
   R --> J[Event creation, RSVP, snack claim]
 ```
 
-Typed authentication stubs exist only to cut independent branches. They deny
-access and are not registered as completed release functionality. Convergence
-must remove them and run real implementations. Account-dependent requirements
-remain incomplete regardless of mocked-provider tests or successful local gates.
+Temporary authentication stubs were replaced during convergence by real
+cryptographic verification and durable sessions. Native invitation acceptance uses
+the same server preview/accept routes and frozen fixtures. Account-dependent
+requirements remain incomplete regardless of mocked-provider tests or successful
+local gates.
