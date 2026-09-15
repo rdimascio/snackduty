@@ -57,7 +57,8 @@ import Foundation
         identity = nil
         directory = nil
         let challengeGeneration = generation
-        publish(.authenticating)
+        // Preparing a nonce must leave the consent/sign-in form on screen.
+        publish(.signedOut)
         do {
             let challenge = try await transport.beginAppleSignIn()
             guard isCurrent(challengeGeneration) else { throw CancellationError() }
@@ -65,7 +66,7 @@ import Foundation
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            await handle(error, generation: generation)
+            await handle(error, generation: challengeGeneration)
             throw sanitized(error)
         }
     }

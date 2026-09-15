@@ -213,7 +213,7 @@ extension HomeSnapshot {
         HomeSnapshot(
             greeting: greeting,
             team: TeamSummary(name: selection.team.name, season: selection.season.label),
-            nextEvent: "No events scheduled yet",
+            nextEvent: "Schedule details are not available yet",
             roster: roster.map { participant in
                 RosterMember(
                     id: participant.participantId,

@@ -85,25 +85,28 @@ public struct SnackdayAPIClient: SnackdayTransport, Sendable {
     /// state, and adult consent before minting a session. The identity token is
     /// never retained by this client.
     public func completeAppleSignIn(_ input: AppleSignInRequestDTO) async throws -> AdultIdentityDTO {
-        try await perform(
+        let credential = try await authenticationCredential()
+        return try await perform(
             AdultIdentityDTO.self,
-            request: try request(path: "api/auth/apple/sign-in", method: "POST", body: input)
+            request: try request(path: "api/auth/apple/sign-in", method: "POST", body: input),
+            credential: credential
         )
     }
 
     /// The local credential is removed after confirmed revocation. A 401 is also
     /// a successful local outcome because no active server session remains.
     public func signOut() async throws {
-        await cookies.invalidatePendingResponses()
+        let credential = try await authenticationCredential()
         do {
             let response = try await perform(
                 SignOutResponseDTO.self,
-                request: request(path: "api/session/logout", method: "POST")
+                request: request(path: "api/session/logout", method: "POST"),
+                credential: credential
             )
             guard response.signedOut else { throw SnackdayAPIError.invalidResponse }
-            try await cookies.clearUnconditionally(for: baseURL)
+            try await cookies.clear(for: baseURL, requestEpoch: credential.epoch)
         } catch SnackdayAPIError.unauthorized {
-            try await cookies.clearUnconditionally(for: baseURL)
+            try await cookies.clear(for: baseURL, requestEpoch: credential.epoch)
         }
     }
 
@@ -136,6 +139,7 @@ public struct SnackdayAPIClient: SnackdayTransport, Sendable {
     /// can mint a fixed development persona.
     @discardableResult
     public func signInDevelopment(persona: String? = nil) async throws -> DevIdentityDTO {
+        guard allowsInsecureLoopback else { throw SnackdayAPIError.unavailable }
         struct DevelopmentSignInBody: Encodable {
             let persona: String
         }
@@ -150,7 +154,8 @@ public struct SnackdayAPIClient: SnackdayTransport, Sendable {
         } else {
             signInRequest = request(path: "api/dev/sign-in", method: "POST")
         }
-        return try await perform(DevIdentityDTO.self, request: signInRequest)
+        let credential = try await authenticationCredential()
+        return try await perform(DevIdentityDTO.self, request: signInRequest, credential: credential)
     }
 #endif
 
@@ -175,10 +180,18 @@ public struct SnackdayAPIClient: SnackdayTransport, Sendable {
         return request
     }
 
-    private func authenticated(_ request: URLRequest) async throws -> (request: URLRequest, epoch: UInt64) {
+    private func authenticationCredential() async throws -> (header: String?, epoch: UInt64) {
+        guard validOrigin else { throw SnackdayAPIError.unavailable }
+        do { return try await cookies.beginAuthentication(for: baseURL) }
+        catch { throw SnackdayAPIError.unavailable }
+    }
+
+    private func authenticated(_ request: URLRequest, credential supplied: (header: String?, epoch: UInt64)?) async throws -> (request: URLRequest, epoch: UInt64) {
         guard validOrigin else { throw SnackdayAPIError.unavailable }
         var request = request
-        let credential = try await cookies.credential(for: baseURL)
+        let credential: (header: String?, epoch: UInt64)
+        if let supplied { credential = supplied }
+        else { credential = try await cookies.credential(for: baseURL) }
         if let cookie = credential.header {
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
@@ -217,12 +230,13 @@ public struct SnackdayAPIClient: SnackdayTransport, Sendable {
 
     private func perform<Payload: Decodable>(
         _ payload: Payload.Type,
-        request: URLRequest
+        request: URLRequest,
+        credential: (header: String?, epoch: UInt64)? = nil
     ) async throws -> Payload {
         let authenticatedRequest: URLRequest
         let requestEpoch: UInt64
         do {
-            let prepared = try await authenticated(request)
+            let prepared = try await authenticated(request, credential: credential)
             authenticatedRequest = prepared.request
             requestEpoch = prepared.epoch
         } catch is CancellationError {

@@ -60,28 +60,16 @@ struct AppleSignInView: View {
 
     @ViewBuilder private var signInControl: some View {
         if let challenge {
-            if adultConsent {
-                SignInWithAppleButton(.continue) { request in
-                    request.requestedScopes = [.fullName, .email]
-                    request.nonce = appleNonceDigest(challenge.nonce)
-                } onCompletion: { result in
-                    handle(result, challenge: challenge)
-                }
-                .signInWithAppleButtonStyle(.black)
-                .frame(height: 50)
-                .accessibilityIdentifier("apple-sign-in-button")
-            } else {
-                Button {} label: {
-                    Label("Continue with Apple", systemImage: "apple.logo")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.black)
-                .disabled(true)
-                .accessibilityHint("Confirm that you are an adult before continuing.")
-                .accessibilityIdentifier("apple-sign-in-button")
+            SignInWithAppleButton(.continue) { request in
+                request.requestedScopes = [.fullName, .email]
+                request.nonce = appleNonceDigest(challenge.nonce)
+            } onCompletion: { result in
+                handle(result, challenge: challenge)
             }
+            .signInWithAppleButtonStyle(.black)
+            .frame(height: 50)
+            .disabled(!adultConsent)
+            .accessibilityIdentifier("apple-sign-in-button")
         } else if isPreparing {
             ProgressView("Preparing secure sign-in…")
                 .frame(maxWidth: .infinity)

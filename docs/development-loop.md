@@ -24,7 +24,7 @@ bun run dev:scenario --ios
 bun run dev:scenario --ios="iPhone 16"
 ```
 
-The harness boots the selected simulator when needed, installs the Debug app, and supplies its loopback API base URL through the simulator environment. Keep the command running for the native session; Ctrl-C removes the temporary server data.
+The harness boots the selected simulator when needed, installs the Debug app, and explicitly supplies its loopback API base URL and `SNACKDAY_DEV_SIGN_IN=true` through the simulator environment. Release builds use the bundled HTTPS configuration and contain no development sign-in operation. Keep the command running for the native session; Ctrl-C removes the temporary server data.
 
 The scenario fixtures and assertions live in `scripts/lib/dev-scenario-seed.ts`. Extend these when adding another reproducible role or journey; avoid maintaining a separate set of manual SQL seeds. This scenario supplements the larger acceptance journey, which exercises imports, invitation lifecycle, events, attendance, calendar feeds, and the native API client.
 
@@ -60,6 +60,10 @@ The Debug-only native fixture depends on `SWIFT_ACTIVE_COMPILATION_CONDITIONS = 
 
 ## Architectural boundaries to remember
 
-Runtime team authorization currently lives in `apps/web/app/lib/server/teams.ts` and its callers. The abstract `packages/domain/src/policies.ts` evaluator is not wired into those handlers. Changing its unit tests does not change runtime access. Full policy unification remains SD-003; preserve owner-only delegation and additive guardian rights when that work lands.
+Runtime team authorization loads current database evidence through `apps/web/app/lib/server/authorization.ts` and evaluates `packages/domain/src/policies.ts`. Capability hints never grant access. Preserve owner-only delegation, additive guardian rights, and active team/season boundaries. Exercise actual composed API and page paths as well as policy unit tests.
+
+`lesto.app.ts` exports a per-boot factory; importing it does not open a database. Lesto already supports factory configuration and request-local `Context.set/get`, so application instances need no module-global service registry. The durable Bun runtime uses the same composition, file routes and migration list. See [ADR 0010](./adr/0010-beta-application-foundation.md) and the [staging runbook](./staging-runtime.md).
+
+Native Debug targets explicitly enable both `DEBUG` and testability. URLSession may present request bodies to a test URLProtocol as a stream on the simulator: a fake server that reads only `httpBody` does not reproduce the real transport. Keep the session-generation regressions and run the real simulator checks; static Swift compilation does not prove controller/UI behavior.
 
 The web agent guide documents Lesto's development MCP inspection interface (`describe_app`, diagnostics, and logs). It is development-only and its connection rotates when the server restarts. Refer to `apps/web/AGENTS.md` for connection instructions; do not publish its token in diagnostic artifacts.

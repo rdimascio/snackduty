@@ -27,7 +27,7 @@ xcodebuild test \
   -configuration Debug \
   -destination "$IOS_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
-  -only-testing:SnackdayUITests/SnackdayUISmokeTests/$TEST_NAME \
+  -only-testing:SnackdayUITests/SnackdayUISmokeTests \
   CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$LOG_FILE"
 XCODEBUILD_STATUS="${PIPESTATUS[0]}"
 set -e

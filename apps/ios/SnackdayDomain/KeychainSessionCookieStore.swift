@@ -38,13 +38,9 @@ actor SessionCookieCoordinator {
         try store.clearSession(for: origin)
     }
 
-    func invalidatePendingResponses() {
+    func beginAuthentication(for origin: URL) throws -> (header: String?, epoch: UInt64) {
         epoch &+= 1
-    }
-
-    func clearUnconditionally(for origin: URL) throws {
-        epoch &+= 1
-        try store.clearSession(for: origin)
+        return try credential(for: origin)
     }
 }
 

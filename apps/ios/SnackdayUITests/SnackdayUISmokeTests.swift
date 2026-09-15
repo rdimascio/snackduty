@@ -51,7 +51,13 @@ final class SnackdayUISmokeTests: XCTestCase {
         XCTAssertFalse(signIn.isEnabled)
         let consent = app.switches["adult-consent-toggle"]
         XCTAssertTrue(consent.exists)
-        consent.tap()
+        // SwiftUI exposes the labelled row and its UISwitch separately. Tap
+        // the actual switch; the row's centre lands on the noninteractive label.
+        consent.switches.firstMatch.tap()
+        let consentScreenshot = XCTAttachment(screenshot: app.screenshot())
+        consentScreenshot.name = "Synthetic adult consent state"
+        consentScreenshot.lifetime = .keepAlways
+        add(consentScreenshot)
         let enabledSignIn = app.buttons["apple-sign-in-button"]
         XCTAssertTrue(enabledSignIn.waitForExistence(timeout: 2))
         XCTAssertTrue(enabledSignIn.isEnabled)

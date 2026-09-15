@@ -94,6 +94,12 @@ private func sessionTeams() -> TeamsResponse {
     #expect(snapshot.team.name == "Falcons")
 }
 
+@MainActor @Test func preparedAppleChallengeLeavesSignInFormVisible() async throws {
+    let controller = SnackdayApplicationController(transport: SessionTransport(), selectionStore: SessionSelectionStore())
+    _ = try await controller.beginAppleSignIn()
+    #expect(controller.state == .signedOut)
+}
+
 @MainActor @Test func expiredOrRevokedSessionReturnsToSignedOut() async {
     let selections = SessionSelectionStore()
     await selections.saveSelection(
@@ -150,4 +156,34 @@ private func sessionTeams() -> TeamsResponse {
         controller.state
             == .failed(identity: nil, directory: nil, failure: .requestFailed(statusCode: 503))
     )
+}
+
+private actor DelayedChallengeTransport: SnackdayTransport {
+    private var pending: CheckedContinuation<AppleChallengeDTO, Error>?
+    func currentSession() -> AdultIdentityDTO { sessionIdentity() }
+    func beginAppleSignIn() async throws -> AppleChallengeDTO {
+        try await withCheckedThrowingContinuation { pending = $0 }
+    }
+    func completeAppleSignIn(_ input: AppleSignInRequestDTO) -> AdultIdentityDTO { sessionIdentity() }
+    func signOut() {}
+    func listTeams() -> TeamsResponse { sessionTeams() }
+    func loadRoster(teamId: String, seasonId: String) -> RosterResponse { RosterResponse(roster: []) }
+    func isPending() -> Bool { pending != nil }
+    func fail() { pending?.resume(throwing: SnackdayAPIError.offline); pending = nil }
+}
+
+@MainActor @Test func lateChallengeFailureCannotReplaceRestoredSession() async throws {
+    let transport = DelayedChallengeTransport()
+    let controller = SnackdayApplicationController(transport: transport, selectionStore: SessionSelectionStore())
+    let challenge = Task { try? await controller.beginAppleSignIn() }
+    for _ in 0..<1_000 {
+        if await transport.isPending() { break }
+        await Task.yield()
+    }
+    #expect(await transport.isPending())
+    await controller.restore()
+    let restored = controller.state
+    await transport.fail()
+    _ = await challenge.value
+    #expect(controller.state == restored)
 }

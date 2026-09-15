@@ -86,7 +86,7 @@ private final class CompositionTestController: SnackdayApplicationControlling {
     func beginAppleSignIn() async throws -> AppleChallengeDTO {
         state = .signedOut
         continuation?.yield(state)
-        AppleChallengeDTO(challengeId: "challenge", nonce: "raw-nonce")
+        return AppleChallengeDTO(challengeId: "challenge", nonce: "raw-nonce")
     }
 
     func completeAppleSignIn(

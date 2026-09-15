@@ -49,13 +49,14 @@ final class BetaServerStubURLProtocol: URLProtocol {
         guard let url = request.url else { return }
         let method = request.httpMethod ?? "GET"
         let headers = request.allHTTPHeaderFields ?? [:]
+        let requestBody = Self.readBody(request)
         Self.state.withLock {
             $0.recorded.append(
-                RecordedRequest(method: method, path: url.path, headers: headers, body: request.httpBody)
+                RecordedRequest(method: method, path: url.path, headers: headers, body: requestBody)
             )
         }
 
-        let routed = Self.route(method: method, path: url.path, headers: headers, body: request.httpBody)
+        let routed = Self.route(method: method, path: url.path, headers: headers, body: requestBody)
         var responseHeaders = ["Content-Type": "application/json; charset=utf-8"]
         responseHeaders.merge(routed.headers) { _, new in new }
         guard let response = HTTPURLResponse(
@@ -68,6 +69,23 @@ final class BetaServerStubURLProtocol: URLProtocol {
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(routed.body.utf8))
         client?.urlProtocolDidFinishLoading(self)
+    }
+
+    // URLSession supplies a body stream to URLProtocol on the actual simulator.
+    private static func readBody(_ request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 1_024)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count >= 0, result.count + count <= 32_768 else { return nil }
+            if count == 0 { break }
+            result.append(contentsOf: buffer.prefix(count))
+        }
+        return result
     }
 
     private static func route(
@@ -155,13 +173,25 @@ private func makeStubClient(
         let oldCredential = try await coordinator.credential(for: origin)
         let oldEpoch = oldCredential.epoch
 
-        await coordinator.invalidatePendingResponses()
-        let currentCredential = try await coordinator.credential(for: origin)
+        let currentCredential = try await coordinator.beginAuthentication(for: origin)
         let currentEpoch = currentCredential.epoch
         try await coordinator.persist("new=session", for: origin, requestEpoch: currentEpoch)
         try await coordinator.persist("old=session", for: origin, requestEpoch: oldEpoch)
         try await coordinator.clear(for: origin, requestEpoch: oldEpoch)
 
+        #expect(store.stored(for: origin) == "new=session")
+    }
+
+    @Test func logoutCapturesOldCredentialAndCannotClearANewerLogin() async throws {
+        let origin = URL(string: "https://api.snackday.test")!
+        let store = MemoryCookieStore()
+        store.saveSessionCookie("old=session", for: origin)
+        let coordinator = SessionCookieCoordinator(store: store)
+        let logout = try await coordinator.beginAuthentication(for: origin)
+        let signIn = try await coordinator.beginAuthentication(for: origin)
+        try await coordinator.persist("new=session", for: origin, requestEpoch: signIn.epoch)
+        #expect(logout.header == "old=session")
+        try await coordinator.clear(for: origin, requestEpoch: logout.epoch)
         #expect(store.stored(for: origin) == "new=session")
     }
 
@@ -276,7 +306,7 @@ private func makeStubClient(
         BetaServerStubURLProtocol.reset()
         let origin = URL(string: "http://localhost:3000")!
         let store = MemoryCookieStore()
-        let client = makeStubClient(baseURL: origin, cookieStore: store)
+        let client = makeStubClient(baseURL: origin, cookieStore: store, development: true)
 
         _ = try await client.signInDevelopment(persona: "second-adult")
         #expect(store.stored(for: origin) == developmentCookie)
@@ -302,6 +332,8 @@ private func makeStubClient(
         let identity = try await client.signInDevelopment()
         #expect(identity.person.displayName == "Development Adult")
         _ = try await client.currentSession()
+        let restoredClient = SnackdayAPIClient.development(baseURL: baseURL)
+        #expect(try await restoredClient.currentSession() == identity)
         let teams = try await client.listTeams()
         if let selection = teams.primarySelection {
             let roster = try await client.loadRoster(
@@ -309,6 +341,10 @@ private func makeStubClient(
                 seasonId: selection.season.id
             )
             #expect(roster.roster.allSatisfy { !$0.displayName.isEmpty })
+        }
+        try await restoredClient.signOut()
+        await #expect(throws: SnackdayAPIError.unauthorized) {
+            _ = try await client.currentSession()
         }
 #else
         Issue.record("The live development round trip requires a Debug build")
