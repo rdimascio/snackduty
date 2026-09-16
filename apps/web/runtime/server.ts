@@ -118,11 +118,18 @@ export async function runRuntimeFromEnvironment(
       public_base_url: configuration.publicBaseUrl.origin,
       port: running.port,
       migrations_applied: running.application.migrationsApplied,
+      ...(configuration.release === undefined ? {} : configuration.release),
     }),
   );
   return running;
 }
 
 if (import.meta.main) {
-  await runRuntimeFromEnvironment(process.env);
+  try {
+    await runRuntimeFromEnvironment(process.env);
+  } catch {
+    // Driver errors may include credentials, hostnames, or SQL values.
+    console.error(JSON.stringify({ level: "error", event: "runtime.startup_failed" }));
+    process.exitCode = 1;
+  }
 }

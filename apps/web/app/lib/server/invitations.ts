@@ -94,17 +94,17 @@ export const invitations = defineTable("invitations", {
 export const createInvitations: MigrationEntry = {
   version: "006_create_invitations",
   migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(invitationsV006));
-      schema.execute(createTableSql(adultMemberships));
-      schema.execute("CREATE INDEX invitations_team_id_idx ON invitations (team_id)");
-      schema.execute(
+    up: async (schema) => {
+      await schema.execute(createTableSql(invitationsV006, schema.dialect));
+      await schema.execute(createTableSql(adultMemberships, schema.dialect));
+      await schema.execute("CREATE INDEX invitations_team_id_idx ON invitations (team_id)");
+      await schema.execute(
         "CREATE INDEX adult_memberships_team_id_person_id_idx ON adult_memberships (team_id, person_id)",
       );
     },
-    down: (schema) => {
-      schema.execute(dropTableSql(adultMemberships));
-      schema.execute(dropTableSql(invitations));
+    down: async (schema) => {
+      await schema.execute(dropTableSql(adultMemberships));
+      await schema.execute(dropTableSql(invitations));
     },
   },
 };
@@ -112,21 +112,23 @@ export const createInvitations: MigrationEntry = {
 export const createInvitationRecipientBinding: MigrationEntry = {
   version: "011_create_invitation_recipient_binding",
   migration: {
-    up: (schema) => {
-      schema.execute("ALTER TABLE invitations ADD COLUMN recipient_kind TEXT");
-      schema.execute("ALTER TABLE invitations ADD COLUMN recipient_email TEXT");
-      schema.execute("ALTER TABLE invitations ADD COLUMN recipient_person_id TEXT");
-      schema.execute("ALTER TABLE invitations ADD COLUMN replaces_guardian_relationship_id TEXT");
-      schema.execute(
+    up: async (schema) => {
+      await schema.execute("ALTER TABLE invitations ADD COLUMN recipient_kind TEXT");
+      await schema.execute("ALTER TABLE invitations ADD COLUMN recipient_email TEXT");
+      await schema.execute("ALTER TABLE invitations ADD COLUMN recipient_person_id TEXT");
+      await schema.execute(
+        "ALTER TABLE invitations ADD COLUMN replaces_guardian_relationship_id TEXT",
+      );
+      await schema.execute(
         "CREATE INDEX invitations_recipient_person_id_idx ON invitations (recipient_person_id)",
       );
     },
-    down: (schema) => {
-      schema.execute("DROP INDEX invitations_recipient_person_id_idx");
-      schema.execute("ALTER TABLE invitations DROP COLUMN replaces_guardian_relationship_id");
-      schema.execute("ALTER TABLE invitations DROP COLUMN recipient_person_id");
-      schema.execute("ALTER TABLE invitations DROP COLUMN recipient_email");
-      schema.execute("ALTER TABLE invitations DROP COLUMN recipient_kind");
+    down: async (schema) => {
+      await schema.execute("DROP INDEX invitations_recipient_person_id_idx");
+      await schema.execute("ALTER TABLE invitations DROP COLUMN replaces_guardian_relationship_id");
+      await schema.execute("ALTER TABLE invitations DROP COLUMN recipient_person_id");
+      await schema.execute("ALTER TABLE invitations DROP COLUMN recipient_email");
+      await schema.execute("ALTER TABLE invitations DROP COLUMN recipient_kind");
     },
   },
 };
@@ -431,6 +433,14 @@ function deliveryFor(
   };
 }
 
+// A database row lock serializes invitation decisions for one team across
+// independent PostgreSQL pools. The no-op write also works on SQLite, whose
+// transactions already serialize writers. Lock before reading invitation state
+// so acceptance, rotation, revocation, and duplicate creation see committed data.
+async function lockTeamInvitations(tx: Db, teamId: string): Promise<void> {
+  await tx.update(teams).set({ id: teamId }).where(eq(teams.id, teamId)).run();
+}
+
 async function createInvitation(
   c: Context<"/api/teams/:teamId/invitations">,
   db: Db,
@@ -448,6 +458,7 @@ async function createInvitation(
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
   const outcome = await options.outbox.transaction(async (tx, persist) => {
+    await lockTeamInvitations(tx, c.param("teamId"));
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
@@ -564,6 +575,7 @@ async function resendInvitation(
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
   const outcome = await options.outbox.transaction(async (tx, persist) => {
+    await lockTeamInvitations(tx, c.param("teamId"));
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
 
@@ -650,6 +662,7 @@ async function revokeInvitation(
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const outcome = await db.transaction(async (tx) => {
+    await lockTeamInvitations(tx, c.param("teamId"));
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
 
@@ -802,6 +815,14 @@ async function acceptInvitation(
   const input = c.valid(invitationTokenInputSchema);
   const tokenHash = await hashInviteToken(input.token);
   const outcome = await db.transaction(async (tx) => {
+    const candidate = await tx
+      .select()
+      .from(invitations)
+      .where(eq(invitations.tokenHash, tokenHash))
+      .get();
+    if (candidate === undefined) return null;
+    await lockTeamInvitations(tx, candidate.teamId);
+    // The token may have been rotated or consumed while waiting for the lock.
     const row = await tx
       .select()
       .from(invitations)
@@ -853,6 +874,27 @@ async function acceptInvitation(
     ) {
       return null;
     }
+
+    // Claim the single-use token before granting membership or guardianship.
+    // The conditional write takes the row lock on PostgreSQL, so a concurrent
+    // revoke/rotation wins cleanly instead of allowing a stale read to revive
+    // a revoked invitation.
+    const consumed = await tx
+      .update(invitations)
+      .set({
+        status: "accepted",
+        acceptedByPersonId: identity.person.id,
+        updatedAt: nowIso,
+      })
+      .where(
+        and(
+          eq(invitations.id, row.id),
+          eq(invitations.status, "pending"),
+          eq(invitations.tokenHash, tokenHash),
+        ),
+      )
+      .run();
+    if (consumed.changes !== 1) return null;
 
     // No identity duplication: the accepting adult keeps their existing
     // Person/Account — acceptance only BINDS that person to the team (and
@@ -910,15 +952,6 @@ async function acceptInvitation(
       });
     }
 
-    await tx
-      .update(invitations)
-      .set({
-        status: "accepted",
-        acceptedByPersonId: identity.person.id,
-        updatedAt: nowIso,
-      })
-      .where(eq(invitations.id, row.id))
-      .run();
     const accepted = await tx.select().from(invitations).where(eq(invitations.id, row.id)).get();
     if (accepted === undefined) throw new Error("Invitation disappeared during accept.");
 

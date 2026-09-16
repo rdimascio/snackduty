@@ -67,17 +67,17 @@ export const dutySlots = defineTable("duty_slots", {
 export const createDuties: MigrationEntry = {
   version: "009_create_duty_slots",
   migration: {
-    up: (schema) => {
-      schema.execute(createTableSql(dutySlots));
-      schema.execute(
+    up: async (schema) => {
+      await schema.execute(createTableSql(dutySlots, schema.dialect));
+      await schema.execute(
         "CREATE INDEX duty_slots_team_occurrence_idx ON duty_slots (team_id, occurrence_id)",
       );
-      schema.execute(
+      await schema.execute(
         "CREATE INDEX duty_slots_assignee_person_id_idx ON duty_slots (assignee_person_id)",
       );
     },
-    down: (schema) => {
-      schema.execute(dropTableSql(dutySlots));
+    down: async (schema) => {
+      await schema.execute(dropTableSql(dutySlots));
     },
   },
 };

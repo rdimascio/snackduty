@@ -35,6 +35,14 @@ No staging hosting account, hostname, persistent volume or verified invitation s
 
 The foundation is therefore implemented in substantial local slices, not a completed staging/TestFlight beta. Verified-email authentication onboarding, native recurrence editing/calendar subscription, duty swaps/reminders, broader role audit/jobs, delivery and onboarding work remain open. League operations stay R4; branded apps stay last at R5.
 
+### AWS staging foundation — September 15, 2026
+
+The integrated AWS lane adds an Alchemy 0.93.12 VPC/HTTPS ALB/EC2/private encrypted RDS graph with SSM, backups and shared S3 state. PostgreSQL uses the real `@lesto/pg` opener, sequential dialect-aware migrations and TLS-required URLs. A reproducible TLS PostgreSQL harness now exercises migrations, session persistence, outbox delivery, forced rollback and deterministic concurrent invitation/event operations through separate pools. It passed 45 assertions on local PostgreSQL 14.20/Bun 1.4.2; dedicated CI targets PostgreSQL 16/Bun 1.3.5. Team-row locks fix PostgreSQL invitation lifecycle and event retry races. The fast integrated gate passed 306 web tests and 61 script tests.
+
+The read-only preflight now verifies the full HTTPS listener/rule/target-group/healthy-instance chain and boot-reported release commit/digest. The immutable AMI recipe verifies archive contents, retrieves secrets at each start, constructs a CA-verified database URL and drops privileges. Expected-account verification binds one resolved credential snapshot and explicit region before Alchemy/S3 access. CloudWatch logs and ALB/EC2 alarms are declared, with a documented restore/rollback drill. Astra and Sol independently reviewed the changes; provider-output, credential-chain, dependency, boot and TLS findings were corrected. See [AWS evidence](./aws-staging-evidence.md) for receipts and review boundaries.
+
+Deployment remains fail-closed. No AWS resources or live staging account were contacted; the AMI has not been built or booted, and log/alert delivery and restore/rollback acceptance remain unverified. `stagingVerified` remains false. These source and local-runtime checks do not establish a deployable hosted release.
+
 ## Published baseline receipts
 
 | PR                                                  | Merged commit | Scope and evidence                                                                                                                                                                                                                                            |
