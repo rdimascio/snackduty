@@ -19,11 +19,11 @@ DATABASE_URL=<injected from the AWS secret at process start>
 SNACKDAY_DATABASE_POOL_MAX=10
 ```
 
-As of the baseline for this runbook, `runtime:serve` deliberately refuses the PostgreSQL selection
-until the root application composition supplies the Lesto PostgreSQL driver to the application,
-sessions, queue, and invitation outbox. The Alchemy stack must retain its explicit PostgreSQL
-readiness guard until the integrated PostgreSQL tests and the complete product gate pass. A
-locally validated infrastructure plan is not permission to bypass that guard.
+The runtime selects the Lesto PostgreSQL driver for the application, sessions, queue, and
+invitation outbox. The Alchemy stack must retain its explicit PostgreSQL readiness guard until
+integrated PostgreSQL tests and the complete product gate pass, with real runtime evidence for
+the intended deployment. A locally validated infrastructure plan is not permission to bypass
+that guard.
 
 ## Target topology
 
@@ -161,16 +161,37 @@ The live mode runs only these bounded operations:
 - `ec2 describe-instances` for the named API instance;
 - `sts get-caller-identity` for exact account binding;
 - `elbv2 describe-load-balancers` for the named public entry point;
+- `elbv2 describe-listeners` for that load balancer, followed by `describe-rules` for its listener;
+- `elbv2 describe-target-groups` and unfiltered `describe-target-health` for the forwarded group;
 - `rds describe-db-instances` for the named database;
 - `ec2 describe-security-groups` for the API and database security groups;
 - `rds describe-db-snapshots` for the named pre-deploy snapshot;
-- HTTPS `GET /health`, `GET /readyz`, and `POST /api/dev/sign-in`.
+- DNS A and AAAA resolution for the public hostname and load balancer;
+- HTTPS `GET /health`, `GET /readyz`, `GET /__snackday/release`, and `POST /api/dev/sign-in`.
 
 It verifies a running EC2 instance, an available private encrypted PostgreSQL database in the same
 VPC, at least the configured backup retention, database ingress only from the API security group,
 API ingress only from the load balancer security group, an available encrypted manual snapshot no
 more than 24 hours old, matching DNS answers for the public origin and verified load balancer, and
-the existing preliminary runtime surface. It never reads or prints a database endpoint or secret.
+the existing preliminary runtime surface. It never prints a database endpoint or reads a secret.
+
+The route gate requires exactly one HTTPS listener on port 443 with a single default forwarding
+rule and no additional rules or rewrites. Its target group must belong to the expected VPC/load
+balancer, forward HTTP to instance port 3000, and check `/readyz` for exactly HTTP 200. The complete
+target-health response must contain exactly the named EC2 instance on port 3000 in `healthy`
+state. Additional targets, weighted routes, unhealthy targets, and fixed-response health shims
+fail closed. See AWS's [listener rule response](https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-rules.html)
+and [target health API](https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-target-health.html).
+
+The release endpoint must return HTTP 200 JSON with exactly `releaseCommit` and `artifactDigest`,
+matching the target file. Redirects, missing identity, invalid JSON, and mismatches fail. The
+runtime emits only these public coordinates, with `Cache-Control: no-store`; the boot process
+must first verify the archive SHA-256 and embedded source commit before supplying them to the
+runtime. EC2 tags alone are not evidence of the running artifact. This is operational evidence
+from trusted AWS APIs, DNS/TLS, and the boot manifest, not cryptographic attestation of host code.
+Every public A/AAAA answer must belong to the ALB's current answers; DNS rotation can cause a
+safe false negative, which requires a fresh preflight. This receipt cannot prove arbitrary DNS
+views or defeat a compromised host. Authenticated acceptance remains mandatory.
 
 ```sh
 AWS_PROFILE=<staging-profile> \
@@ -179,7 +200,8 @@ AWS_PROFILE=<staging-profile> \
 ```
 
 A nonzero exit means at least one AWS account, topology, snapshot, origin binding, health,
-readiness, or development-auth check failed. A zero exit still reports `stagingVerified: false`
+readiness, development-auth, listener/target route, or running release identity check failed.
+A zero exit still reports `stagingVerified: false`
 until the authenticated and durability journeys above have their own receipts.
 
 ## Rollback drill
@@ -206,6 +228,17 @@ When data restoration is required:
    failed database for diagnosis until the rollback is accepted.
 6. Record the restored database identifier, source snapshot or point in time, previous artifact
    digest, start/end timestamps, and acceptance receipts. Cleanup is a later explicit operation.
+
+Before beta acceptance, rehearse this with synthetic staging data in an isolated restored
+database. Record a pre-snapshot coordination marker and a post-snapshot marker; after restoring,
+prove the former survives and the latter is absent. Re-run tenant isolation and restart
+persistence against that restored database. Measure recovery duration from the write freeze to
+successful acceptance, and report the actual lost-write interval against the chosen recovery
+point. Keep the original database and artifact available until an operator accepts the drill.
+Do not mark the drill complete from these instructions alone: attach timestamps, identifiers,
+marker assertions, redacted readiness/preflight receipts, and the rollback artifact's commit and
+digest. Rebuild the verification target for the restored RDS and rolled-back artifact; stale
+release coordinates must fail preflight. No restore or traffic switch has been executed locally.
 
 AWS restores create a new DB instance and leave the source intact; see [Restoring to a DB
 instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_RestoreFromSnapshot.html).

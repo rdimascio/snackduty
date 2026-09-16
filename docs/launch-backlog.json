@@ -15,7 +15,7 @@
       "depends_on": [],
       "acceptance": "Read required sibling Lesto guides, record the runtime ADR, serve real API routes over HTTPS with dev sign-in disabled, run migrations, and demonstrate backup restoration, health monitoring and deployment rollback. Verify request-path/token redaction at every serving/logging/tracing tier.",
       "code_areas": "apps/web/lesto.app.ts; apps/web/worker.ts; apps/web/wrangler.jsonc; docs/adr",
-      "note": "Single Bun/Lesto process with durable SQLite and an explicit PostgreSQL/RDS runtime seam, canonical migrations, actual authorized APIs, health and backup/restore/rollback tooling implemented and focused tests pass locally. Alchemy 0.93.12 declares the AWS VPC/EC2/private RDS target and a redacted dry-run/read-only preflight; deployment is gated until real PostgreSQL evidence and AWS identifiers are supplied. No live account, hostname, remote HTTPS or staging evidence yet."
+      "note": "Real TLS PostgreSQL harness passes 45 assertions locally and has dedicated PostgreSQL 16 CI; deterministic concurrency coverage drove invitation lifecycle and event idempotency fixes. Alchemy 0.93.12 includes account-bound credentials/region, private RDS, immutable boot recipe, logs/alarms and full ALB-to-running-release preflight. Astra/Sol review and local fast checks pass. AMI build/boot, real AWS identifiers, log/alert delivery, remote restore/rollback and authenticated staging acceptance remain unverified; no AWS resources created. See aws-staging-evidence.md."
     },
     {
       "id": "SD-002",

@@ -50,8 +50,10 @@ hosts to private subnets and assess per-AZ NAT or VPC endpoints separately.
 
 Alchemy state lives in an existing encrypted and versioned S3 bucket, namespaced
 by app and stage. Deploys must be serialized because the verified 0.93.12 S3
-store does not supply a distributed lock. AWS credentials come only from the
-standard SDK credential chain. No access key, database password, or application
+store does not supply a distributed lock. AWS CLI v2 resolves the credential
+chain once; captured credentials pass an expected-account STS check and are then
+used unchanged by the SDK for state and resource access. The configured region
+is bound explicitly in the provider environment before either access. No access key, database password, or application
 secret is accepted in source configuration.
 
 The stack refuses create and update phases unless
