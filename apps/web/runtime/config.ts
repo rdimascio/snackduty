@@ -1,4 +1,6 @@
 import { isAbsolute, resolve } from "node:path";
+import { runtimeRelease } from "./release";
+import type { RuntimeRelease } from "./release";
 
 export type RemoteRuntimeMode = "staging" | "production";
 
@@ -9,6 +11,7 @@ interface SharedRuntimeConfiguration {
   readonly publicBaseUrl: URL;
   readonly appleClientId: string;
   readonly upstreamCredentialPathLoggingSafe: boolean;
+  readonly release?: RuntimeRelease;
 }
 
 export interface SqliteRuntimeConfiguration extends SharedRuntimeConfiguration {
@@ -80,6 +83,7 @@ function databaseUrl(value: string): string {
     parsed.pathname === "" ||
     parsed.pathname === "/" ||
     parsed.hash !== "" ||
+    parsed.searchParams.getAll("sslmode").length !== 1 ||
     !["require", "verify-ca", "verify-full"].includes(parsed.searchParams.get("sslmode") ?? "")
   ) {
     throw new RuntimeConfigurationError(
@@ -152,7 +156,9 @@ export function runtimeConfiguration(environment: RuntimeEnvironment): RuntimeCo
       "Development authentication is forbidden in the remote runtime.",
     );
   }
+  const release = runtimeRelease(environment);
   const shared = {
+    ...(release === undefined ? {} : { release }),
     mode: runtimeMode(required(environment, "SNACKDAY_RUNTIME_MODE")),
     host: environment["HOST"]?.trim() || "0.0.0.0",
     port: port(environment["PORT"]),

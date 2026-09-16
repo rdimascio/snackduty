@@ -433,6 +433,14 @@ function deliveryFor(
   };
 }
 
+// A database row lock serializes invitation decisions for one team across
+// independent PostgreSQL pools. The no-op write also works on SQLite, whose
+// transactions already serialize writers. Lock before reading invitation state
+// so acceptance, rotation, revocation, and duplicate creation see committed data.
+async function lockTeamInvitations(tx: Db, teamId: string): Promise<void> {
+  await tx.update(teams).set({ id: teamId }).where(eq(teams.id, teamId)).run();
+}
+
 async function createInvitation(
   c: Context<"/api/teams/:teamId/invitations">,
   db: Db,
@@ -450,6 +458,7 @@ async function createInvitation(
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
   const outcome = await options.outbox.transaction(async (tx, persist) => {
+    await lockTeamInvitations(tx, c.param("teamId"));
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
 
@@ -566,6 +575,7 @@ async function resendInvitation(
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
   const outcome = await options.outbox.transaction(async (tx, persist) => {
+    await lockTeamInvitations(tx, c.param("teamId"));
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
 
@@ -652,6 +662,7 @@ async function revokeInvitation(
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const outcome = await db.transaction(async (tx) => {
+    await lockTeamInvitations(tx, c.param("teamId"));
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
 
@@ -804,6 +815,14 @@ async function acceptInvitation(
   const input = c.valid(invitationTokenInputSchema);
   const tokenHash = await hashInviteToken(input.token);
   const outcome = await db.transaction(async (tx) => {
+    const candidate = await tx
+      .select()
+      .from(invitations)
+      .where(eq(invitations.tokenHash, tokenHash))
+      .get();
+    if (candidate === undefined) return null;
+    await lockTeamInvitations(tx, candidate.teamId);
+    // The token may have been rotated or consumed while waiting for the lock.
     const row = await tx
       .select()
       .from(invitations)

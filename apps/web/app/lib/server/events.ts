@@ -66,7 +66,7 @@ import {
   eventSeries,
 } from "./occurrence-access";
 import { participants } from "./roster";
-import { manageableActiveTeam, readableActiveTeam } from "./teams";
+import { manageableActiveTeam, readableActiveTeam, teams } from "./teams";
 
 export { eventOccurrences, eventSeries } from "./occurrence-access";
 
@@ -390,6 +390,12 @@ async function eventCreationReceipt(
     .get();
 }
 
+// Serialize idempotency decisions for one team's event creations across
+// independent PostgreSQL pools. SQLite already serializes transaction writers.
+async function lockTeamEventCreation(tx: Db, teamId: string): Promise<void> {
+  await tx.update(teams).set({ id: teamId }).where(eq(teams.id, teamId)).run();
+}
+
 async function createdEventResponse(
   tx: Db,
   actor: ApplicationActor,
@@ -454,6 +460,7 @@ export function createEventOperations(
         if (season === undefined) return operationError(404, "team_not_found", "team not found");
 
         if (input.requestId !== undefined) {
+          await lockTeamEventCreation(tx, team.id);
           const receipt = await eventCreationReceipt(
             tx,
             actor,

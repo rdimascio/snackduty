@@ -178,6 +178,12 @@ describe("remote runtime configuration", () => {
 
     expect(() => runtimeConfiguration(postgres)).toThrow(RuntimeConfigurationError);
     expect(() =>
+      runtimeConfiguration({
+        ...postgres,
+        DATABASE_URL: "postgresql://db.internal/snackday?sslmode=verify-full&sslmode=disable",
+      }),
+    ).toThrow(RuntimeConfigurationError);
+    expect(() =>
       runtimeConfiguration({ ...postgres, DATABASE_URL: "https://db.internal/db" }),
     ).toThrow(RuntimeConfigurationError);
     expect(() =>

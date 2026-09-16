@@ -1,0 +1,34 @@
+name: PostgreSQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: PostgreSQL runtime integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+      - name: Install PostgreSQL 16
+        run: sudo apt-get update && sudo apt-get install -y postgresql-16
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Exercise TLS PostgreSQL runtime
+        env:
+          SNACKDAY_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+        run: bash scripts/runtime/postgres-integration.sh
