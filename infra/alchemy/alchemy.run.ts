@@ -11,6 +11,8 @@ import { S3StateStore } from "alchemy/aws";
 import AWS from "alchemy/aws/control";
 
 import { loadAwsStagingConfig } from "./config";
+import { verifyAwsAccount } from "./account";
+import { rdsOutputs } from "./rds-outputs";
 import { buildAwsStagingPlan, networkCidrs } from "./stack-plan";
 
 const isReadOnly = process.argv.includes("--read");
@@ -19,6 +21,9 @@ const config = loadAwsStagingConfig(process.env, {
   requirePostgresRuntime: !isReadOnly && !isDestroy,
 });
 const plan = buildAwsStagingPlan(config);
+
+// STS must succeed before even opening shared S3 state, including read/destroy.
+verifyAwsAccount(config.accountId, config.region);
 
 const app = await alchemy("snackday", {
   stage: config.stage,
@@ -230,7 +235,9 @@ const outputs = await alchemy.run(
       CopyTagsToSnapshot: true,
       DeletionProtection: true,
       DeleteAutomatedBackups: false,
-      EnableCloudwatchLogsExports: ["postgresql", "upgrade"],
+      // SQL error/statement logs can contain child-sensitive data. Enable only
+      // after a reviewed server-side redaction policy exists.
+      EnableCloudwatchLogsExports: ["upgrade"],
       Tags: resourceTags,
     });
     const rds = rdsOutputs(database);
@@ -268,6 +275,26 @@ const outputs = await alchemy.run(
       },
     });
 
+    const applicationLogGroup = `/snackday/${app.stage}/application`;
+    await AWS.Logs.LogGroup("ApplicationLogs", {
+      LogGroupName: applicationLogGroup,
+      RetentionInDays: 14,
+    });
+    await AWS.IAM.RolePolicy("ApiLogsPolicy", {
+      RoleName: roleName,
+      PolicyName: `${prefix}-application-logs`,
+      PolicyDocument: {
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Action: ["logs:CreateLogStream", "logs:PutLogEvents"],
+            Resource: `arn:aws:logs:${config.region}:${config.accountId}:log-group:${applicationLogGroup}:log-stream:*`,
+          },
+        ],
+      },
+    });
+
     const instanceProfileName = `${prefix}-api`;
     await AWS.IAM.InstanceProfile("ApiInstanceProfile", {
       InstanceProfileName: instanceProfileName,
@@ -297,6 +324,8 @@ const outputs = await alchemy.run(
           databaseSecretArn: rds.secretArn,
           runtimeSecretArn: config.runtimeSecretArn,
           artifactDigest: plan.api.artifactDigest,
+          releaseCommit: config.releaseCommit,
+          region: config.region,
         }),
       ).toString("base64"),
       Tags: tags({
@@ -304,6 +333,7 @@ const outputs = await alchemy.run(
         Environment: app.stage,
         Name: `${prefix}-api`,
         ReleaseDigest: plan.api.artifactDigest,
+        ReleaseCommit: config.releaseCommit,
       }),
     });
 
@@ -349,6 +379,38 @@ const outputs = await alchemy.run(
       DefaultActions: [{ Type: "forward", TargetGroupArn: targetGroup.TargetGroupArn }],
     });
 
+    await AWS.CloudWatch.Alarm("HealthyApiAlarm", {
+      AlarmName: `${prefix}-no-healthy-api`,
+      Namespace: "AWS/ApplicationELB",
+      MetricName: "HealthyHostCount",
+      Dimensions: [
+        { Name: "LoadBalancer", Value: loadBalancer.LoadBalancerArn.split(":loadbalancer/")[1]! },
+        { Name: "TargetGroup", Value: targetGroup.TargetGroupArn.split(":").at(-1)! },
+      ],
+      Statistic: "Minimum",
+      Period: 60,
+      EvaluationPeriods: 2,
+      Threshold: 1,
+      ComparisonOperator: "LessThanThreshold",
+      TreatMissingData: "breaching",
+      AlarmActions: [config.alertTopicArn],
+      OKActions: [config.alertTopicArn],
+    });
+    await AWS.CloudWatch.Alarm("ApiStatusAlarm", {
+      AlarmName: `${prefix}-instance-status`,
+      Namespace: "AWS/EC2",
+      MetricName: "StatusCheckFailed",
+      Dimensions: [{ Name: "InstanceId", Value: api.InstanceId }],
+      Statistic: "Maximum",
+      Period: 60,
+      EvaluationPeriods: 2,
+      Threshold: 0,
+      ComparisonOperator: "GreaterThanThreshold",
+      TreatMissingData: "breaching",
+      AlarmActions: [config.alertTopicArn],
+      OKActions: [config.alertTopicArn],
+    });
+
     await AWS.Route53.RecordSet("StagingAlias", {
       HostedZoneId: config.hostedZoneId,
       Name: config.hostname,
@@ -391,30 +453,6 @@ function tags(values: Readonly<Record<string, string>>): Array<{ Key: string; Va
   return Object.entries(values).map(([Key, Value]) => ({ Key, Value }));
 }
 
-interface RdsOutputs {
-  readonly endpoint: string;
-  readonly port: number;
-  readonly secretArn: string;
-}
-
-function rdsOutputs(value: unknown): RdsOutputs {
-  const record = value as Record<string, unknown>;
-  const endpoint = record["Endpoint"] as Record<string, unknown> | undefined;
-  const secret = record["MasterUserSecret"] as Record<string, unknown> | undefined;
-  if (
-    typeof endpoint?.["Address"] !== "string" ||
-    typeof endpoint["Port"] !== "number" ||
-    typeof secret?.["SecretArn"] !== "string"
-  ) {
-    throw new Error("RDS provider did not return the required endpoint and secret outputs.");
-  }
-  return {
-    endpoint: endpoint["Address"],
-    port: endpoint["Port"],
-    secretArn: secret["SecretArn"],
-  };
-}
-
 interface BootstrapEnvironment {
   readonly publicBaseUrl: string;
   readonly appleClientId: string;
@@ -423,6 +461,8 @@ interface BootstrapEnvironment {
   readonly databaseSecretArn: string;
   readonly runtimeSecretArn: string;
   readonly artifactDigest: string;
+  readonly releaseCommit: string;
+  readonly region: string;
 }
 
 function bootstrapEnvironment(environment: BootstrapEnvironment): string {
@@ -436,10 +476,12 @@ function bootstrapEnvironment(environment: BootstrapEnvironment): string {
     SNACKDAY_DATABASE_SECRET_ARN: environment.databaseSecretArn,
     SNACKDAY_RUNTIME_SECRET_ARN: environment.runtimeSecretArn,
     SNACKDAY_RELEASE_DIGEST: environment.artifactDigest,
+    SNACKDAY_RELEASE_COMMIT: environment.releaseCommit,
+    AWS_REGION: environment.region,
   } as const;
   const content = Object.entries(entries)
     .map(([name, value]) => `${name}=${value}`)
     .join("\n");
 
-  return `#!/bin/sh\nset -eu\ninstall -d -m 0750 /etc/snackday\numask 077\nprintf '%s\\n' '${content}' > /etc/snackday/staging.env\nsystemctl restart snackday\n`;
+  return `#!/bin/sh\nset -eu\ninstall -d -m 0750 /etc/snackday\numask 077\nprintf '%s\\n' '${content}' > /etc/snackday/staging.env\n/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s\nsystemctl restart snackday\n`;
 }

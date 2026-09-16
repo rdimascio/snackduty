@@ -36,6 +36,9 @@ describe("AWS staging Alchemy configuration", () => {
 
   test("rejects ambiguous zones and malformed external identifiers", () => {
     expect(() =>
+      loadAwsStagingConfig({ ...fixtureEnvironment(), SNACKDAY_AWS_ACCOUNT_ID: "999999999999" }),
+    ).toThrow("must belong");
+    expect(() =>
       loadAwsStagingConfig({
         ...fixtureEnvironment(),
         SNACKDAY_DEPLOY_STAGE: "production",
@@ -70,6 +73,9 @@ function fixtureEnvironment(): Readonly<Record<string, string>> {
   return {
     SNACKDAY_DEPLOY_STAGE: "staging",
     SNACKDAY_AWS_REGION: "us-west-2",
+    SNACKDAY_AWS_ACCOUNT_ID: "123456789012",
+    SNACKDAY_API_RELEASE_COMMIT: "0123456789abcdef0123456789abcdef01234567",
+    SNACKDAY_ALERT_TOPIC_ARN: "arn:aws:sns:us-west-2:123456789012:snackday-alerts",
     SNACKDAY_AWS_PRIMARY_AZ: "us-west-2a",
     SNACKDAY_AWS_SECONDARY_AZ: "us-west-2b",
     SNACKDAY_STAGING_HOSTNAME: "staging.snackday.example",

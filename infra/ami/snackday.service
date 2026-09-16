@@ -1,0 +1,30 @@
+[Unit]
+Description=Snackday verified staging runtime
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/snackday/staging.env
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/snackday/boot.py
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID
+LimitCORE=0
+StandardOutput=append:/var/log/snackday/runtime.jsonl
+StandardError=append:/var/log/snackday/runtime.jsonl
+SyslogIdentifier=snackday
+
+[Install]
+WantedBy=multi-user.target

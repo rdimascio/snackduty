@@ -1,6 +1,9 @@
 export interface AwsStagingConfig {
   readonly stage: string;
   readonly region: string;
+  readonly accountId: string;
+  readonly releaseCommit: string;
+  readonly alertTopicArn: string;
   readonly primaryAvailabilityZone: string;
   readonly secondaryAvailabilityZone: string;
   readonly hostname: string;
@@ -46,6 +49,15 @@ export function loadAwsStagingConfig(
     throw new Error("SNACKDAY_DEPLOY_STAGE must be staging for this stack");
   }
   const region = required(environment, "SNACKDAY_AWS_REGION", patterns.region);
+  const accountId = required(environment, "SNACKDAY_AWS_ACCOUNT_ID", /^\d{12}$/);
+  for (const name of [
+    "SNACKDAY_ACM_CERTIFICATE_ARN",
+    "SNACKDAY_RUNTIME_SECRET_ARN",
+    "SNACKDAY_ALERT_TOPIC_ARN",
+  ]) {
+    if (environment[name]?.split(":")[4] !== accountId)
+      throw new Error(`${name} must belong to SNACKDAY_AWS_ACCOUNT_ID`);
+  }
   const primaryAvailabilityZone = availabilityZone(environment, "SNACKDAY_AWS_PRIMARY_AZ", region);
   const secondaryAvailabilityZone = availabilityZone(
     environment,
@@ -67,6 +79,13 @@ export function loadAwsStagingConfig(
   return {
     stage,
     region,
+    accountId,
+    releaseCommit: required(environment, "SNACKDAY_API_RELEASE_COMMIT", /^[0-9a-f]{40}$/),
+    alertTopicArn: required(
+      environment,
+      "SNACKDAY_ALERT_TOPIC_ARN",
+      new RegExp(`^arn:aws:sns:${escapeRegExp(region)}:${accountId}:[A-Za-z0-9_-]{1,256}$`),
+    ),
     primaryAvailabilityZone,
     secondaryAvailabilityZone,
     hostname: required(environment, "SNACKDAY_STAGING_HOSTNAME", patterns.hostname),

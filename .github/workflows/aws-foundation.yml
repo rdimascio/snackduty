@@ -1,0 +1,33 @@
+name: AWS foundation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aws-foundation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: AWS configuration and boot safeguards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.5
+      - run: bun install --frozen-lockfile
+      - run: bun run infra:typecheck
+      - name: Load Alchemy providers without AWS calls
+        run: bun -e 'import { S3StateStore } from "alchemy/aws"; import AWS from "alchemy/aws/control"; if (typeof S3StateStore !== "function" || typeof AWS.EC2.VPC !== "function") process.exit(1)'
+      - run: bun test infra/alchemy
+      - run: python3 -m unittest discover -s infra/ami -p '*_test.py'
+      - run: bash -n infra/ami/build-release.sh infra/ami/install-image.sh

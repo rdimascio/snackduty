@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { resolve4 } from "node:dns/promises";
+import { resolve4, resolve6 } from "node:dns/promises";
 
 import { probeRemoteRuntime } from "./probe-remote";
 
@@ -85,6 +85,20 @@ export interface AwsStagingPreflightReceipt {
 export type AwsCommandRunner = (args: readonly string[]) => Promise<unknown>;
 export type HostnameResolver = (hostname: string) => Promise<readonly string[]>;
 
+async function resolveAddresses(hostname: string): Promise<readonly string[]> {
+  const answers = await Promise.all(
+    [resolve4, resolve6].map(async (resolver) => {
+      try {
+        return await resolver(hostname);
+      } catch (error) {
+        if (isRecord(error) && error["code"] === "ENODATA") return [];
+        throw new Error("Staging DNS lookup failed; details withheld.");
+      }
+    }),
+  );
+  return answers.flat();
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -107,13 +121,14 @@ function httpsOrigin(value: string, errors: string[]): URL | undefined {
     const url = new URL(value);
     if (
       url.protocol !== "https:" ||
+      url.port !== "" ||
       url.username !== "" ||
       url.password !== "" ||
       url.pathname !== "/" ||
       url.search !== "" ||
       url.hash !== ""
     ) {
-      errors.push("publicBaseUrl must be a credential-free HTTPS origin");
+      errors.push("publicBaseUrl must be a credential-free HTTPS origin on port 443");
       return undefined;
     }
     return url;
@@ -360,6 +375,117 @@ function tcpIngressIsRestricted(
   return sourceGroups.length === 1 && sourceGroups[0] === sourceSecurityGroupId;
 }
 
+// Reject additional routes/targets: probing one request cannot prove a weighted or
+// path-specific route serves the same artifact for every application request.
+function singleRecord(value: unknown): Record<string, unknown> | undefined {
+  return Array.isArray(value) && value.length === 1 && isRecord(value[0]) ? value[0] : undefined;
+}
+
+function forwardedTarget(actions: unknown): string | undefined {
+  const action = singleRecord(actions);
+  if (action === undefined || action["Type"] !== "forward") return undefined;
+  const direct = field(action, "TargetGroupArn");
+  if (action["ForwardConfig"] === undefined) return direct;
+  const config = objectField(action, "ForwardConfig");
+  const group = singleRecord(config?.["TargetGroups"]);
+  if (group === undefined) return undefined;
+  const arn = field(group, "TargetGroupArn");
+  const weight = group["Weight"];
+  if (weight !== undefined && (typeof weight !== "number" || weight <= 0)) return undefined;
+  return direct === undefined || direct === arn ? arn : undefined;
+}
+
+async function verifyRoute(target: AwsStagingTarget, aws: AwsCommandRunner): Promise<boolean> {
+  const response = await aws([
+    "elbv2",
+    "describe-listeners",
+    "--load-balancer-arn",
+    target.loadBalancerArn,
+  ]);
+  const listener = singleRecord(isRecord(response) ? response["Listeners"] : undefined);
+  if (
+    listener === undefined ||
+    listener["LoadBalancerArn"] !== target.loadBalancerArn ||
+    listener["Protocol"] !== "HTTPS" ||
+    listener["Port"] !== 443
+  )
+    return false;
+  const listenerArn = field(listener, "ListenerArn");
+  const targetArn = forwardedTarget(listener["DefaultActions"]);
+  const prefix = `arn:aws:elasticloadbalancing:${target.region}:${target.awsAccountId}:`;
+  if (
+    listenerArn === undefined ||
+    !listenerArn.startsWith(`${prefix}listener/app/`) ||
+    targetArn === undefined ||
+    !targetArn.startsWith(`${prefix}targetgroup/`)
+  )
+    return false;
+  const [rulesResponse, groupsResponse, healthResponse] = await Promise.all([
+    aws(["elbv2", "describe-rules", "--listener-arn", listenerArn]),
+    aws(["elbv2", "describe-target-groups", "--target-group-arns", targetArn]),
+    // Do not filter --targets: extra registered instances must fail the gate.
+    aws(["elbv2", "describe-target-health", "--target-group-arn", targetArn]),
+  ]);
+  const rule = singleRecord(isRecord(rulesResponse) ? rulesResponse["Rules"] : undefined);
+  const group = singleRecord(isRecord(groupsResponse) ? groupsResponse["TargetGroups"] : undefined);
+  const health = singleRecord(
+    isRecord(healthResponse) ? healthResponse["TargetHealthDescriptions"] : undefined,
+  );
+  if (rule === undefined || group === undefined || health === undefined) return false;
+  const instance = objectField(health, "Target");
+  return (
+    rule["IsDefault"] === true &&
+    rule["Priority"] === "default" &&
+    Array.isArray(rule["Conditions"]) &&
+    rule["Conditions"].length === 0 &&
+    (rule["Transforms"] === undefined ||
+      (Array.isArray(rule["Transforms"]) && rule["Transforms"].length === 0)) &&
+    forwardedTarget(rule["Actions"]) === targetArn &&
+    group["TargetGroupArn"] === targetArn &&
+    group["VpcId"] === target.vpcId &&
+    group["TargetType"] === "instance" &&
+    group["Protocol"] === "HTTP" &&
+    group["Port"] === target.apiPort &&
+    Array.isArray(group["LoadBalancerArns"]) &&
+    group["LoadBalancerArns"].length === 1 &&
+    group["LoadBalancerArns"][0] === target.loadBalancerArn &&
+    group["HealthCheckEnabled"] === true &&
+    group["HealthCheckProtocol"] === "HTTP" &&
+    group["HealthCheckPort"] === "traffic-port" &&
+    group["HealthCheckPath"] === "/readyz" &&
+    objectField(group, "Matcher")?.["HttpCode"] === "200" &&
+    instance?.["Id"] === target.apiInstanceId &&
+    instance["Port"] === target.apiPort &&
+    health["HealthCheckPort"] === String(target.apiPort) &&
+    objectField(health, "TargetHealth")?.["State"] === "healthy"
+  );
+}
+
+async function verifyRelease(target: AwsStagingTarget, fetcher: typeof fetch): Promise<boolean> {
+  try {
+    const response = await fetcher(new URL("/__snackday/release", target.publicBaseUrl), {
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+      headers: { "Cache-Control": "no-cache" },
+    });
+    if (
+      response.status !== 200 ||
+      response.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json"
+    )
+      return false;
+    const release: unknown = await response.json();
+    return (
+      isRecord(release) &&
+      Object.keys(release).length === 2 &&
+      release["releaseCommit"] === target.releaseCommit &&
+      release["artifactDigest"] === target.artifactDigest
+    );
+  } catch {
+    // The response can contain sensitive runtime errors; never retain it.
+    return false;
+  }
+}
+
 export async function verifyAwsStagingTarget(
   target: AwsStagingTarget,
   options: {
@@ -396,6 +522,11 @@ export async function verifyAwsStagingTarget(
       ],
       ["remote-surface", "Would probe health, readiness, and absence of development sign-in."],
       ["origin-binding", "Would compare the staging hostname and load-balancer DNS answers."],
+      ["load-balancer-route", "Would verify the sole HTTPS route and healthy exact EC2 target."],
+      [
+        "release-identity",
+        "Would compare the running release manifest with the target artifact and commit.",
+      ],
     ] as const) {
       checks.push({ id, status: "planned", detail });
     }
@@ -427,7 +558,7 @@ export async function verifyAwsStagingTarget(
 
   const runAws = options.runAws ?? runAwsCommand;
   const aws = (args: readonly string[]) => runAws([...args, "--region", target.region]);
-  const resolveHostname = options.resolveHostname ?? resolve4;
+  const resolveHostname = options.resolveHostname ?? resolveAddresses;
   const [
     identityResponse,
     instanceResponse,
@@ -605,15 +736,15 @@ export async function verifyAwsStagingTarget(
       : "The API and current RDS writer are in different Availability Zones; the VPC boundary is correct, but cross-AZ latency applies.",
   });
 
-  const originBindingVerified = originAddresses.some((address) =>
-    loadBalancerAddresses.includes(address),
-  );
+  const originBindingVerified =
+    originAddresses.length > 0 &&
+    originAddresses.every((address) => loadBalancerAddresses.includes(address));
   check(
     checks,
     "origin-binding",
     originBindingVerified,
     "The staging hostname resolves to the verified load balancer.",
-    "The staging hostname and verified load balancer have no shared IPv4 address.",
+    "The staging hostname has absent or unexpected IP addresses outside the verified load balancer.",
   );
 
   const remote = await probeRemoteRuntime(target.publicBaseUrl, options.fetcher, () => checkedAt);
@@ -638,14 +769,24 @@ export async function verifyAwsStagingTarget(
     apiIngressVerified &&
     databaseTopologyVerified &&
     databaseIngressVerified;
-  // Listener/target health and artifact identity are intentionally fail-closed
-  // until the deployment adapter supplies those AWS API responses.
-  const loadBalancerRouteVerified = false;
-  checks.push({
-    id: "load-balancer-route",
-    status: "planned",
-    detail: "Listener, target-group health, and deployed artifact identity require an AWS adapter.",
-  });
+  const routeVerified = await verifyRoute(target, aws);
+  const releaseVerified = await verifyRelease(target, options.fetcher ?? fetch);
+  check(
+    checks,
+    "load-balancer-route",
+    routeVerified,
+    "The sole HTTPS listener forwards every request to the sole healthy expected EC2 instance.",
+    "Listener rules, target group, readiness health check, or exact healthy EC2 target do not match.",
+  );
+  check(
+    checks,
+    "release-identity",
+    releaseVerified,
+    "The running release endpoint matches the expected source commit and artifact digest.",
+    "The running release identity is unavailable, malformed, or differs from the expected artifact.",
+  );
+  const loadBalancerRouteVerified =
+    awsTopologyVerified && originBindingVerified && routeVerified && releaseVerified;
   return {
     schema: "snackday/aws-staging-preflight-receipt/v1",
     mode: "live",
