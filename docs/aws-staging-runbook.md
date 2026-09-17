@@ -1,5 +1,18 @@
 # AWS staging deployment runbook
 
+## Linux image prerequisite
+
+Require a passing **Linux release and systemd boot** check for the reviewed source.
+Download `build-receipt.txt` and `boot-receipt.json` and match their `releaseCommit`
+and `artifactDigest` fields. On pull requests the source is GitHub's merge-test
+commit; it differs from the PR head. Require `passed: true` in the boot receipt.
+The workflow validates Packer without building an AMI and boots the real installed
+runtime under systemd with TLS PostgreSQL and synthetic Secrets Manager responses.
+It does not authorize or establish EC2, IAM, live secret retrieval, RDS networking,
+CloudWatch/SNS, or restore/rollback readiness. Follow the attended AWS gates below
+separately; `stagingVerified` stays false. The destructive CI harness must only
+run on its disposable hosted VM. Never reuse its generated CA or fixture credentials.
+
 Status: deployment verification is implemented locally. No AWS resources, credentials, hosted
 database, DNS name, or staging release have been created or verified.
 

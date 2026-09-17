@@ -130,6 +130,8 @@ if (import.meta.main) {
   } catch {
     // Driver errors may include credentials, hostnames, or SQL values.
     console.error(JSON.stringify({ level: "error", event: "runtime.startup_failed" }));
-    process.exitCode = 1;
+    // A failed TLS setup can leave a driver socket alive after pool cleanup.
+    // This standalone entry point must terminate so systemd observes failure.
+    process.exit(1);
   }
 }

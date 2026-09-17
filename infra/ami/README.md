@@ -1,7 +1,7 @@
 # Immutable staging AMI
 
 This is a reproducible recipe, **not a built or boot-verified AMI**. Do not run
-Packer or Alchemy until account, base AMI, network IDs, release checksums and
+Packer builds or Alchemy until account, base AMI, network IDs, release checksums and
 PostgreSQL evidence are reviewed. Packer creates billable builder resources.
 
 ## Build contract
@@ -27,7 +27,10 @@ PostgreSQL evidence are reviewed. Packer creates billable builder resources.
    `packer build` requires separately approved real identifiers. Supply an existing
    disposable builder subnet/security group allowing SSH only from the builder
    controller; no application role or runtime credentials belong on this machine.
-   The expected account is enforced by `allowed_account_ids`.
+   The expected account is enforced by assuming the existing
+   `arn:aws:iam::<account_id>:role/<builder_role_name>` role (default name
+   `snackday-image-builder`). Review that role and its trust policy before a build.
+   The pinned amazon 1.3.9 plugin does not support `allowed_account_ids`.
 5. Retain `ami-receipt.json`, package/tool receipt, exact archive, checksums, and
    encrypted AMI ID together. Set Alchemy `SNACKDAY_API_AMI_ID`,
    `SNACKDAY_API_RELEASE_COMMIT`, and `SNACKDAY_API_ARTIFACT_DIGEST` from that receipt.
@@ -64,6 +67,15 @@ real PostgreSQL readiness, release endpoint identity, CloudWatch log arrival and
 alarm delivery. A local test cannot establish any of those AWS runtime facts.
 
 ## Offline verification
+
+The **Linux release and systemd boot** check validates Packer formatting, schema
+and the pinned amazon plugin without creating AWS resources. It runs the real
+release builder twice and requires identical archives, then installs and boots
+the result using the actual scripts and systemd unit on a disposable Ubuntu VM.
+`ci-boot.py` is deliberately restricted to disposable GitHub-hosted Linux VMs;
+it replaces system packages and `/usr/local/bin/aws`. Never run it on a shared
+machine or deployment host. See [evidence scope](../../docs/aws-staging-evidence.md)
+for the synthetic Secrets Manager boundary, TLS PostgreSQL and retained receipts.
 
 ```sh
 python3 -m unittest discover -s infra/ami -p '*_test.py'

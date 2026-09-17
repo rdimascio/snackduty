@@ -11,7 +11,9 @@ test ! -e "$out"
 mkdir -p "$out/release"
 git archive "$commit" | tar -x -C "$out/release"
 cd "$out/release"
-bun install --frozen-lockfile --ignore-scripts
+# Bun 1.3.5's isolated linker races fallback/peer symlink targets between installs.
+# Use its deterministic hoisted layout for the immutable Linux release only.
+bun install --frozen-lockfile --ignore-scripts --linker=hoisted
 bun run --filter web build
 printf '%s\n' "$commit" > release-commit.txt
 # Reject links that could escape the artifact (Bun workspace links are internal).

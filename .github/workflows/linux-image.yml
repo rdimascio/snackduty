@@ -1,0 +1,40 @@
+name: Linux image
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  boot:
+    name: Linux release and systemd boot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      CHECKPOINT_DISABLE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Linux test prerequisites
+        run: sudo apt-get update && sudo apt-get install -y postgresql-16 openssl unzip logrotate
+      - name: Build pinned release twice and validate Packer without AWS
+        run: bash infra/ami/ci-prepare.sh "$RUNNER_TEMP/snackday-inputs" "$RUNNER_TEMP/snackday-evidence"
+      - name: Exercise real installer, launcher and systemd with synthetic secrets
+        run: sudo env GITHUB_ACTIONS=true python3 infra/ami/ci-boot.py "$RUNNER_TEMP/snackday-inputs" "$RUNNER_TEMP/snackday-evidence"
+      - name: Retain only allowlisted build and boot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-image-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/snackday-evidence/
+          if-no-files-found: error
+          retention-days: 14

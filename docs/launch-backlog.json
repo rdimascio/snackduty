@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "as_of": "2026-09-15",
+  "as_of": "2026-09-17",
   "repository": "rdimascio/snackduty",
-  "audited_commit": "a72c5be",
+  "audited_commit": "f544e98",
   "note": "PRs #1\u2013#4 are merged after independent review and local/hosted checks. The first native coordination journey is implemented and locally verified on feat/native-coordination; independent review and all requested local checks, including the complete Mac gate, pass. Coordination publication and hosted check receipts are tracked in PR #5 (https://github.com/rdimascio/snackduty/pull/5). Local cryptographic tests are not live Apple, hosted staging, external delivery, or TestFlight evidence. See implementation-status.md and beta-release-evidence.md. League remains R4 and branded apps R5.",
   "tasks": [
     {
@@ -15,7 +15,7 @@
       "depends_on": [],
       "acceptance": "Read required sibling Lesto guides, record the runtime ADR, serve real API routes over HTTPS with dev sign-in disabled, run migrations, and demonstrate backup restoration, health monitoring and deployment rollback. Verify request-path/token redaction at every serving/logging/tracing tier.",
       "code_areas": "apps/web/lesto.app.ts; apps/web/worker.ts; apps/web/wrangler.jsonc; docs/adr",
-      "note": "Real TLS PostgreSQL harness passes 45 assertions locally and has dedicated PostgreSQL 16 CI; deterministic concurrency coverage drove invitation lifecycle and event idempotency fixes. Alchemy 0.93.12 includes account-bound credentials/region, private RDS, immutable boot recipe, logs/alarms and full ALB-to-running-release preflight. Astra/Sol review and local fast checks pass. AMI build/boot, real AWS identifiers, log/alert delivery, remote restore/rollback and authenticated staging acceptance remain unverified; no AWS resources created. See aws-staging-evidence.md."
+      "note": "AWS foundation merged in PR #6 as 7733962 after Astra/Sol review and six hosted checks. Real TLS PostgreSQL integration passes 45 assertions. Linux run 35207890015 on PR #7 head f544e98 passes reproducible release builds, Packer validation without provisioning, and 21 actual installer/launcher/systemd boot checks with TLS PostgreSQL and synthetic Secrets Manager. AMI/EC2 boot, IAM/live Secrets Manager, log/alert delivery, remote restore/rollback and authenticated staging acceptance remain unverified. No AWS resources created; stagingVerified remains false. See aws-staging-evidence.md for exact archive and source receipts."
     },
     {
       "id": "SD-002",

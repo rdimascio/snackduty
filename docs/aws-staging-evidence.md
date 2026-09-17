@@ -50,12 +50,75 @@ attestation. An administrator controlling the host can falsify its response.
 ## Gates that remain external
 
 No AWS resource creation or deployment occurred. The Packer recipe has not built
-an AMI; Linux image installation, EC2 boot, Secrets Manager permissions, RDS
+an AMI; EC2 boot, Secrets Manager permissions, RDS
 reachability, log arrival, SNS delivery, and restore/rollback acceptance remain
-unverified. Packer itself was unavailable in the local environment. Required
+unverified. Required
 account, network, image, certificate, sender and release identifiers must be real
 and reviewed before an attended provisioning run. Keep `stagingVerified: false`.
 
 Use the [PostgreSQL harness](./postgres-integration.md),
 [AMI recipe](../infra/ami/README.md), and [staging runbook](./aws-staging-runbook.md)
 for reproducible checks and the evidence required to close these gates.
+
+## Linux image CI, September 17, 2026
+
+PR #6 merged as `7733962868da6cf2464bb4463a09085b59f166dc` after independent
+Astra/Sol reviews and six hosted checks. The subsequent Linux image workflow
+builds committed source twice with Bun 1.3.5 and frozen dependencies, compares
+archives, validates the Packer template/plugin without a build, and exercises
+the actual installer, launcher and unchanged systemd unit on a disposable
+Ubuntu 24.04 hosted VM. [Run 35207890015](https://github.com/rdimascio/snackduty/actions/runs/35207890015)
+passes all 21 boot checks on PR #7 head `f544e98`; the built source is GitHub's
+merge-test commit `c69993858e2ea9cfacd6ae8d682fa477f7106c0d`, with archive digest
+`sha256:52665e4f87b895c3a72fafdbd4377aa09fde49002427554b8f35217942d31116`.
+The retained receipt records PostgreSQL 16.15, systemd 255, three successful
+starts, eleven initial migrations and empty migration replay, ten launcher
+rejections and two runtime TLS startup rejections. Final-head check receipts
+remain attached to [PR #7](https://github.com/rdimascio/snackduty/pull/7).
+
+The first real builds exposed nondeterministic fallback/peer links from Bun
+1.3.5's isolated linker. The release builder now uses the hoisted layout with
+the same frozen lockfile; two independent output directories produce identical
+archives. Packer formatting/schema validation exposed an unsupported
+`allowed_account_ids` argument: the template now requires assuming an existing
+builder role in the reviewed account. Invalid CA boot also exposed a failed
+runtime remaining alive; the standalone entry point now exits explicitly after
+its generic startup-failure event. The same negative boot cases subsequently pass.
+
+Astra and Sol independently reviewed the frozen implementation. Their validated
+findings tightened the build-receipt-to-installed-archive binding and required
+actual redacted access events, in addition to correcting the Packer account
+guard. Follow-up review covers these fixes and the runtime exit change.
+
+The same head's full product gate exposed a separate existing Swift fixture race:
+`logoutClearsLocalCredentialBeforeRevocationCompletes` exhausted 1,000 yields
+before URLSession registered its request. Its fixture now signals registration
+under the existing lock; the test awaits that signal with all assertions intact.
+Final product-gate evidence must include this test's pass, not a retry-based waiver.
+
+PostgreSQL 16 uses a generated trusted TLS certificate and SCRAM password.
+Only Secrets Manager is synthetic: after verifying the installed vendor AWS
+CLI, the harness replaces its executable with a strict fixture accepting only
+the launcher's two AWSCURRENT requests. The launcher still captures its pipes,
+validates secret JSON, constructs the connection URL, verifies the release and
+drops privileges. This does **not** test AWS CLI credential resolution, IMDS,
+IAM, the live Secrets Manager API, or CloudWatch delivery.
+Vendor package bytes are pinned to official HTTPS downloads; CI's generated
+input checksums and fixture CA are not a production input approval or vendor
+signature-verification receipt.
+
+The boot matrix requires migrations/readiness, exact archive/commit identity,
+non-root UID/GID and empty supplementary groups/capabilities, runtime-denied
+code writes, persistence of a synthetic application row through restart, and
+fresh secret retrieval after rotating the database password. Negative boots
+must exit unsuccessfully without readiness for bad digest, mismatched commit,
+modified installed code, missing/malformed/empty secrets, invalid encryption
+key, malformed CA and a valid but untrusted CA. A final valid boot checks recovery.
+
+Only build/tool metadata and allowlisted boot receipts are uploaded. Generated
+passwords, keys, private person markers and credential-bearing URLs are checked
+against service, journal and database logs; raw logs, database files, fixture
+secrets and private keys are never artifacts. The detector also must reject an
+injected canary. This bounds the tested redaction claim to these exercised paths.
+`stagingVerified` remains `false`; Linux fixture evidence cannot close any of the
+external AWS, provider, restore/rollback or authenticated acceptance gates above.
