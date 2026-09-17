@@ -385,6 +385,12 @@ except Exception as error:
         receipt['passed'] = True
     finally:
         receipt['lastPhase'] = phase
+        if LOG.exists():
+            # Failure evidence contains fixed event names/counts, never raw output.
+            names = ('runtime.ready', 'runtime.boot_failed', 'runtime.startup_failed', 'http.access')
+            text = LOG.read_text()
+            receipt['eventCounts'] = {name: text.count('"' + name + '"') for name in names}
+            receipt['serviceExitStatus'] = prop('ExecMainStatus')
         (evidence / 'boot-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
         run('systemctl', 'stop', 'snackday', check=False)
         if original_aws:
