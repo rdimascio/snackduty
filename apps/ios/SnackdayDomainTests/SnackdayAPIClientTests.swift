@@ -21,12 +21,14 @@ private final class LogoutGate: @unchecked Sendable {
     private let condition = NSCondition()
     private var blocked = false
     private var pending = false
+    private var waitingFinished = false
     private var pendingContinuation: CheckedContinuation<Void, Never>?
 
     func reset() {
         condition.lock()
         blocked = false
         pending = false
+        waitingFinished = false
         condition.broadcast()
         condition.unlock()
     }
@@ -58,18 +60,32 @@ private final class LogoutGate: @unchecked Sendable {
         return pending
     }
 
-    func waitUntilPending() async {
-        // Register under the same lock as request arrival so neither ordering loses the signal.
-        await withCheckedContinuation { continuation in
-            condition.lock()
-            if pending {
-                condition.unlock()
-                continuation.resume()
-            } else {
-                pendingContinuation = continuation
-                condition.unlock()
+    func waitUntilPendingOrFinished() async throws {
+        // Arrival, completion and cancellation share the registration lock, including
+        // signals delivered before the continuation has been registered.
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                condition.lock()
+                if pending || waitingFinished {
+                    condition.unlock()
+                    continuation.resume()
+                } else {
+                    pendingContinuation = continuation
+                    condition.unlock()
+                }
             }
+        } onCancel: {
+            self.finishWaiting()
         }
+        try Task.checkCancellation()
+    }
+
+    func finishWaiting() {
+        condition.lock()
+        waitingFinished = true
+        pendingContinuation?.resume()
+        pendingContinuation = nil
+        condition.unlock()
     }
 
     func release() {
@@ -138,7 +154,10 @@ final class BetaServerStubURLProtocol: URLProtocol {
     }
     fileprivate static func blockLogout() { logoutGate.block() }
     fileprivate static func isLogoutPending() -> Bool { logoutGate.isPending() }
-    fileprivate static func waitUntilLogoutPending() async { await logoutGate.waitUntilPending() }
+    fileprivate static func waitUntilLogoutPendingOrFinished() async throws {
+        try await logoutGate.waitUntilPendingOrFinished()
+    }
+    fileprivate static func logoutFinished() { logoutGate.finishWaiting() }
     fileprivate static func releaseLogout() { logoutGate.release() }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -457,8 +476,15 @@ private func livePost<Input: Encodable, Output: Decodable>(
             )
         )
 
-        let logoutTask = Task { try await client.signOut() }
-        await BetaServerStubURLProtocol.waitUntilLogoutPending()
+        let logoutTask = Task {
+            defer { BetaServerStubURLProtocol.logoutFinished() }
+            try await client.signOut()
+        }
+        defer {
+            BetaServerStubURLProtocol.releaseLogout()
+            logoutTask.cancel()
+        }
+        try await BetaServerStubURLProtocol.waitUntilLogoutPendingOrFinished()
 
         #expect(BetaServerStubURLProtocol.isLogoutPending())
         #expect(store.stored(for: origin) == nil)
