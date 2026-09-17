@@ -1,5 +1,16 @@
 # Team-first implementation status
 
+## Linux image verification — September 16, 2026
+
+The AWS foundation merged in PR #6 as `7733962` with six hosted checks and
+independent Astra/Sol review. Linux image CI now exercises two pinned/frozen
+release builds, Packer validation without provisioning, and the real installer,
+launcher and systemd unit with TLS PostgreSQL and synthetic Secrets Manager.
+Hosted evidence for the new harness is pending; [AWS evidence](./aws-staging-evidence.md)
+records its exact boundary. EC2/AMI boot, IAM/live secret retrieval, CloudWatch/SNS,
+remote restore/rollback and authenticated staging acceptance remain unverified.
+No AWS resources were created; `stagingVerified` remains false.
+
 ## Current beta foundation — September 14, 2026
 
 The beta foundation merged in PR #4 as `4c11695` after independent review and all local/hosted checks. The first native coordination journey is implemented and locally verified on `1f9e10a`, with four isolated Sol tickets cut from frozen contracts `82d19b4` and three implementation slots reused as dependencies cleared. Hosted check and merge receipts are tracked on [PR #5](https://github.com/rdimascio/snackduty/pull/5). The [foundation ledger](./beta-integration-ledger.md) and [coordination ledger](./coordination-integration-ledger.md) record ownership and commits; [release evidence](./beta-release-evidence.md) separates local and external verification.

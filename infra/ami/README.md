@@ -1,7 +1,7 @@
 # Immutable staging AMI
 
 This is a reproducible recipe, **not a built or boot-verified AMI**. Do not run
-Packer or Alchemy until account, base AMI, network IDs, release checksums and
+Packer builds or Alchemy until account, base AMI, network IDs, release checksums and
 PostgreSQL evidence are reviewed. Packer creates billable builder resources.
 
 ## Build contract
@@ -64,6 +64,15 @@ real PostgreSQL readiness, release endpoint identity, CloudWatch log arrival and
 alarm delivery. A local test cannot establish any of those AWS runtime facts.
 
 ## Offline verification
+
+The **Linux image build and boot** workflow validates Packer formatting, schema
+and the pinned amazon plugin without creating AWS resources. It runs the real
+release builder twice and requires identical archives, then installs and boots
+the result using the actual scripts and systemd unit on a disposable Ubuntu VM.
+`ci-boot.py` is deliberately restricted to disposable GitHub-hosted Linux VMs;
+it replaces system packages and `/usr/local/bin/aws`. Never run it on a shared
+machine or deployment host. See [evidence scope](../../docs/aws-staging-evidence.md)
+for the synthetic Secrets Manager boundary, TLS PostgreSQL and retained receipts.
 
 ```sh
 python3 -m unittest discover -s infra/ami -p '*_test.py'
