@@ -68,7 +68,7 @@ alarm delivery. A local test cannot establish any of those AWS runtime facts.
 
 ## Offline verification
 
-The **Linux image build and boot** workflow validates Packer formatting, schema
+The **Linux release and systemd boot** check validates Packer formatting, schema
 and the pinned amazon plugin without creating AWS resources. It runs the real
 release builder twice and requires identical archives, then installs and boots
 the result using the actual scripts and systemd unit on a disposable Ubuntu VM.

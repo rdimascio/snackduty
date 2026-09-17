@@ -1,13 +1,15 @@
 # Team-first implementation status
 
-## Linux image verification — September 16, 2026
+## Linux image verification — September 17, 2026
 
 The AWS foundation merged in PR #6 as `7733962` with six hosted checks and
 independent Astra/Sol review. Linux image CI now exercises two pinned/frozen
 release builds, Packer validation without provisioning, and the real installer,
 launcher and systemd unit with TLS PostgreSQL and synthetic Secrets Manager.
-Hosted evidence for the new harness is pending; [AWS evidence](./aws-staging-evidence.md)
-records its exact boundary. EC2/AMI boot, IAM/live secret retrieval, CloudWatch/SNS,
+[Hosted Linux run 35207890015](https://github.com/rdimascio/snackduty/actions/runs/35207890015)
+passes all 21 boot checks on PR #7 head `f544e98`; [AWS evidence](./aws-staging-evidence.md)
+records the exact built merge-test commit, archive digest and fixture boundary.
+EC2/AMI boot, IAM/live secret retrieval, CloudWatch/SNS,
 remote restore/rollback and authenticated staging acceptance remain unverified.
 No AWS resources were created; `stagingVerified` remains false.
 

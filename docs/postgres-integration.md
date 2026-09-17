@@ -35,7 +35,7 @@ to the repository's required checks before merging PostgreSQL changes.
 This is local database/runtime evidence. It does not prove RDS reachability,
 IAM permissions, AWS release identity, backup restoration, or ALB health.
 
-The separate **Linux image build and boot** workflow adds PostgreSQL 16 TLS
+The separate **Linux release and systemd boot** check adds PostgreSQL 16 TLS
 readiness through the actual image installer, root launcher and systemd service.
 It rotates a synthetic database password between starts, checks an application
 row and migration ledger survive, and rejects invalid CA material. Its Secrets

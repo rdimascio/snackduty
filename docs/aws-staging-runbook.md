@@ -2,8 +2,10 @@
 
 ## Linux image prerequisite
 
-Require a passing **Linux image build and boot** check for the reviewed source.
-Download its build and boot receipts and match `releaseCommit` and `artifactDigest`.
+Require a passing **Linux release and systemd boot** check for the reviewed source.
+Download `build-receipt.txt` and `boot-receipt.json` and match their `releaseCommit`
+and `artifactDigest` fields. On pull requests the source is GitHub's merge-test
+commit; it differs from the PR head. Require `passed: true` in the boot receipt.
 The workflow validates Packer without building an AMI and boots the real installed
 runtime under systemd with TLS PostgreSQL and synthetic Secrets Manager responses.
 It does not authorize or establish EC2, IAM, live secret retrieval, RDS networking,

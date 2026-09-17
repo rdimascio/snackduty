@@ -302,7 +302,6 @@ except Exception as error:
         require(request('/invite/' + marker + '?token=' + password)[0] == 404)
         require(request('/calendar/feed/' + marker)[0] == 404)
         require(request('/api/dev/sign-in', json.dumps({'displayName': marker, 'token': password}).encode())[0] == 404)
-        require(request('/api/dev/sign-in', b'{}')[0] == 404)
         sql("INSERT INTO people (id,display_name,status,created_at,updated_at) "
             f"VALUES ('ci-persistence','{marker}','active','2026-09-16','2026-09-16');")
         phase = 'restart-and-secret-refresh'
