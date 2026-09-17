@@ -202,6 +202,10 @@ def main(inputs, evidence):
         fixture = ThreadingHTTPServer(('127.0.0.1', 0), SecretsFixture)
         threading.Thread(target=fixture.serve_forever, daemon=True).start()
         phase = 'actual-image-install'
+        build = dict(line.split('=', 1) for line in (evidence / 'build-receipt.txt').read_text().splitlines())
+        commit = build['releaseCommit']
+        digest = build['artifactDigest']
+        require(digest == 'sha256:' + hashlib.file_digest((inputs / 'release.tar').open('rb'), 'sha256').hexdigest())
         # Generated TLS material is fixture input, not a production RDS CA receipt.
         names = ['release.tar', 'bun', 'awscliv2.zip', 'cloudwatch.deb', 'rds-ca.pem',
                  'boot.py', 'snackday.service', 'cloudwatch-agent.json', 'install-image.sh']
@@ -214,6 +218,8 @@ def main(inputs, evidence):
         for name in ('aws', 'aws_completer'):
             Path('/usr/local/bin/' + name).unlink(missing_ok=True)
         run('bash', str(inputs / 'install-image.sh'), str(inputs))
+        require(digest == 'sha256:' + hashlib.file_digest((ROOT / 'release.tar').open('rb'), 'sha256').hexdigest())
+        require((ROOT / 'release/release-commit.txt').read_text().strip() == commit)
         require(run('systemctl', 'is-enabled', 'snackday').stdout.strip() == 'enabled')
         require(Path('/etc/systemd/system/snackday.service').read_bytes() == (inputs / 'snackday.service').read_bytes())
         require((ROOT / 'boot.py').read_bytes() == (inputs / 'boot.py').read_bytes())
@@ -245,8 +251,6 @@ except Exception as error:
     sys.exit(1)
 '''.replace('FIXTURE_PORT', str(fixture.server_port)))
         Path('/usr/local/bin/aws').chmod(0o755)
-        commit = (inputs / 'release/release-commit.txt').read_text().strip()
-        digest = 'sha256:' + hashlib.file_digest((ROOT / 'release.tar').open('rb'), 'sha256').hexdigest()
         receipt.update(releaseCommit=commit, artifactDigest=digest)
         config = {
             'AWS_REGION': 'us-east-1', 'SNACKDAY_DATABASE_HOST': '127.0.0.1',
@@ -294,9 +298,9 @@ except Exception as error:
         passed('non-root-empty-groups-no-capabilities-read-only-code')
 
         phase = 'sensitive-request-redaction'
-        request('/invite/' + marker + '?token=' + password)
-        request('/calendar/feed/' + marker)
-        request('/api/dev/sign-in', json.dumps({'displayName': marker, 'token': password}).encode())
+        require(request('/invite/' + marker + '?token=' + password)[0] == 404)
+        require(request('/calendar/feed/' + marker)[0] == 404)
+        require(request('/api/dev/sign-in', json.dumps({'displayName': marker, 'token': password}).encode())[0] == 404)
         require(request('/api/dev/sign-in', b'{}')[0] == 404)
         sql("INSERT INTO people (id,display_name,status,created_at,updated_at) "
             f"VALUES ('ci-persistence','{marker}','active','2026-09-16','2026-09-16');")
@@ -353,6 +357,13 @@ except Exception as error:
         raw = LOG.read_text() + (work / 'postgres.log').read_text()
         raw += run('journalctl', '-u', 'snackday', '--no-pager', '-o', 'cat').stdout
         clean_logs(raw)
+        access = [json.loads(line) for line in LOG.read_text().splitlines()
+                  if line.startswith('{') and json.loads(line).get('event') == 'http.access']
+        for method, path in [('GET', '/invite/[redacted]'), ('GET', '/calendar/feed/[redacted]'),
+                             ('POST', '/api/dev/sign-in')]:
+            require(any(item.get('method') == method and item.get('path') == path
+                        and item.get('status') == 404 and item.get('request_id') for item in access))
+        passed('sensitive-requests-retain-redacted-access-events')
         try:
             clean_logs(raw + marker)
         except RuntimeError:

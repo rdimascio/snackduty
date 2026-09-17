@@ -15,6 +15,10 @@ variable "account_id" {
   }
 }
 variable "region" { type = string }
+variable "builder_role_name" {
+  type    = string
+  default = "snackday-image-builder"
+}
 variable "base_ami" { type = string }
 variable "subnet_id" { type = string }
 variable "security_group_id" { type = string }
@@ -23,7 +27,11 @@ variable "release_commit" { type = string }
 variable "artifact_digest" { type = string }
 
 source "amazon-ebs" "staging" {
-  allowed_account_ids = [var.account_id]
+  # amazon 1.3.9 has no allowed_account_ids option. Assuming an existing role
+  # binds all builder operations to the reviewed account instead.
+  assume_role {
+    role_arn = "arn:aws:iam::${var.account_id}:role/${var.builder_role_name}"
+  }
   region              = var.region
   source_ami          = var.base_ami
   instance_type       = "t3.small"

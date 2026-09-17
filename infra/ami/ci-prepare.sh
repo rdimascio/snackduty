@@ -49,6 +49,7 @@ PY
   exit 1
 fi
 cp "$inputs/build-receipt.txt" "$evidence/build-receipt.txt"
+printf 'artifactDigest=sha256:%s\n' "$(sha256sum "$inputs/release.tar" | cut -d ' ' -f 1)" >> "$evidence/build-receipt.txt"
 printf 'reproducibleTwoBuilds=true\nevidenceScope=linux-ci-synthetic-secrets\nstagingVerified=false\n' >> "$evidence/build-receipt.txt"
 (cd "$inputs" && sha256sum release.tar) > "$evidence/release.sha256"
 cp "$tools/bun-linux-x64/bun" "$inputs/bun"

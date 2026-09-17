@@ -27,7 +27,10 @@ PostgreSQL evidence are reviewed. Packer creates billable builder resources.
    `packer build` requires separately approved real identifiers. Supply an existing
    disposable builder subnet/security group allowing SSH only from the builder
    controller; no application role or runtime credentials belong on this machine.
-   The expected account is enforced by `allowed_account_ids`.
+   The expected account is enforced by assuming the existing
+   `arn:aws:iam::<account_id>:role/<builder_role_name>` role (default name
+   `snackday-image-builder`). Review that role and its trust policy before a build.
+   The pinned amazon 1.3.9 plugin does not support `allowed_account_ids`.
 5. Retain `ami-receipt.json`, package/tool receipt, exact archive, checksums, and
    encrypted AMI ID together. Set Alchemy `SNACKDAY_API_AMI_ID`,
    `SNACKDAY_API_RELEASE_COMMIT`, and `SNACKDAY_API_ARTIFACT_DIGEST` from that receipt.
