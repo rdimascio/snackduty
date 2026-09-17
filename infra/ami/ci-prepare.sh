@@ -30,7 +30,24 @@ test "$(bun --version)" = 1.3.5
 # release script, in separate directories. Equality is an assertion, not a claim.
 bash infra/ami/build-release.sh "$commit" "$inputs"
 bash infra/ami/build-release.sh "$commit" "$tools/rebuild"
-cmp "$inputs/release.tar" "$tools/rebuild/release.tar"
+if ! cmp "$inputs/release.tar" "$tools/rebuild/release.tar"; then
+  # Public build inputs only: diagnose differing paths without dumping file contents.
+  python3 - "$inputs/release.tar" "$tools/rebuild/release.tar" <<'PY'
+import hashlib
+import sys
+import tarfile
+def entries(path):
+    with tarfile.open(path) as archive:
+        return {item.name: (item.mode, item.type.decode(), item.linkname,
+                hashlib.file_digest(archive.extractfile(item), 'sha256').hexdigest() if item.isfile() else None)
+                for item in archive}
+left, right = map(entries, sys.argv[1:])
+for name in sorted(left.keys() | right.keys()):
+    if left.get(name) != right.get(name):
+        print('non-reproducible member:', name)
+PY
+  exit 1
+fi
 cp "$inputs/build-receipt.txt" "$evidence/build-receipt.txt"
 printf 'reproducibleTwoBuilds=true\nevidenceScope=linux-ci-synthetic-secrets\nstagingVerified=false\n' >> "$evidence/build-receipt.txt"
 (cd "$inputs" && sha256sum release.tar) > "$evidence/release.sha256"
