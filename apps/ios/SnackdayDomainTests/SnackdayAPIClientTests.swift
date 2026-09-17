@@ -21,6 +21,7 @@ private final class LogoutGate: @unchecked Sendable {
     private let condition = NSCondition()
     private var blocked = false
     private var pending = false
+    private var pendingContinuation: CheckedContinuation<Void, Never>?
 
     func reset() {
         condition.lock()
@@ -43,6 +44,8 @@ private final class LogoutGate: @unchecked Sendable {
             return
         }
         pending = true
+        pendingContinuation?.resume()
+        pendingContinuation = nil
         condition.broadcast()
         while blocked { condition.wait() }
         pending = false
@@ -53,6 +56,20 @@ private final class LogoutGate: @unchecked Sendable {
         condition.lock()
         defer { condition.unlock() }
         return pending
+    }
+
+    func waitUntilPending() async {
+        // Register under the same lock as request arrival so neither ordering loses the signal.
+        await withCheckedContinuation { continuation in
+            condition.lock()
+            if pending {
+                condition.unlock()
+                continuation.resume()
+            } else {
+                pendingContinuation = continuation
+                condition.unlock()
+            }
+        }
     }
 
     func release() {
@@ -121,6 +138,7 @@ final class BetaServerStubURLProtocol: URLProtocol {
     }
     fileprivate static func blockLogout() { logoutGate.block() }
     fileprivate static func isLogoutPending() -> Bool { logoutGate.isPending() }
+    fileprivate static func waitUntilLogoutPending() async { await logoutGate.waitUntilPending() }
     fileprivate static func releaseLogout() { logoutGate.release() }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -424,7 +442,7 @@ private func livePost<Input: Encodable, Output: Decodable>(
         #expect(store.stored(for: origin) == nil)
     }
 
-    @Test func logoutClearsLocalCredentialBeforeRevocationCompletes() async throws {
+    @Test(.timeLimit(.minutes(1))) func logoutClearsLocalCredentialBeforeRevocationCompletes() async throws {
         BetaServerStubURLProtocol.reset()
         BetaServerStubURLProtocol.blockLogout()
         let origin = URL(string: "https://api.snackday.test")!
@@ -440,10 +458,7 @@ private func livePost<Input: Encodable, Output: Decodable>(
         )
 
         let logoutTask = Task { try await client.signOut() }
-        for _ in 0..<1_000 {
-            if BetaServerStubURLProtocol.isLogoutPending() { break }
-            await Task.yield()
-        }
+        await BetaServerStubURLProtocol.waitUntilLogoutPending()
 
         #expect(BetaServerStubURLProtocol.isLogoutPending())
         #expect(store.stored(for: origin) == nil)
