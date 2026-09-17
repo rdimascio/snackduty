@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -403,5 +404,8 @@ if __name__ == '__main__':
         print('Linux image boot verification passed (synthetic Secrets Manager; no AWS deployment).')
     except Exception:
         # Never print exception text, subprocess buffers, SQL, credentials or request bodies.
-        print('Linux image boot verification failed at phase: ' + phase, file=sys.stderr)
+        frames = traceback.extract_tb(sys.exc_info()[2])
+        locations = [str(frame.lineno) for frame in frames if frame.filename == __file__]
+        print('Linux image boot verification failed at phase: ' + phase
+              + '; harness lines: ' + ','.join(locations), file=sys.stderr)
         sys.exit(1)

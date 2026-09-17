@@ -32,14 +32,14 @@ source "amazon-ebs" "staging" {
   assume_role {
     role_arn = "arn:aws:iam::${var.account_id}:role/${var.builder_role_name}"
   }
-  region              = var.region
-  source_ami          = var.base_ami
-  instance_type       = "t3.small"
-  ssh_username        = "ubuntu"
-  subnet_id           = var.subnet_id
-  security_group_id   = var.security_group_id
-  ami_name            = "snackday-${var.release_commit}-${formatdate("YYYYMMDDhhmmss", timestamp())}"
-  encrypt_boot        = true
+  region            = var.region
+  source_ami        = var.base_ami
+  instance_type     = "t3.small"
+  ssh_username      = "ubuntu"
+  subnet_id         = var.subnet_id
+  security_group_id = var.security_group_id
+  ami_name          = "snackday-${var.release_commit}-${formatdate("YYYYMMDDhhmmss", timestamp())}"
+  encrypt_boot      = true
   launch_block_device_mappings {
     device_name           = "/dev/sda1"
     volume_size           = 20
