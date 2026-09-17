@@ -484,7 +484,14 @@ private func livePost<Input: Encodable, Output: Decodable>(
             BetaServerStubURLProtocol.releaseLogout()
             logoutTask.cancel()
         }
-        try await BetaServerStubURLProtocol.waitUntilLogoutPendingOrFinished()
+        do {
+            try await BetaServerStubURLProtocol.waitUntilLogoutPendingOrFinished()
+        } catch {
+            BetaServerStubURLProtocol.releaseLogout()
+            logoutTask.cancel()
+            _ = await logoutTask.result
+            throw error
+        }
 
         #expect(BetaServerStubURLProtocol.isLogoutPending())
         #expect(store.stored(for: origin) == nil)
