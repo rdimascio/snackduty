@@ -1,5 +1,8 @@
 # AWS staging infrastructure
 
+See the [attended readiness report](../../docs/aws-staging-readiness.md) for
+the existing-prerequisite ledger, first-release ordering and recovery blockers.
+
 This directory contains Snackday's reviewed staging resource graph for
 `alchemy@0.93.12`. It declares one VPC, two public subnets, two private database
 subnets, an HTTPS application load balancer, one EC2 API host, and one private

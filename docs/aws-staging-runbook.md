@@ -1,5 +1,11 @@
 # AWS staging deployment runbook
 
+For the current input ledger, first-release ordering, provider limitations,
+costs and approval boundaries, start with the
+[attended readiness report](./aws-staging-readiness.md). No live acceptance is
+claimed. The existing graph cannot yet select a restored database endpoint;
+that recovery seam requires a reviewed change before the restore drill below.
+
 ## Linux image prerequisite
 
 Require a passing **Linux release and systemd boot** check for the reviewed source.
@@ -40,7 +46,7 @@ that guard.
 
 ## Target topology
 
-- Alchemy owns one named `staging` stack and stores shared deployment state with `AWS.state()` in
+- Alchemy owns one named `staging` stack and stores shared deployment state with the pinned `S3StateStore` in
   the target AWS account and Region. Do not use local `.alchemy` state for staging or CI.
 - An internet-facing Application Load Balancer terminates HTTPS. The API EC2 instance runs in an
   application subnet and accepts application traffic only from the load balancer security group.
@@ -51,7 +57,9 @@ that guard.
   Availability Zone to avoid cross-AZ latency. RDS still needs a multi-subnet group for recovery;
   an RDS failover can move the writer and temporarily make the path cross-AZ.
 - RDS storage is encrypted and automated backup retention is at least seven days. Every release
-  also has an available encrypted manual pre-deploy snapshot.
+  after bootstrap also has an available encrypted manual pre-deploy snapshot.
+  The first release takes a post-bootstrap baseline snapshot: the monolithic
+  graph creates the database and immediately boots/migrates the API.
 - Keep one API instance for the beta until queue-worker and migration concurrency have explicit
   PostgreSQL evidence. The database is durable independently of the EC2 host.
 
@@ -73,7 +81,7 @@ guide](https://alchemy.run/aws/data/rds/).
    and `unsafe nuke` are not.
 
 ```sh
-aws sts get-caller-identity --profile <staging-profile>
+aws sts get-caller-identity --profile <staging-profile> --region <region>
 bun infra/alchemy/plan.ts
 ```
 
@@ -132,7 +140,11 @@ The dry-run receipt marks every cloud check as `planned` and keeps all verificat
 
 ## Backup, migration, and readiness order
 
-Perform these steps sequentially for an attended release:
+For an **upgrade of an existing database**, perform these steps sequentially
+after explicit deployment/snapshot approval. On the **first release**, follow
+the readiness report's bootstrap order instead: apply creates RDS and starts
+the first migrations, then take an approved available baseline snapshot before
+acceptance. Record its post-bootstrap scope; there is no pre-bootstrap snapshot.
 
 1. Confirm `bun run gate` passed on `releaseCommit` and the artifact digest matches that reviewed
    source.
@@ -220,14 +232,19 @@ until the authenticated and durability journeys above have their own receipts.
 ## Rollback drill
 
 Prefer rolling back only the EC2 application artifact when the previous artifact is compatible
-with the migrated schema. Repoint to the exact `previousArtifactDigest`, wait for `/readyz`, then
+with the migrated schema. Select the retained previous AMI, source commit and
+exact `previousArtifactDigest`, review the Alchemy replacement, wait for `/readyz`, then
 repeat the authenticated journeys. Never silently run down-migrations.
 
 The first staging release has no previous application artifact. Its rollback options are restoring
 the database into a new instance and deploying a newly reviewed corrective artifact, or removing
 the unreleased environment before any real user data exists.
 
-When data restoration is required:
+When data restoration is required, first implement/review the restored-database
+selection and state-ownership seam described in the readiness report. The current
+graph takes endpoint and managed secret from its own `Database` resource; changing
+a runtime secret cannot redirect it. The following is a recovery design, not a
+currently executable end-to-end command sequence:
 
 1. Stop application writes and record the recovery point and expected data-loss window.
 2. Restore the pre-deploy snapshot or a chosen point in time to a **new** RDS identifier. RDS does
@@ -251,7 +268,13 @@ point. Keep the original database and artifact available until an operator accep
 Do not mark the drill complete from these instructions alone: attach timestamps, identifiers,
 marker assertions, redacted readiness/preflight receipts, and the rollback artifact's commit and
 digest. Rebuild the verification target for the restored RDS and rolled-back artifact; stale
-release coordinates must fail preflight. No restore or traffic switch has been executed locally.
+release coordinates must fail preflight. The verifier also requires an available
+encrypted manual snapshot belonging to the target database and at most 24 hours
+old. After the restore marker assertions, separately approve and create a fresh
+snapshot of the restored DB, wait until available, use its ID in the restored
+target and run preflight within 24 hours. Keep the original source snapshot/PITR
+identifier separately as recovery evidence; it cannot satisfy the restored DB's
+snapshot ownership gate. No restore or traffic switch has been executed locally.
 
 AWS restores create a new DB instance and leave the source intact; see [Restoring to a DB
 instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_RestoreFromSnapshot.html).
