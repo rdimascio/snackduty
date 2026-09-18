@@ -1,5 +1,18 @@
 # Team-first implementation status
 
+## AWS deployment-readiness pass — September 17, 2026
+
+The [attended readiness report](./aws-staging-readiness.md) audits merged PR #7
+`9f548e7c2a8e5552a54894ea18cb95138fb15da2` without provisioning. Local profile
+`staging` names a candidate account in `us-east-1`, but its expired session
+prevented STS verification; no cloud resources or secret metadata were verified.
+The report separates existing prerequisites from graph outputs, production
+input provenance, costs, first-release bootstrap and live acceptance gates.
+The first release cannot have a pre-bootstrap snapshot under the current graph.
+Invitation delivery needs a real entry-point adapter, and restored RDS selection
+needs a reviewed implementation before the recovery drill can pass. No AMI was
+built, no AWS resources were provisioned, and `stagingVerified` remains false.
+
 ## Linux image verification — September 17, 2026
 
 The AWS foundation merged in PR #6 as `7733962` with six hosted checks and

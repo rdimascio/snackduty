@@ -1,5 +1,51 @@
 # AWS staging evidence and handoff
 
+## Readiness pass, September 17, 2026
+
+PR #7 merged as `9f548e7c2a8e5552a54894ea18cb95138fb15da2` after all five
+applicable hosted jobs passed. This pass starts from that freshly fetched main.
+The [readiness report](./aws-staging-readiness.md) contains the complete input
+ledger, ordered attended plan, acceptance and recovery/cleanup gates;
+the [cost sheet](./aws-staging-costs.md) estimates us-east-1 at $62–67/month under
+its stated assumptions. [Public input receipts](./evidence/aws-readiness-2026-09-17/production-inputs.md)
+separate vendor verification from production image/build approval.
+
+- **Passing fixture evidence:** the Linux receipts below remain fixture-only;
+  their generated CA and synthetic Secrets Manager cannot be reused for AWS.
+- **Read-only AWS observation:** local profile `staging` names us-east-1 and
+  account `545738964453` in a login-session ARN. Explicit profile/region STS
+  first hit a sandbox network boundary; the permitted unrestricted retry reported
+  an expired session. No STS identity succeeded; no AWS resource, secret metadata
+  or IAM policy was inspected. No secret values were retrieved.
+- **Unexecuted:** production Linux release build, actual AMI/Packer build,
+  Alchemy apply/destroy, DNS writes, snapshots, rotations and restores.
+- **Unverified acceptance:** real EC2/IAM/Secrets Manager, RDS TLS, ALB release
+  identity, Apple, invitations, persistence, logs/alarms and restore/rollback.
+  Invitation delivery is a missing runtime adapter, and restored DB selection
+  requires a reviewed graph seam. These cannot be fixed by supplying IDs alone.
+
+No AWS resources were provisioned. `stagingVerified` remains false.
+
+Local readiness validation on macOS/Bun 1.4.2 passed seven infrastructure tests
+(45 assertions), four launcher tests and infrastructure typecheck. The unchanged
+fast suite reproduced sandbox `EADDRINUSE` on port 0, then passed outside the
+sandbox (306 web, 29 domain, 39 manifest and 61 script tests). No ports, retry
+behavior or assertions were changed. Full Linux/systemd, PostgreSQL 16 and Mac
+product validation for this documentation change are delegated to hosted CI;
+final PR/check receipts must identify the published head.
+
+Publication and final-head hosted check receipts are tracked on
+[PR #8](https://github.com/rdimascio/snackduty/pull/8). Consult that PR's exact
+head checks before treating any earlier passing run as final publication evidence.
+
+Independent Astra and Sol plan reviews found two material procedure gaps, both
+corrected: the pinned Packer SDK cannot consume the local `login_session`
+directly, so the attended command now reuses `verifyAwsAccount` and passes its
+in-memory credential snapshot; restored-DB preflight needs its own fresh manual
+snapshot while retaining the source recovery point separately. No runtime or
+infrastructure implementation was changed. Recovery/provider integration blockers
+remain explicit rather than being bypassed.
+
 ## Baseline, September 15, 2026
 
 PR #6 baseline `ff983842f90ab42d241e93631a843f2f08c29103` had successful
