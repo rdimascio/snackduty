@@ -34,6 +34,10 @@ behavior or assertions were changed. Full Linux/systemd, PostgreSQL 16 and Mac
 product validation for this documentation change are delegated to hosted CI;
 final PR/check receipts must identify the published head.
 
+Publication and final-head hosted check receipts are tracked on
+[PR #8](https://github.com/rdimascio/snackduty/pull/8). Consult that PR's exact
+head checks before treating any earlier passing run as final publication evidence.
+
 Independent Astra and Sol plan reviews found two material procedure gaps, both
 corrected: the pinned Packer SDK cannot consume the local `login_session`
 directly, so the attended command now reuses `verifyAwsAccount` and passes its

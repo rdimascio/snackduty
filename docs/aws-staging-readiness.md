@@ -155,7 +155,7 @@ IMDS role, corroborated by redacted service readiness and permitted audit events
    Copy verified `bun`, `awscliv2.zip`, `cloudwatch.deb`, `rds-ca.pem` and **the
    same commit's** `boot.py`, `snackday.service`, `cloudwatch-agent.json`,
    `install-image.sh` into `$INPUTS`. Produce the reviewed `SHA256SUMS` covering
-   exactly these ten installer-required files including `release.tar`. Signature
+   exactly these nine installer-required files including `release.tar`. Signature
    verification precedes checksum approval; do not bless arbitrary downloads by
    hashing them. Do not run `ci-boot.py` on a controller or real EC2 host.
 
@@ -171,7 +171,7 @@ IMDS role, corroborated by redacted service readiness and permitted audit events
    packer validate -var-file="$PACKER_VARS" "$CHECKOUT/infra/ami/snackday.pkr.hcl"
    # ONLY AFTER IMAGE-BUILD APPROVAL; never executed in this readiness pass:
    # Run from the reviewed checkout; export CHECKOUT, PACKER_VARS and BUILD_WORKDIR.
-   # BUILD_WORKDIR must be a new, existing, empty directory for the manifest.
+   # Create a fresh empty BUILD_WORKDIR for this run's manifest before invoking.
    AWS_PROFILE=staging bun -e '
      import { verifyAwsAccount } from "./infra/alchemy/account";
      verifyAwsAccount(process.env.SNACKDAY_AWS_ACCOUNT_ID!, process.env.SNACKDAY_AWS_REGION!);
