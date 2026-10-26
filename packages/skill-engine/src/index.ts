@@ -1,4 +1,5 @@
 export * from "./events";
+export * from "./module";
 export * from "./rate";
 export * from "./rules";
 export * from "./streak";
