@@ -80,7 +80,21 @@ describe("streak timeline", () => {
     expect(timelineFor([1, 2, 3]).on(date(6))).toBe(0);
   });
 
-  it("starts a fresh rest-day window after a reset", () => {
-    expect(timelineFor([1, 3, 6, 8]).on(date(8))).toBe(2);
+  it("keeps the rest-day window of a bridge made before a reset", () => {
+    expect(timelineFor([1, 3, 6, 8]).on(date(8))).toBe(1);
+  });
+
+  it("does not bridge Oct 8 when Oct 2 was bridged before the Oct 4-5 reset", () => {
+    const timeline = timelineFor([1, 3, 6, 7, 9]);
+    expect(timeline.on(date(3))).toBe(2);
+    expect(timeline.on(date(6))).toBe(1);
+    expect(timeline.on(date(7))).toBe(2);
+    expect(timeline.on(date(8))).toBe(2);
+    expect(timeline.on(date(9))).toBe(1);
+    expect(streakMultiplier(timeline.on(date(9)), rulesV0.streak)).toBe(1);
+  });
+
+  it("bridges again once the earlier bridge is more than 6 days back across a reset", () => {
+    expect(timelineFor([1, 3, 6, 7, 8, 10]).on(date(10))).toBe(4);
   });
 });

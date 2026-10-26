@@ -64,6 +64,12 @@ function byOccurrence(left: SkillEvent, right: SkillEvent): number {
 }
 
 type PointEvent = Exclude<SkillEvent, { readonly type: "void" }>;
+type CardEvent = Extract<PointEvent, { readonly type: "card_collected" }>;
+type SkilledEvent = Exclude<PointEvent, CardEvent>;
+
+type CountedEvent =
+  | { readonly event: CardEvent }
+  | { readonly event: SkilledEvent; readonly skill: TaxonomySkill };
 
 interface SkillTotals {
   points: number;
@@ -72,7 +78,7 @@ interface SkillTotals {
   streakAtLast: number;
 }
 
-function validate(events: readonly SkillEvent[], skills: ReadonlyMap<string, TaxonomySkill>): void {
+function validate(events: readonly SkillEvent[]): void {
   const players = new Set(events.map((event) => event.playerId));
   if (players.size > 1) {
     throw new SkillEngineError("Events span more than one player");
@@ -83,10 +89,23 @@ function validate(events: readonly SkillEvent[], skills: ReadonlyMap<string, Tax
       throw new SkillEngineError(`Duplicate event id: ${event.id}`);
     }
     ids.add(event.id);
-    if ("skill" in event && !skills.has(event.skill)) {
+  }
+}
+
+function resolveSkills(
+  counted: readonly PointEvent[],
+  skills: ReadonlyMap<string, TaxonomySkill>,
+): readonly CountedEvent[] {
+  return counted.map((event) => {
+    if (event.type === "card_collected") {
+      return { event };
+    }
+    const skill = skills.get(event.skill);
+    if (!skill) {
       throw new SkillEngineError(`Unknown skill: ${event.skill}`);
     }
-  }
+    return { event, skill };
+  });
 }
 
 interface Ledger {
@@ -94,11 +113,7 @@ interface Ledger {
   readonly explain: readonly ExplainEntry[];
 }
 
-function basePoints(
-  event: Exclude<PointEvent, { readonly type: "card_collected" }>,
-  skill: TaxonomySkill,
-  rules: Rules,
-): number {
+function basePoints(event: SkilledEvent, skill: TaxonomySkill, rules: Rules): number {
   if (event.type === "drill_completed") {
     return rules.tierPoints[`${skill.tier}`];
   }
@@ -109,8 +124,7 @@ function basePoints(
 }
 
 function accumulate(
-  counted: readonly PointEvent[],
-  skills: ReadonlyMap<string, TaxonomySkill>,
+  counted: readonly CountedEvent[],
   rules: Rules,
   timeline: StreakTimeline,
 ): Ledger {
@@ -118,15 +132,12 @@ function accumulate(
   const totals = new Map<string, SkillTotals>();
   const explain: ExplainEntry[] = [];
 
-  for (const event of counted) {
-    if (event.type === "card_collected") {
-      explain.push({ event: event.id, points: rules.eventPoints.card_collected });
+  for (const entry of counted) {
+    if (!("skill" in entry)) {
+      explain.push({ event: entry.event.id, points: rules.eventPoints.card_collected });
       continue;
     }
-    const skill = skills.get(event.skill);
-    if (!skill) {
-      throw new SkillEngineError(`Unknown skill: ${event.skill}`);
-    }
+    const { event, skill } = entry;
     if (event.type === "module_completed") {
       const moduleKey = `${event.source.id}@${event.source.version}`;
       if (completedModules.has(moduleKey)) {
@@ -204,16 +215,19 @@ export function rate(
     throw new SkillEngineError(`Invalid player age: ${player.ageYears}`);
   }
   const skills = new Map(taxonomy.skills.map((skill) => [skill.id, skill]));
-  validate(events, skills);
+  validate(events);
 
   const voided = new Set(events.flatMap((event) => (event.type === "void" ? [event.voids] : [])));
-  const counted = events
-    .filter((event): event is PointEvent => event.type !== "void" && !voided.has(event.id))
-    .toSorted(byOccurrence);
+  const counted = resolveSkills(
+    events
+      .filter((event): event is PointEvent => event.type !== "void" && !voided.has(event.id))
+      .toSorted(byOccurrence),
+    skills,
+  );
   const timeline = buildStreakTimeline(
-    counted.filter((event) => event.type === "drill_completed").map((event) => event.localDate),
+    counted.flatMap(({ event }) => (event.type === "drill_completed" ? [event.localDate] : [])),
     rules.restDay,
   );
 
-  return summarize(accumulate(counted, skills, rules, timeline), taxonomy, rules, player);
+  return summarize(accumulate(counted, rules, timeline), taxonomy, rules, player);
 }

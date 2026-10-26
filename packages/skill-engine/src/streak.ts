@@ -13,30 +13,34 @@ export function dayNumber(localDate: string): number {
 interface TrainingDay {
   readonly day: number;
   readonly length: number;
-  readonly bridged: readonly number[];
+  readonly lastBridged: number | undefined;
 }
 
 export interface StreakTimeline {
   readonly on: (localDate: string) => number;
 }
 
-function canBridge(missedDay: number, bridged: readonly number[], windowDays: number): boolean {
-  return !bridged.some((restDay) => missedDay - restDay <= windowDays);
+function canBridge(
+  missedDay: number,
+  lastBridged: number | undefined,
+  windowDays: number,
+): boolean {
+  return lastBridged === undefined || missedDay - lastBridged > windowDays;
 }
 
 function advance(previous: TrainingDay | undefined, day: number, windowDays: number): TrainingDay {
   if (previous === undefined) {
-    return { day, length: 1, bridged: [] };
+    return { day, length: 1, lastBridged: undefined };
   }
   const missed = day - previous.day - 1;
   if (missed === 0) {
-    return { day, length: previous.length + 1, bridged: previous.bridged };
+    return { day, length: previous.length + 1, lastBridged: previous.lastBridged };
   }
   const restDayCandidate = previous.day + 1;
-  if (missed === 1 && canBridge(restDayCandidate, previous.bridged, windowDays)) {
-    return { day, length: previous.length + 1, bridged: [...previous.bridged, restDayCandidate] };
+  if (missed === 1 && canBridge(restDayCandidate, previous.lastBridged, windowDays)) {
+    return { day, length: previous.length + 1, lastBridged: restDayCandidate };
   }
-  return { day, length: 1, bridged: [] };
+  return { day, length: 1, lastBridged: previous.lastBridged };
 }
 
 export function buildStreakTimeline(
@@ -66,7 +70,7 @@ export function buildStreakTimeline(
       if (missed === 0) {
         return last.length;
       }
-      if (missed === 1 && canBridge(last.day + 1, last.bridged, restDay.windowDays)) {
+      if (missed === 1 && canBridge(last.day + 1, last.lastBridged, restDay.windowDays)) {
         return last.length;
       }
       return 0;
