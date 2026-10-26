@@ -345,6 +345,10 @@
         "rating": 0
       },
       {
+        "area": "pitching",
+        "rating": 0
+      },
+      {
         "area": "baseball-iq",
         "rating": 0
       },
@@ -353,7 +357,7 @@
         "rating": 0
       }
     ],
-    "overall": 1,
+    "overall": 0,
     "explain": [
       {
         "event": "evt_001",

@@ -32,13 +32,13 @@ describe("rule set filter", () => {
     const events = [
       ...readyPosition,
       ...sameDayDrills("mental.failure", 10, 11),
-      ...sameDayDrills("pitching.pickoffs", 100, 21),
+      ...sameDayDrills("first-base.holding-runner", 100, 21),
     ];
     const card = rate(events, taxonomyV0, rulesV0, littleLeague);
     expect(card.skills.map((entry) => [entry.skill, entry.rating])).toStrictEqual([
       ["infield.ready-position", 15],
       ["mental.failure", 15],
-      ["pitching.pickoffs", 56],
+      ["first-base.holding-runner", 56],
     ]);
     expect(card.areas.map((entry) => entry.area)).toStrictEqual(littleLeagueAreas);
     expect(card.overall).toBe(2);
@@ -58,6 +58,6 @@ describe("mental.failure", () => {
   it("rates the mental area and lifts overall", () => {
     const card = rate(sameDayDrills("mental.failure", 10), taxonomyV0, rulesV0, littleLeague);
     expect(areaRating(card, "mental")).toBe(15);
-    expect(card.overall).toBe(2);
+    expect(card.overall).toBe(1);
   });
 });

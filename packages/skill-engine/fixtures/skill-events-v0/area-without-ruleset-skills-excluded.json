@@ -168,7 +168,7 @@
       "id": "evt_011",
       "playerId": "plr_fixture",
       "type": "drill_completed",
-      "skill": "pitching.pickoffs",
+      "skill": "first-base.holding-runner",
       "source": {
         "kind": "module",
         "id": "cutoffs-and-relays",
@@ -184,7 +184,7 @@
       "id": "evt_012",
       "playerId": "plr_fixture",
       "type": "drill_completed",
-      "skill": "pitching.pickoffs",
+      "skill": "first-base.holding-runner",
       "source": {
         "kind": "module",
         "id": "cutoffs-and-relays",
@@ -207,7 +207,7 @@
         "streakAtLast": 1
       },
       {
-        "skill": "pitching.pickoffs",
+        "skill": "first-base.holding-runner",
         "rating": 1,
         "points": 10,
         "drills": 2,
@@ -234,6 +234,10 @@
       },
       {
         "area": "outfield",
+        "rating": 0
+      },
+      {
+        "area": "pitching",
         "rating": 0
       },
       {

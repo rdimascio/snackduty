@@ -82,6 +82,7 @@ const LITTLE_LEAGUE_AREAS = [
   "baserunning",
   "infield",
   "outfield",
+  "pitching",
   "baseball-iq",
   "mental",
 ];
@@ -729,7 +730,9 @@ describe("player card on /app", () => {
     expect(html).toContain("Baserunning");
     expect(html).toContain("Infield");
     expect(html).toContain("Mental");
-    expect(html).not.toContain("Pitching");
+    expect(html).toContain(">Pitching</dt>");
+    expect(html).not.toContain(">First base</dt>");
+    expect(html).not.toContain(">Catching</dt>");
     expect(card.areas.length).toBeGreaterThan(0);
   });
 

@@ -122,11 +122,11 @@ describe("taxonomy rule sets", () => {
       "infield.throw-on-the-run",
       "mental.failure",
       "outfield.hit-the-cutoff",
+      "pitching.pickoffs",
     ]);
     expect(littleLeagueSkills(false)).toStrictEqual([
       "baserunning.leads",
       "first-base.holding-runner",
-      "pitching.pickoffs",
     ]);
   });
 

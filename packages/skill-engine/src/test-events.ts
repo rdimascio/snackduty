@@ -15,6 +15,7 @@ export const littleLeagueAreas = [
   "baserunning",
   "infield",
   "outfield",
+  "pitching",
   "baseball-iq",
   "mental",
 ];
