@@ -1,7 +1,7 @@
 import type { EventId, SkillEvent } from "./events";
 import type { Rules } from "./rules";
 import { buildStreakTimeline, streakMultiplier, type StreakTimeline } from "./streak";
-import type { AreaId, SkillId, Taxonomy, TaxonomySkill } from "./taxonomy";
+import type { AreaId, RulesetId, SkillId, Taxonomy, TaxonomySkill } from "./taxonomy";
 
 export interface SkillRating {
   readonly skill: SkillId;
@@ -33,8 +33,8 @@ export class SkillEngineError extends Error {
   override readonly name = "SkillEngineError";
 }
 
-export interface Player {
-  readonly ageYears: number;
+export interface RateOptions {
+  readonly ruleset: RulesetId;
 }
 
 export function ratingFromPoints(
@@ -165,11 +165,11 @@ function accumulate(
   return { totals, explain };
 }
 
-function isAgeFit(skill: TaxonomySkill, player: Player): boolean {
-  return skill.status === "active" && skill.ageMin <= player.ageYears;
+function countsToward(skill: TaxonomySkill, options: RateOptions): boolean {
+  return skill.status === "active" && skill.rulesets.includes(options.ruleset);
 }
 
-function summarize(ledger: Ledger, taxonomy: Taxonomy, rules: Rules, player: Player): Card {
+function summarize(ledger: Ledger, taxonomy: Taxonomy, rules: Rules, options: RateOptions): Card {
   const skillRatings: SkillRating[] = taxonomy.skills.flatMap((skill) => {
     const total = ledger.totals.get(skill.id);
     if (!total) {
@@ -189,12 +189,12 @@ function summarize(ledger: Ledger, taxonomy: Taxonomy, rules: Rules, player: Pla
 
   const ratingBySkill = new Map(skillRatings.map((rating) => [rating.skill, rating.rating]));
   const areas: AreaRating[] = taxonomy.areas.flatMap((area) => {
-    const ageFit = taxonomy.skills.filter(
-      (skill) => skill.area === area && isAgeFit(skill, player),
+    const counted = taxonomy.skills.filter(
+      (skill) => skill.area === area && countsToward(skill, options),
     );
-    return ageFit.length === 0
+    return counted.length === 0
       ? []
-      : [{ area, rating: floorMean(ageFit.map((skill) => ratingBySkill.get(skill.id) ?? 0)) }];
+      : [{ area, rating: floorMean(counted.map((skill) => ratingBySkill.get(skill.id) ?? 0)) }];
   });
 
   return {
@@ -209,10 +209,10 @@ export function rate(
   events: readonly SkillEvent[],
   taxonomy: Taxonomy,
   rules: Rules,
-  player: Player,
+  options: RateOptions,
 ): Card {
-  if (!Number.isInteger(player.ageYears) || player.ageYears < 0) {
-    throw new SkillEngineError(`Invalid player age: ${player.ageYears}`);
+  if (!taxonomy.skills.some((skill) => skill.rulesets.includes(options.ruleset))) {
+    throw new SkillEngineError(`Unknown rule set: ${options.ruleset}`);
   }
   const skills = new Map(taxonomy.skills.map((skill) => [skill.id, skill]));
   validate(events);
@@ -229,5 +229,5 @@ export function rate(
     rules.restDay,
   );
 
-  return summarize(accumulate(counted, rules, timeline), taxonomy, rules, player);
+  return summarize(accumulate(counted, rules, timeline), taxonomy, rules, options);
 }

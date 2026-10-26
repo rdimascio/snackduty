@@ -9,7 +9,8 @@
     "first-base",
     "pitching",
     "catching",
-    "baseball-iq"
+    "baseball-iq",
+    "mental"
   ],
   "skills": [
     {
@@ -17,67 +18,112 @@
       "area": "infield",
       "tier": 1,
       "ageMin": 5,
-      "status": "active"
+      "status": "active",
+      "rulesets": ["little-league"]
     },
     {
       "id": "baserunning.out-of-the-box",
       "area": "baserunning",
       "tier": 1,
       "ageMin": 5,
-      "status": "active"
+      "status": "active",
+      "rulesets": ["little-league"]
     },
     {
       "id": "baseball-iq.history",
       "area": "baseball-iq",
       "tier": 1,
       "ageMin": 5,
-      "status": "active"
+      "status": "active",
+      "rulesets": ["little-league"]
+    },
+    {
+      "id": "mental.failure",
+      "area": "mental",
+      "tier": 1,
+      "ageMin": 5,
+      "status": "active",
+      "rulesets": ["little-league"]
     },
     {
       "id": "baserunning.leads",
       "area": "baserunning",
       "tier": 2,
       "ageMin": 7,
-      "status": "active"
+      "status": "active",
+      "rulesets": []
     },
     {
       "id": "outfield.hit-the-cutoff",
       "area": "outfield",
       "tier": 2,
       "ageMin": 7,
-      "status": "active"
+      "status": "active",
+      "rulesets": ["little-league"]
     },
-    { "id": "bunting.sacrifice", "area": "bunting", "tier": 2, "ageMin": 7, "status": "active" },
-    { "id": "infield.cutoff-lead", "area": "infield", "tier": 3, "ageMin": 9, "status": "active" },
-    { "id": "infield.cutoff-trail", "area": "infield", "tier": 3, "ageMin": 9, "status": "active" },
+    {
+      "id": "bunting.sacrifice",
+      "area": "bunting",
+      "tier": 2,
+      "ageMin": 7,
+      "status": "active",
+      "rulesets": ["little-league"]
+    },
+    {
+      "id": "infield.cutoff-lead",
+      "area": "infield",
+      "tier": 3,
+      "ageMin": 9,
+      "status": "active",
+      "rulesets": ["little-league"]
+    },
+    {
+      "id": "infield.cutoff-trail",
+      "area": "infield",
+      "tier": 3,
+      "ageMin": 9,
+      "status": "active",
+      "rulesets": ["little-league"]
+    },
     {
       "id": "baserunning.hook-slide",
       "area": "baserunning",
       "tier": 3,
       "ageMin": 9,
-      "status": "active"
+      "status": "active",
+      "rulesets": ["little-league"]
     },
     {
       "id": "infield.throw-on-the-run",
       "area": "infield",
       "tier": 3,
       "ageMin": 9,
-      "status": "active"
+      "status": "active",
+      "rulesets": ["little-league"]
     },
     {
       "id": "first-base.holding-runner",
       "area": "first-base",
       "tier": 4,
       "ageMin": 11,
-      "status": "active"
+      "status": "active",
+      "rulesets": []
     },
     {
       "id": "hitting.approach-by-count",
       "area": "hitting",
       "tier": 4,
       "ageMin": 11,
-      "status": "active"
+      "status": "active",
+      "rulesets": ["little-league"]
     },
-    { "id": "pitching.pickoffs", "area": "pitching", "tier": 4, "ageMin": 11, "status": "active" }
+    {
+      "id": "pitching.pickoffs",
+      "area": "pitching",
+      "tier": 4,
+      "ageMin": 11,
+      "status": "active",
+      "rulesets": []
+    }
   ]
 }

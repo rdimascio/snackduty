@@ -1,0 +1,204 @@
+{
+  "options": {
+    "ruleset": "little-league"
+  },
+  "events": [
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_001",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "mental.failure",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1
+      },
+      "occurredAt": "2026-10-01T15:00:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_002",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "mental.failure",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1
+      },
+      "occurredAt": "2026-10-02T15:00:00Z",
+      "localDate": "2026-10-02",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_003",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "mental.failure",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1
+      },
+      "occurredAt": "2026-10-03T15:00:00Z",
+      "localDate": "2026-10-03",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_004",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "mental.failure",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1
+      },
+      "occurredAt": "2026-10-04T15:00:00Z",
+      "localDate": "2026-10-04",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_005",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "mental.failure",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1
+      },
+      "occurredAt": "2026-10-05T15:00:00Z",
+      "localDate": "2026-10-05",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_006",
+      "playerId": "plr_fixture",
+      "type": "check_passed",
+      "skill": "mental.failure",
+      "source": {
+        "kind": "reel-episode",
+        "id": "blooper/its-ok-to-strike-out",
+        "itemId": "after-a-strikeout"
+      },
+      "occurredAt": "2026-10-05T15:10:00Z",
+      "localDate": "2026-10-05",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_007",
+      "playerId": "plr_fixture",
+      "type": "check_passed",
+      "skill": "mental.failure",
+      "source": {
+        "kind": "reel-episode",
+        "id": "blooper/its-ok-to-strike-out",
+        "itemId": "eyes-on-the-ball"
+      },
+      "occurredAt": "2026-10-05T15:11:00Z",
+      "localDate": "2026-10-05",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_008",
+      "playerId": "plr_fixture",
+      "type": "check_passed",
+      "skill": "mental.failure",
+      "source": {
+        "kind": "reel-episode",
+        "id": "blooper/its-ok-to-strike-out",
+        "itemId": "is-missing-ok"
+      },
+      "occurredAt": "2026-10-05T15:12:00Z",
+      "localDate": "2026-10-05",
+      "app": "ballplayer"
+    }
+  ],
+  "expected": {
+    "skills": [
+      {
+        "skill": "mental.failure",
+        "rating": 14,
+        "points": 9.5,
+        "drills": 5,
+        "lastTrainedAt": "2026-10-05T15:12:00Z",
+        "streakAtLast": 5
+      }
+    ],
+    "areas": [
+      {
+        "area": "hitting",
+        "rating": 0
+      },
+      {
+        "area": "bunting",
+        "rating": 0
+      },
+      {
+        "area": "baserunning",
+        "rating": 0
+      },
+      {
+        "area": "infield",
+        "rating": 0
+      },
+      {
+        "area": "outfield",
+        "rating": 0
+      },
+      {
+        "area": "baseball-iq",
+        "rating": 0
+      },
+      {
+        "area": "mental",
+        "rating": 14
+      }
+    ],
+    "overall": 2,
+    "explain": [
+      {
+        "event": "evt_001",
+        "points": 1
+      },
+      {
+        "event": "evt_002",
+        "points": 1
+      },
+      {
+        "event": "evt_003",
+        "points": 1.25
+      },
+      {
+        "event": "evt_004",
+        "points": 1.25
+      },
+      {
+        "event": "evt_005",
+        "points": 1.25
+      },
+      {
+        "event": "evt_006",
+        "points": 1.25
+      },
+      {
+        "event": "evt_007",
+        "points": 1.25
+      },
+      {
+        "event": "evt_008",
+        "points": 1.25
+      }
+    ]
+  }
+}

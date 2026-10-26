@@ -1,6 +1,6 @@
 {
-  "player": {
-    "ageYears": 7
+  "options": {
+    "ruleset": "little-league"
   },
   "events": [
     {
@@ -217,6 +217,10 @@
     ],
     "areas": [
       {
+        "area": "hitting",
+        "rating": 0
+      },
+      {
         "area": "bunting",
         "rating": 0
       },
@@ -226,7 +230,7 @@
       },
       {
         "area": "infield",
-        "rating": 15
+        "rating": 3
       },
       {
         "area": "outfield",
@@ -235,9 +239,13 @@
       {
         "area": "baseball-iq",
         "rating": 0
+      },
+      {
+        "area": "mental",
+        "rating": 0
       }
     ],
-    "overall": 3,
+    "overall": 0,
     "explain": [
       {
         "event": "evt_001",

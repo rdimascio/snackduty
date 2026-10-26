@@ -1,6 +1,6 @@
 {
-  "player": {
-    "ageYears": 8
+  "options": {
+    "ruleset": "little-league"
   },
   "events": [
     {
