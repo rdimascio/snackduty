@@ -1,4 +1,7 @@
 {
+  "player": {
+    "ageYears": 11
+  },
   "events": [
     {
       "contract": "skill.events/v0",
@@ -90,11 +93,35 @@
         "rating": 0
       },
       {
+        "area": "bunting",
+        "rating": 0
+      },
+      {
+        "area": "baserunning",
+        "rating": 0
+      },
+      {
+        "area": "infield",
+        "rating": 0
+      },
+      {
+        "area": "outfield",
+        "rating": 0
+      },
+      {
+        "area": "first-base",
+        "rating": 0
+      },
+      {
         "area": "pitching",
         "rating": 2
+      },
+      {
+        "area": "baseball-iq",
+        "rating": 0
       }
     ],
-    "overall": 1,
+    "overall": 0,
     "explain": [
       {
         "event": "evt_001",

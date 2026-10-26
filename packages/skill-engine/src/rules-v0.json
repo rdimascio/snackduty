@@ -13,5 +13,6 @@
   ],
   "k": { "1": 60, "2": 150, "3": 300, "4": 600 },
   "restDay": { "windowDays": 6 },
+  "ratingScale": 100,
   "maxRating": 99
 }

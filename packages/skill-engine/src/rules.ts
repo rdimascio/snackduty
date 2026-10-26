@@ -35,6 +35,7 @@ export const rulesSchema = z
     streak: z.array(streakRowSchema).min(1),
     k: perTier(z.number().positive()),
     restDay: z.strictObject({ windowDays: z.number().int().min(0) }),
+    ratingScale: z.number().positive(),
     maxRating: z.number().int().positive(),
   })
   .superRefine((rules, context) => {

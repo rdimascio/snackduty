@@ -1,4 +1,7 @@
 {
+  "player": {
+    "ageYears": 8
+  },
   "events": [
     {
       "contract": "skill.events/v0",

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseSkillEvents, rate, rulesV0, taxonomyV0 } from "./index";
+import { parseSkillEvents, rate, rulesV0, taxonomyV0, type Player } from "./index";
 
 const fixturesDir = fileURLToPath(new URL("../fixtures/skill-events-v0/", import.meta.url));
 const fixtureNames = readdirSync(fixturesDir)
@@ -9,6 +9,7 @@ const fixtureNames = readdirSync(fixturesDir)
   .toSorted();
 
 interface Fixture {
+  readonly player: Player;
   readonly events: unknown;
   readonly expected: unknown;
 }
@@ -27,9 +28,11 @@ describe("skill.events/v0 golden fixtures", () => {
     const events = parseSkillEvents(fixture.events);
     const expected = fixture.expected;
     if (typeof expected === "object" && expected !== null && "error" in expected) {
-      expect(() => rate(events, taxonomyV0, rulesV0)).toThrowError(String(expected.error));
+      expect(() => rate(events, taxonomyV0, rulesV0, fixture.player)).toThrowError(
+        String(expected.error),
+      );
       return;
     }
-    expect(rate(events, taxonomyV0, rulesV0)).toStrictEqual(expected);
+    expect(rate(events, taxonomyV0, rulesV0, fixture.player)).toStrictEqual(expected);
   });
 });

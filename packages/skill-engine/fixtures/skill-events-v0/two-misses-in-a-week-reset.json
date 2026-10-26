@@ -1,4 +1,7 @@
 {
+  "player": {
+    "ageYears": 6
+  },
   "events": [
     {
       "contract": "skill.events/v0",
@@ -110,11 +113,19 @@
     ],
     "areas": [
       {
+        "area": "baserunning",
+        "rating": 0
+      },
+      {
         "area": "infield",
         "rating": 10
+      },
+      {
+        "area": "baseball-iq",
+        "rating": 0
       }
     ],
-    "overall": 10,
+    "overall": 3,
     "explain": [
       {
         "event": "evt_001",

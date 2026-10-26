@@ -33,8 +33,16 @@ export class SkillEngineError extends Error {
   override readonly name = "SkillEngineError";
 }
 
-export function ratingFromPoints(points: number, k: number, maxRating: number): number {
-  return Math.min(maxRating, Math.floor(maxRating * (1 - Math.exp(-points / k))));
+export interface Player {
+  readonly ageYears: number;
+}
+
+export function ratingFromPoints(
+  points: number,
+  k: number,
+  scale: Pick<Rules, "ratingScale" | "maxRating">,
+): number {
+  return Math.min(scale.maxRating, Math.floor(scale.ratingScale * (1 - Math.exp(-points / k))));
 }
 
 function floorMean(values: readonly number[]): number {
@@ -146,7 +154,11 @@ function accumulate(
   return { totals, explain };
 }
 
-function summarize(ledger: Ledger, taxonomy: Taxonomy, rules: Rules): Card {
+function isAgeFit(skill: TaxonomySkill, player: Player): boolean {
+  return skill.status === "active" && skill.ageMin <= player.ageYears;
+}
+
+function summarize(ledger: Ledger, taxonomy: Taxonomy, rules: Rules, player: Player): Card {
   const skillRatings: SkillRating[] = taxonomy.skills.flatMap((skill) => {
     const total = ledger.totals.get(skill.id);
     if (!total) {
@@ -155,7 +167,7 @@ function summarize(ledger: Ledger, taxonomy: Taxonomy, rules: Rules): Card {
     return [
       {
         skill: skill.id,
-        rating: ratingFromPoints(total.points, rules.k[`${skill.tier}`], rules.maxRating),
+        rating: ratingFromPoints(total.points, rules.k[`${skill.tier}`], rules),
         points: total.points,
         drills: total.drills,
         lastTrainedAt: total.lastTrainedAt,
@@ -164,11 +176,14 @@ function summarize(ledger: Ledger, taxonomy: Taxonomy, rules: Rules): Card {
     ];
   });
 
+  const ratingBySkill = new Map(skillRatings.map((rating) => [rating.skill, rating.rating]));
   const areas: AreaRating[] = taxonomy.areas.flatMap((area) => {
-    const unlocked = skillRatings.filter((rating) => rating.skill.startsWith(`${area}.`));
-    return unlocked.length === 0
+    const ageFit = taxonomy.skills.filter(
+      (skill) => skill.area === area && isAgeFit(skill, player),
+    );
+    return ageFit.length === 0
       ? []
-      : [{ area, rating: floorMean(unlocked.map((rating) => rating.rating)) }];
+      : [{ area, rating: floorMean(ageFit.map((skill) => ratingBySkill.get(skill.id) ?? 0)) }];
   });
 
   return {
@@ -179,7 +194,15 @@ function summarize(ledger: Ledger, taxonomy: Taxonomy, rules: Rules): Card {
   };
 }
 
-export function rate(events: readonly SkillEvent[], taxonomy: Taxonomy, rules: Rules): Card {
+export function rate(
+  events: readonly SkillEvent[],
+  taxonomy: Taxonomy,
+  rules: Rules,
+  player: Player,
+): Card {
+  if (!Number.isInteger(player.ageYears) || player.ageYears < 0) {
+    throw new SkillEngineError(`Invalid player age: ${player.ageYears}`);
+  }
   const skills = new Map(taxonomy.skills.map((skill) => [skill.id, skill]));
   validate(events, skills);
 
@@ -192,5 +215,5 @@ export function rate(events: readonly SkillEvent[], taxonomy: Taxonomy, rules: R
     rules.restDay,
   );
 
-  return summarize(accumulate(counted, skills, rules, timeline), taxonomy, rules);
+  return summarize(accumulate(counted, skills, rules, timeline), taxonomy, rules, player);
 }

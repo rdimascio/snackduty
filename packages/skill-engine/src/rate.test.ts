@@ -5,6 +5,8 @@ import {
   rulesV0,
   SKILL_EVENTS_CONTRACT,
   taxonomyV0,
+  type Card,
+  type Player,
   type SkillEvent,
   type Tier,
 } from "./index";
@@ -17,6 +19,8 @@ const tierSkills: Record<Tier, string> = {
 };
 
 const tiers: readonly Tier[] = [1, 2, 3, 4];
+
+const adult: Player = { ageYears: 12 };
 
 type DrillEvent = Extract<SkillEvent, { readonly type: "drill_completed" }>;
 
@@ -36,12 +40,16 @@ function drill(id: number, skill: string, day: number): DrillEvent {
   };
 }
 
-function sameDayDrills(skill: string, count: number): SkillEvent[] {
-  return Array.from({ length: count }, (_, index) => drill(index + 1, skill, 1));
+function sameDayDrills(skill: string, count: number, firstId = 1): SkillEvent[] {
+  return Array.from({ length: count }, (_, index) => drill(firstId + index, skill, 1));
 }
 
 function skillRating(events: readonly SkillEvent[], skill: string) {
-  return rate(events, taxonomyV0, rulesV0).skills.find((entry) => entry.skill === skill);
+  return rate(events, taxonomyV0, rulesV0, adult).skills.find((entry) => entry.skill === skill);
+}
+
+function areaRating(card: Card, area: string) {
+  return card.areas.find((entry) => entry.area === area)?.rating;
 }
 
 describe("tier points", () => {
@@ -63,58 +71,173 @@ describe("tier points", () => {
     expect(rulesV0.k).toStrictEqual({ "1": 60, "2": 150, "3": 300, "4": 600 });
     expect(rulesV0.restDay).toStrictEqual({ windowDays: 6 });
   });
+
+  it("pins the rating scale and cap", () => {
+    expect(rulesV0.ratingScale).toBe(100);
+    expect(rulesV0.maxRating).toBe(99);
+  });
 });
 
 describe("K per tier", () => {
-  const drillsTo90At1x: Record<Tier, number> = { 1: 144, 2: 180, 3: 240, 4: 288 };
-  const drillsTo90At2x: Record<Tier, number> = { 1: 72, 2: 90, 3: 120, 4: 144 };
-  const drillsTo50At1x: Record<Tier, number> = { 1: 43, 2: 53, 3: 71, 4: 85 };
+  const drillsTo50At1x: Record<Tier, number> = { 1: 42, 2: 52, 3: 70, 4: 84 };
+  const drillsTo90At1x: Record<Tier, number> = { 1: 139, 2: 173, 3: 231, 4: 277 };
+  const drillsTo99At1x: Record<Tier, number> = { 1: 277, 2: 346, 3: 461, 4: 553 };
+  const drillsTo90At2x: Record<Tier, number> = { 1: 70, 2: 87, 3: 116, 4: 139 };
 
-  it.each(tiers)("tier %i reaches 90 after exactly the spec drill count at 1.0x", (tier) => {
-    const skill = tierSkills[tier];
-    const count = drillsTo90At1x[tier];
-    expect(skillRating(sameDayDrills(skill, count - 1), skill)?.rating).toBe(89);
-    expect(skillRating(sameDayDrills(skill, count), skill)?.rating).toBe(90);
-  });
+  const at1x = [
+    [50, drillsTo50At1x],
+    [90, drillsTo90At1x],
+    [99, drillsTo99At1x],
+  ] as const;
+  const at1xCases = at1x.flatMap(([target, table]) =>
+    tiers.map((tier) => [tier, target, table[tier]] as const),
+  );
 
-  it.each(tiers)("tier %i matches the 2.0x and 50-rating columns", (tier) => {
+  it.each(at1xCases)(
+    "tier %i reaches %i after exactly %i drills at 1.0x",
+    (tier, target, count) => {
+      const skill = tierSkills[tier];
+      expect(skillRating(sameDayDrills(skill, count - 1), skill)?.rating).toBe(target - 1);
+      expect(skillRating(sameDayDrills(skill, count), skill)?.rating).toBe(target);
+    },
+  );
+
+  it.each(tiers)("tier %i reaches 90 after exactly the pinned drill count at 2.0x", (tier) => {
     const points = rulesV0.tierPoints[`${tier}`];
     const k = rulesV0.k[`${tier}`];
-    const at = (drills: number, multiplier: number) =>
-      ratingFromPoints(drills * points * multiplier, k, rulesV0.maxRating);
-    expect(at(drillsTo90At2x[tier] - 1, 2)).toBeLessThan(90);
-    expect(at(drillsTo90At2x[tier], 2)).toBeGreaterThanOrEqual(90);
-    expect(at(drillsTo50At1x[tier] - 1, 1)).toBeLessThan(50);
-    expect(at(drillsTo50At1x[tier], 1)).toBeGreaterThanOrEqual(50);
+    const at2x = (drills: number) => ratingFromPoints(drills * points * 2, k, rulesV0);
+    expect(at2x(drillsTo90At2x[tier] - 1)).toBe(89);
+    expect(at2x(drillsTo90At2x[tier])).toBe(90);
   });
 
-  it("never exceeds the 99 cap", () => {
-    expect(ratingFromPoints(1_000_000, 60, rulesV0.maxRating)).toBe(99);
+  it.each(tiers)("tier %i reaches 99 and never exceeds it", (tier) => {
+    const points = rulesV0.tierPoints[`${tier}`];
+    const k = rulesV0.k[`${tier}`];
+    const ratings = Array.from({ length: 5_000 }, (_, drills) =>
+      ratingFromPoints(drills * points, k, rulesV0),
+    );
+    expect(ratings.indexOf(99)).toBe(drillsTo99At1x[tier]);
+    expect(Math.max(...ratings)).toBe(99);
+    expect(ratingFromPoints(1_000_000, k, rulesV0)).toBe(99);
+    expect(ratingFromPoints(Number.MAX_VALUE, k, rulesV0)).toBe(99);
+    const skill = tierSkills[tier];
+    expect(skillRating(sameDayDrills(skill, drillsTo99At1x[tier] * 2), skill)?.rating).toBe(99);
   });
 });
 
 describe("rate", () => {
-  it("returns an empty card for no events", () => {
-    expect(rate([], taxonomyV0, rulesV0)).toStrictEqual({
+  it("returns a zero card over the age-fit areas for no events", () => {
+    expect(rate([], taxonomyV0, rulesV0, { ageYears: 5 })).toStrictEqual({
       skills: [],
-      areas: [],
+      areas: [
+        { area: "baserunning", rating: 0 },
+        { area: "infield", rating: 0 },
+        { area: "baseball-iq", rating: 0 },
+      ],
       overall: 0,
       explain: [],
     });
   });
 
+  it.each([-1, 7.5, Number.NaN])("rejects player age %s", (ageYears) => {
+    expect(() => rate([], taxonomyV0, rulesV0, { ageYears })).toThrowError("Invalid player age");
+  });
+
   it("rejects duplicate event ids", () => {
     const event = drill(1, tierSkills[1], 1);
-    expect(() => rate([event, event], taxonomyV0, rulesV0)).toThrowError(
+    expect(() => rate([event, event], taxonomyV0, rulesV0, adult)).toThrowError(
       "Duplicate event id: evt_1",
     );
   });
 
   it("rejects events from more than one player", () => {
     const other = { ...drill(2, tierSkills[1], 1), playerId: "plr_other" };
-    expect(() => rate([drill(1, tierSkills[1], 1), other], taxonomyV0, rulesV0)).toThrowError(
-      "Events span more than one player",
-    );
+    expect(() =>
+      rate([drill(1, tierSkills[1], 1), other], taxonomyV0, rulesV0, adult),
+    ).toThrowError("Events span more than one player");
+  });
+});
+
+const readyPosition = sameDayDrills("infield.ready-position", 10);
+
+describe("area ratings", () => {
+  it("averages every age-fit skill in the area and counts untrained skills as 0", () => {
+    const card = rate(readyPosition, taxonomyV0, rulesV0, { ageYears: 9 });
+    expect(card.skills.map((entry) => [entry.skill, entry.rating])).toStrictEqual([
+      ["infield.ready-position", 15],
+    ]);
+    expect(card.areas).toStrictEqual([
+      { area: "bunting", rating: 0 },
+      { area: "baserunning", rating: 0 },
+      { area: "infield", rating: 3 },
+      { area: "outfield", rating: 0 },
+      { area: "baseball-iq", rating: 0 },
+    ]);
+    expect(card.overall).toBe(0);
+  });
+
+  it("excludes a skill whose ageMin is above the player's age", () => {
+    const events = [...readyPosition, ...sameDayDrills("infield.cutoff-lead", 4, 11)];
+    const young = rate(events, taxonomyV0, rulesV0, { ageYears: 5 });
+    expect(young.skills.map((entry) => [entry.skill, entry.rating])).toStrictEqual([
+      ["infield.ready-position", 15],
+      ["infield.cutoff-lead", 3],
+    ]);
+    expect(areaRating(young, "infield")).toBe(15);
+    expect(young.overall).toBe(5);
+    expect(areaRating(rate(events, taxonomyV0, rulesV0, { ageYears: 9 }), "infield")).toBe(4);
+  });
+
+  it("excludes retired skills from the area mean", () => {
+    const taxonomy = {
+      ...taxonomyV0,
+      skills: taxonomyV0.skills.map((skill) =>
+        skill.id === "infield.cutoff-trail" ? { ...skill, status: "retired" as const } : skill,
+      ),
+    };
+    expect(areaRating(rate(readyPosition, taxonomy, rulesV0, { ageYears: 9 }), "infield")).toBe(5);
+  });
+});
+
+describe("overall rating", () => {
+  it.each(taxonomyV0.skills.map((skill) => skill.id))(
+    "starting %s never lowers its area or overall",
+    (skill) => {
+      for (const ageYears of [5, 7, 9, 11]) {
+        const player = { ageYears };
+        const before = rate(readyPosition, taxonomyV0, rulesV0, player);
+        const after = rate(
+          [...readyPosition, ...sameDayDrills(skill, 1, 11)],
+          taxonomyV0,
+          rulesV0,
+          player,
+        );
+        expect(after.areas.map((entry) => entry.area)).toStrictEqual(
+          before.areas.map((entry) => entry.area),
+        );
+        for (const area of before.areas) {
+          expect(areaRating(after, area.area)).toBeGreaterThanOrEqual(area.rating);
+        }
+        expect(after.overall).toBeGreaterThanOrEqual(before.overall);
+      }
+    },
+  );
+
+  it("excludes an area with no age-fit skills from overall", () => {
+    const events = [...readyPosition, ...sameDayDrills("pitching.pickoffs", 2, 11)];
+    const card = rate(events, taxonomyV0, rulesV0, { ageYears: 7 });
+    expect(card.skills.map((entry) => [entry.skill, entry.rating])).toStrictEqual([
+      ["infield.ready-position", 15],
+      ["pitching.pickoffs", 1],
+    ]);
+    expect(card.areas.map((entry) => entry.area)).toStrictEqual([
+      "bunting",
+      "baserunning",
+      "infield",
+      "outfield",
+      "baseball-iq",
+    ]);
+    expect(card.overall).toBe(3);
   });
 });
 
@@ -154,16 +277,21 @@ function seededEvents(count: number): SkillEvent[] {
 }
 
 describe("no decay", () => {
-  it("never lowers a skill rating or its points when an event is appended", () => {
+  it("never lowers a skill, area or overall rating when an event is appended", () => {
     const events = seededEvents(400);
-    let previous = rate([], taxonomyV0, rulesV0);
+    const player = { ageYears: 10 };
+    let previous = rate([], taxonomyV0, rulesV0, player);
     for (let length = 1; length <= events.length; length += 1) {
-      const current = rate(events.slice(0, length), taxonomyV0, rulesV0);
+      const current = rate(events.slice(0, length), taxonomyV0, rulesV0, player);
       for (const before of previous.skills) {
         const after = current.skills.find((entry) => entry.skill === before.skill);
         expect(after?.rating).toBeGreaterThanOrEqual(before.rating);
         expect(after?.points).toBeGreaterThanOrEqual(before.points);
       }
+      for (const before of previous.areas) {
+        expect(areaRating(current, before.area)).toBeGreaterThanOrEqual(before.rating);
+      }
+      expect(current.overall).toBeGreaterThanOrEqual(previous.overall);
       previous = current;
     }
   });
