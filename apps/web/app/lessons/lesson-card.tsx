@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 
+import LessonAnswersIsland from "../islands/lesson-answers";
+import type { LessonAnswerPlayer } from "./lesson-answers";
 import type { LessonCardData } from "./lessons";
+
+export interface LessonCardProps extends LessonCardData {
+  readonly players: readonly LessonAnswerPlayer[];
+}
 
 export function formatLessonDuration(seconds: number): string {
   const total = Math.round(seconds);
@@ -14,7 +20,30 @@ function completedLabel(count: number): string {
   return `${count} ${count === 1 ? "player" : "players"} finished this lesson`;
 }
 
-export function LessonOfTheWeekCard({ lesson, completedParticipants }: LessonCardData): ReactNode {
+function QuizPreview({ lesson }: Pick<LessonCardData, "lesson">): ReactNode {
+  return (
+    <ol aria-label="Lesson questions" className="mt-5 space-y-4">
+      {lesson.quiz.map((item) => (
+        <li className="rounded-xl border border-border p-4" key={item.id}>
+          <p className="font-semibold">{item.prompt}</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            {item.choices.map((choice) => (
+              <li key={choice}>{choice}</li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function LessonOfTheWeekCard({
+  teamId,
+  lesson,
+  progress,
+  players,
+  completedParticipants,
+}: LessonCardProps): ReactNode {
   return (
     <section
       aria-label="Lesson of the week"
@@ -46,26 +75,28 @@ export function LessonOfTheWeekCard({ lesson, completedParticipants }: LessonCar
           )}
         </div>
       </div>
-      <ol aria-label="Lesson questions" className="mt-5 space-y-4">
-        {lesson.quiz.map((item) => (
-          <li className="rounded-xl border border-border p-4" key={item.id}>
-            <p className="font-semibold">{item.prompt}</p>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-              {item.choices.map((choice) => (
-                <li key={choice}>{choice}</li>
-              ))}
-            </ul>
-            <p className="mt-3 text-sm">
-              <span className="font-semibold">Got it: </span>
-              {item.feedback.correct}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              <span className="font-semibold">Try again: </span>
-              {item.feedback.wrong}
-            </p>
-          </li>
-        ))}
-      </ol>
+      {players.length === 0 ? (
+        <QuizPreview lesson={lesson} />
+      ) : (
+        <LessonAnswersIsland
+          answers={progress.flatMap((entry) =>
+            entry.answers.map((answer) => ({
+              participantId: answer.participantId,
+              quizId: answer.quizId,
+              answer: answer.answer,
+              outcome: answer.outcome,
+              feedback: answer.feedback,
+            })),
+          )}
+          players={players}
+          quiz={lesson.quiz.map((item) => ({
+            id: item.id,
+            prompt: item.prompt,
+            choices: item.choices,
+          }))}
+          teamId={teamId}
+        />
+      )}
     </section>
   );
 }

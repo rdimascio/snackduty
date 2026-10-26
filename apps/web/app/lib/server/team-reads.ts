@@ -2,7 +2,7 @@ import type { Clock, SessionService as Sessions } from "./application-contracts"
 import { and, eq, inList } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { Context, Lesto } from "@lesto/web";
-import { rosterResponseSchema, teamDirectorySchema, seasonSchema } from "@snackday/domain";
+import { rosterResponseSchema, teamDirectorySchema } from "@snackday/domain";
 
 import { authenticatedAdult, people } from "./identity";
 import { authorizeTeamOperation } from "./authorization";
@@ -13,7 +13,7 @@ import {
   projectGuardian,
   projectParticipant,
 } from "./roster";
-import { adultMemberships, projectTeam, seasons, teamAccess, teams } from "./teams";
+import { adultMemberships, projectSeason, projectTeam, seasons, teamAccess, teams } from "./teams";
 import type { TeamAccessLevel } from "./teams";
 
 const unauthorized = { error: "authentication required" } as const;
@@ -95,7 +95,7 @@ export async function listAccessibleTeams(db: Db, personId: string) {
     team: projectTeam(team),
     seasons: seasonRows
       .filter((season) => season.teamId === team.id)
-      .map((season) => seasonSchema.parse(season)),
+      .map((season) => projectSeason(season)),
     // Every listed team has an entry by construction; "read" is the
     // never-granting-more fallback the types demand.
     access: accessByTeamId.get(team.id)?.level ?? "read",

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ageBandSchema } from "./lessons";
 import {
   entityMetadataSchema,
   localDateSchema,
@@ -23,6 +24,7 @@ export const domainPermissionSchema = z.enum([
   "roles.manage",
   "participant.read",
   "participant.manage",
+  "season.lessons.manage",
 ]);
 export type DomainPermission = z.infer<typeof domainPermissionSchema>;
 
@@ -42,6 +44,7 @@ export const seasonSchema = z
     startDate: localDateSchema,
     endDate: localDateSchema,
     timeZone: z.string().trim().min(1),
+    lessonAgeBand: ageBandSchema.optional(),
     status: z.enum(["active", "archived"]),
     ...metadata,
   })

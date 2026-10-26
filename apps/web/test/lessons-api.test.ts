@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { Db } from "@lesto/db";
 import { createApp } from "@lesto/kernel";
 import type { App } from "@lesto/kernel";
 import { openSqlite } from "@lesto/runtime";
@@ -11,11 +12,25 @@ import {
   selectLessonOfTheWeek,
 } from "@snackday/domain";
 import type { Lesson } from "@snackday/domain";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { reelLessonCatalog, staticLessonCatalog } from "../app/lessons/catalog";
+import {
+  CATALOG_FAILURE_TTL_MS,
+  reelLessonCatalog,
+  staticLessonCatalog,
+} from "../app/lessons/catalog";
+import {
+  LessonAnswers,
+  LessonAnswersShell,
+  mergeLessonAnswer,
+  submitLessonAnswer,
+} from "../app/lessons/lesson-answers";
 import { formatLessonDuration } from "../app/lessons/lesson-card";
+import { lessonServices, recordLessonAnswer } from "../app/lessons/lessons";
 import { parseReelCatalog, parseReelEpisode } from "../app/lessons/reel-contract";
+import { writeSeasonLessonAgeBand } from "../app/lib/server/teams";
 import { createApplication } from "../app/lib/server/composition";
 import { identityServices } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
@@ -51,6 +66,7 @@ const clock = () => now;
 interface LessonTestApplication {
   readonly app: App;
   readonly sql: Awaited<ReturnType<typeof openSqlite>>["db"];
+  readonly db: Db;
 }
 
 async function lessonTestApplication(enabled: boolean): Promise<LessonTestApplication> {
@@ -68,7 +84,7 @@ async function lessonTestApplication(enabled: boolean): Promise<LessonTestApplic
     lessons: { enabled, catalog: staticLessonCatalog(vendoredLessons) },
   });
   await registerRuntimePages(config.app);
-  return { app: await createApp(config), sql };
+  return { app: await createApp(config), sql, db };
 }
 
 let flagOn: LessonTestApplication;
@@ -403,7 +419,11 @@ describe("lesson completion records", () => {
       quizId: first.id,
       answer: wrongChoice,
     });
-    expect(json(retry)).toMatchObject({ answer: { outcome: "correct", answer: first.answer } });
+    expect(retry.status).toBe(200);
+    expect(json(retry)).toMatchObject({
+      answer: { outcome: "correct", answer: first.answer },
+      feedback: first.feedback.correct,
+    });
 
     const rows = (await sql
       .prepare("SELECT * FROM lesson_answers WHERE participant_id = ?")
@@ -619,7 +639,7 @@ describe("lesson completion records", () => {
 });
 
 describe("lesson of the week card on /app", () => {
-  it("renders the card with poster, duration, watch link, quiz, feedback, and coach count when the flag is on", async () => {
+  it("renders the card with poster, duration, watch link, quiz, and coach count but no feedback or answer key", async () => {
     const { app } = flagOn;
     const cookie = await signIn(app);
     await seedTeam(app, cookie);
@@ -636,10 +656,45 @@ describe("lesson of the week card on /app", () => {
     expect(html).toContain("Watch");
     for (const item of lesson.quiz) {
       expect(html).toContain(item.prompt);
-      expect(html).toContain(item.feedback.correct);
-      expect(html).toContain(item.feedback.wrong);
+      expect(html).not.toContain(item.feedback.correct);
+      expect(html).not.toContain(item.feedback.wrong);
     }
     expect(html).toContain("0 players finished this lesson");
+    expect(html).not.toContain("LessonAnswers");
+  });
+
+  it("gives a managing guardian the answer island with the stored feedback line", async () => {
+    const { app } = flagOn;
+    const ownerCookie = await signIn(app);
+    const { teamId, participantIds } = await seedTeam(app, ownerCookie);
+    const [casey] = participantIds;
+    const lesson = currentLesson();
+    const [first, second] = lesson.quiz;
+    if (casey === undefined || first === undefined || second === undefined) {
+      throw new Error("Seed data is missing.");
+    }
+    const guardianCookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
+    const wrongChoice = first.answer === 0 ? 1 : 0;
+    expect(
+      (
+        await answer(app, guardianCookie, teamId, {
+          participantId: casey,
+          quizId: first.id,
+          answer: wrongChoice,
+        })
+      ).status,
+    ).toBe(200);
+
+    const html = await pageText(
+      await app.handle("GET", "/app", { headers: { cookie: guardianCookie } }),
+    );
+    expect(html).toContain("Lesson of the week");
+    expect(html).toContain(first.feedback.wrong);
+    expect(html).not.toContain(first.feedback.correct);
+    expect(html).not.toContain(second.feedback.correct);
+    expect(html).not.toContain(second.feedback.wrong);
+    expect(html).toContain("LessonAnswers");
+    expect(html).not.toContain("players finished this lesson");
   });
 
   it("hides the card and the lesson API when the flag is off", async () => {
@@ -659,5 +714,411 @@ describe("lesson of the week card on /app", () => {
     });
     expect(read.status).toBe(404);
     expect(await pageText(read)).not.toContain("blooper");
+  });
+});
+
+function setSeasonBand(app: App, cookie: string, teamId: string, seasonId: string, body: unknown) {
+  return app.handle("PUT", `/api/teams/${teamId}/seasons/${seasonId}/lesson-age-band`, {
+    headers: { ...sameOrigin, cookie },
+    body,
+  });
+}
+
+async function currentSlug(app: App, cookie: string, teamId: string): Promise<string> {
+  const read = await app.handle("GET", `/api/teams/${teamId}/lessons/current`, {
+    headers: { cookie },
+  });
+  expect(read.status).toBe(200);
+  return (json(read) as { lesson: { slug: string } }).lesson.slug;
+}
+
+async function storedBand(target: LessonTestApplication, seasonId: string) {
+  const rows = (await target.sql
+    .prepare("SELECT lesson_age_band FROM seasons WHERE id = ?")
+    .all([seasonId])) as { lesson_age_band: string | null }[];
+  return rows[0]?.lesson_age_band ?? null;
+}
+
+describe("season lesson age band", () => {
+  it("stores a band on the season, reads it back, and selects lessons for it", async () => {
+    const { app, db } = flagOn;
+    const cookie = await signIn(app);
+    const { teamId, seasonId } = await seedTeam(app, cookie);
+
+    const season = await db.transaction((tx) =>
+      writeSeasonLessonAgeBand(tx, seasonId, { min: 8, max: 12 }, clock),
+    );
+    expect(season).toMatchObject({ id: seasonId, lessonAgeBand: { min: 8, max: 12 } });
+    expect(JSON.parse((await storedBand(flagOn, seasonId)) ?? "null")).toEqual({ min: 8, max: 12 });
+
+    const team = await app.handle("GET", `/api/teams/${teamId}`, { headers: { cookie } });
+    expect(json(team)).toMatchObject({
+      seasons: [{ id: seasonId, lessonAgeBand: { min: 8, max: 12 } }],
+    });
+    const directory = await app.handle("GET", "/api/teams", { headers: { cookie } });
+    expect(json(directory)).toMatchObject({
+      teams: [{ seasons: [{ id: seasonId, lessonAgeBand: { min: 8, max: 12 } }] }],
+    });
+
+    for (let week = 0; week < 3; week += 1) {
+      now = MONDAY_2026_10_26_NOON_UTC + week * 7 * DAY_MS;
+      expect(await currentSlug(app, await signIn(app), teamId)).toBe("its-ok-to-strike-out");
+    }
+  });
+
+  it("falls back to the 5-7 pilot band when the season has no band or the band is cleared", async () => {
+    const { app, db, sql } = flagOn;
+    const cookie = await signIn(app);
+    const { teamId, seasonId } = await seedTeam(app, cookie);
+    const team = await app.handle("GET", `/api/teams/${teamId}`, { headers: { cookie } });
+    expect((json(team) as { seasons: object[] }).seasons[0]).not.toHaveProperty("lessonAgeBand");
+
+    const pilotPicks: string[] = [];
+    for (let week = 1; week >= 0; week -= 1) {
+      now = MONDAY_2026_10_26_NOON_UTC + week * 7 * DAY_MS;
+      pilotPicks.push(currentLesson().slug);
+      expect(await currentSlug(app, await signIn(app), teamId)).toBe(currentLesson().slug);
+    }
+    expect(new Set(pilotPicks)).toEqual(new Set(["its-ok-to-strike-out", "run-to-first"]));
+
+    await db.transaction((tx) =>
+      writeSeasonLessonAgeBand(tx, seasonId, { min: 8, max: 12 }, clock),
+    );
+    const cleared = await db.transaction((tx) =>
+      writeSeasonLessonAgeBand(tx, seasonId, null, clock),
+    );
+    expect(cleared).not.toHaveProperty("lessonAgeBand");
+    expect(await storedBand(flagOn, seasonId)).toBeNull();
+    expect(await currentSlug(app, cookie, teamId)).toBe(currentLesson().slug);
+
+    await sql
+      .prepare("UPDATE seasons SET lesson_age_band = ? WHERE id = ?")
+      .run(["{not json", seasonId]);
+    expect(await currentSlug(app, cookie, teamId)).toBe(currentLesson().slug);
+  });
+
+  it("lets only the team owner set the season band", async () => {
+    const { app } = flagOn;
+    const ownerCookie = await signIn(app);
+    const { teamId, seasonId, participantIds } = await seedTeam(app, ownerCookie);
+    const [casey] = participantIds;
+    if (casey === undefined) throw new Error("Seed data is missing.");
+    const body = { lessonAgeBand: { min: 8, max: 12 } };
+
+    const guardianCookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
+    const guardian = await setSeasonBand(app, guardianCookie, teamId, seasonId, body);
+    expect(guardian.status).toBe(403);
+    expect(json(guardian)).toEqual({ error: "team owner permission required" });
+    expect(await storedBand(flagOn, seasonId)).toBeNull();
+
+    const owner = await setSeasonBand(app, ownerCookie, teamId, seasonId, body);
+    expect(owner.status).toBe(200);
+    expect(JSON.parse((await storedBand(flagOn, seasonId)) ?? "null")).toEqual({ min: 8, max: 12 });
+
+    const anonymous = await app.handle(
+      "PUT",
+      `/api/teams/${teamId}/seasons/${seasonId}/lesson-age-band`,
+      { headers: sameOrigin, body },
+    );
+    expect(anonymous.status).toBe(401);
+
+    const unknownSeason = await setSeasonBand(app, ownerCookie, teamId, "season_missing", body);
+    expect(unknownSeason.status).toBe(404);
+    expect(json(unknownSeason)).toEqual({ error: "season not found" });
+
+    await expect(
+      setSeasonBand(app, ownerCookie, teamId, seasonId, { lessonAgeBand: { min: 9, max: 6 } }),
+    ).rejects.toMatchObject({ code: "WEB_VALIDATION_FAILED" });
+
+    expect(JSON.parse((await storedBand(flagOn, seasonId)) ?? "null")).toEqual({ min: 8, max: 12 });
+  });
+
+  it("refuses a stranger with the same 404 a missing team gets", async () => {
+    const { app } = flagOn;
+    const ownerCookie = await signIn(app);
+    const { teamId, seasonId } = await seedTeam(app, ownerCookie);
+    const strangerCookie = await signIn(app, "second-adult");
+    const stranger = await setSeasonBand(app, strangerCookie, teamId, seasonId, {
+      lessonAgeBand: null,
+    });
+    expect(stranger.status).toBe(404);
+    expect(json(stranger)).toEqual({ error: "team not found" });
+  });
+});
+
+describe("lesson review follow-ups", () => {
+  it("falls back to UTC when the season time zone is invalid instead of failing", async () => {
+    const { app, sql } = flagOn;
+    const cookie = await signIn(app);
+    const { teamId, seasonId } = await seedTeam(app, cookie);
+    await sql
+      .prepare("UPDATE seasons SET time_zone = ? WHERE id = ?")
+      .run(["Mars/Olympus", seasonId]);
+    now = Date.UTC(2026, 10, 2, 7, 30);
+    const utcPick = selectLessonOfTheWeek(vendoredLessons, PILOT_AGE_BAND, now, "UTC");
+    const losAngelesPick = selectLessonOfTheWeek(
+      vendoredLessons,
+      PILOT_AGE_BAND,
+      now,
+      TEAM_TIME_ZONE,
+    );
+    expect(utcPick?.slug).not.toBe(losAngelesPick?.slug);
+
+    const freshCookie = await signIn(app);
+    expect(await currentSlug(app, freshCookie, teamId)).toBe(utcPick?.slug);
+    const page = await app.handle("GET", "/app", { headers: { cookie: freshCookie } });
+    expect(page.status).toBe(200);
+    expect(await pageText(page)).toContain("Lesson of the week");
+  });
+
+  it("treats a double tap as one upsert and answers 200 every time", async () => {
+    const { app, sql } = flagOn;
+    const ownerCookie = await signIn(app);
+    const { teamId, participantIds } = await seedTeam(app, ownerCookie);
+    const [casey] = participantIds;
+    const [first] = currentLesson().quiz;
+    if (casey === undefined || first === undefined) throw new Error("Seed data is missing.");
+    const cookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
+    const body = { participantId: casey, quizId: first.id, answer: first.answer };
+
+    const taps = await Promise.all([
+      answer(app, cookie, teamId, body),
+      answer(app, cookie, teamId, body),
+      answer(app, cookie, teamId, body),
+    ]);
+    expect(taps.map((tap) => tap.status)).toEqual([200, 200, 200]);
+    for (const tap of taps) {
+      expect(json(tap)).toMatchObject({
+        answer: { outcome: "correct" },
+        feedback: first.feedback.correct,
+      });
+    }
+    const rows = (await sql
+      .prepare("SELECT id FROM lesson_answers WHERE participant_id = ?")
+      .all([casey])) as unknown[];
+    expect(rows).toHaveLength(1);
+  });
+
+  it("upserts on the unique key when two writes for one quiz item interleave", async () => {
+    const { app, db, sql } = flagOn;
+    const ownerCookie = await signIn(app);
+    const { teamId, participantIds } = await seedTeam(app, ownerCookie);
+    const [casey] = participantIds;
+    const [first] = currentLesson().quiz;
+    if (casey === undefined || first === undefined) throw new Error("Seed data is missing.");
+    const cookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
+    const session = await app.handle("GET", "/api/session", { headers: { cookie } });
+    const personId = (json(session) as { person: { id: string } }).person.id;
+    const interleaving: Db = { ...db, transaction: (fn) => fn(interleaving) };
+    const services = lessonServices(interleaving, clock, {
+      catalog: staticLessonCatalog(vendoredLessons),
+    });
+    const input = { participantId: casey, quizId: first.id, answer: first.answer };
+
+    const outcomes = await Promise.all([
+      recordLessonAnswer(services, personId, teamId, input),
+      recordLessonAnswer(services, personId, teamId, input),
+    ]);
+    expect(outcomes.map((outcome) => outcome.ok)).toEqual([true, true]);
+    const rows = (await sql
+      .prepare("SELECT id FROM lesson_answers WHERE participant_id = ?")
+      .all([casey])) as unknown[];
+    expect(rows).toHaveLength(1);
+  });
+
+  it("does not send the quiz answer key in the read model and returns feedback for stored answers", async () => {
+    const { app } = flagOn;
+    const ownerCookie = await signIn(app);
+    const { teamId, participantIds } = await seedTeam(app, ownerCookie);
+    const [casey] = participantIds;
+    const [first] = currentLesson().quiz;
+    if (casey === undefined || first === undefined) throw new Error("Seed data is missing.");
+    const cookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
+
+    const before = await app.handle("GET", `/api/teams/${teamId}/lessons/current`, {
+      headers: { cookie },
+    });
+    const beforeView = json(before) as { lesson: { quiz: Record<string, unknown>[] } };
+    expect(beforeView.lesson.quiz.length).toBeGreaterThan(0);
+    for (const item of beforeView.lesson.quiz) expect(item).not.toHaveProperty("answer");
+
+    await answer(app, cookie, teamId, {
+      participantId: casey,
+      quizId: first.id,
+      answer: first.answer,
+    });
+    const after = await app.handle("GET", `/api/teams/${teamId}/lessons/current`, {
+      headers: { cookie },
+    });
+    const afterView = json(after) as {
+      lesson: { quiz: Record<string, unknown>[] };
+      progress: { participantId: string; answers: { quizId: string; feedback: string }[] }[];
+    };
+    for (const item of afterView.lesson.quiz) expect(item).not.toHaveProperty("answer");
+    expect(afterView.progress).toEqual([
+      {
+        participantId: casey,
+        answers: [expect.objectContaining({ quizId: first.id, feedback: first.feedback.correct })],
+      },
+    ]);
+    const coach = await app.handle("GET", `/api/teams/${teamId}/lessons/current`, {
+      headers: { cookie: ownerCookie },
+    });
+    expect(json(coach)).toMatchObject({ progress: [], completedParticipants: 0 });
+  });
+
+  it("caches a catalog failure for 60 seconds and shares one in-flight load", async () => {
+    let catalogRequests = 0;
+    const releases: (() => void)[] = [];
+    const catalog = reelLessonCatalog({
+      clock,
+      fetchJson: async (url) => {
+        if (url.endsWith("episodes.json")) catalogRequests += 1;
+        await new Promise<void>((resolve) => {
+          releases.push(resolve);
+        });
+        throw new Error("Reel is down.");
+      },
+    });
+
+    const concurrent = Promise.all([catalog.load(), catalog.load(), catalog.load()]);
+    await Promise.resolve();
+    for (const release of releases.splice(0)) release();
+    expect(await concurrent).toEqual([[], [], []]);
+    expect(catalogRequests).toBe(1);
+
+    now += CATALOG_FAILURE_TTL_MS - 1;
+    expect(await catalog.load()).toEqual([]);
+    expect(catalogRequests).toBe(1);
+
+    now += 2;
+    const retry = catalog.load();
+    await Promise.resolve();
+    for (const release of releases.splice(0)) release();
+    await retry;
+    expect(catalogRequests).toBe(2);
+  });
+
+  it("keeps serving the last good catalog while a failure is cached", async () => {
+    let healthy = true;
+    let catalogRequests = 0;
+    const responses = new Map<string, unknown>([
+      ["https://learn.dimasciobaseball.com/episodes.json", vendored("catalog.json")],
+      [
+        "https://media.dimasciobaseball.com/episodes/its-ok-to-strike-out/v1/episode.json",
+        vendored("its-ok-to-strike-out.v1.episode.json"),
+      ],
+      [
+        "https://media.dimasciobaseball.com/episodes/run-to-first/v1/episode.json",
+        vendored("run-to-first.v1.episode.json"),
+      ],
+    ]);
+    const catalog = reelLessonCatalog({
+      clock,
+      fetchJson: (url) => {
+        if (url.endsWith("episodes.json")) catalogRequests += 1;
+        if (!healthy) return Promise.reject(new Error("Reel is down."));
+        return Promise.resolve(responses.get(url));
+      },
+    });
+    expect(await catalog.load()).toHaveLength(2);
+    healthy = false;
+    now += 6 * 60 * 1_000;
+    expect(await catalog.load()).toHaveLength(2);
+    expect(await catalog.load()).toHaveLength(2);
+    expect(catalogRequests).toBe(2);
+  });
+});
+
+describe("lesson answer island", () => {
+  const quiz = [
+    { id: "after-a-strikeout", prompt: "What do you do next?", choices: ["Pout", "Try again"] },
+    { id: "eyes-on-the-ball", prompt: "Where do your eyes go?", choices: ["Ball", "Sky"] },
+  ];
+  const players = [{ participantId: "participant_casey", label: "Casey Kid" }];
+
+  it("posts ids only and shows the feedback line the server returned", async () => {
+    const posted: { url: string; body: unknown }[] = [];
+    const result = await submitLessonAnswer(
+      "team_comets",
+      "participant_casey",
+      "after-a-strikeout",
+      1,
+      (url, body) => {
+        posted.push({ url, body });
+        return Promise.resolve({
+          ok: true,
+          json: {
+            answer: {
+              participantId: "participant_casey",
+              quizId: "after-a-strikeout",
+              answer: 1,
+              outcome: "correct",
+            },
+            feedback: "Yes! Shake it off and swing again.",
+          },
+        });
+      },
+    );
+    expect(posted).toEqual([
+      {
+        url: "/api/teams/team_comets/lessons/current/answers",
+        body: { participantId: "participant_casey", quizId: "after-a-strikeout", answer: 1 },
+      },
+    ]);
+    if (result === undefined) throw new Error("The answer must save.");
+    const answers = mergeLessonAnswer([], result);
+    const props = { answers, players, quiz, teamId: "team_comets" };
+
+    const html = renderToStaticMarkup(createElement(LessonAnswers, props));
+    expect(html).toContain("Answering for Casey Kid");
+    expect(html).toContain("Yes! Shake it off and swing again.");
+    expect(html).toContain('aria-pressed="true"');
+    expect(renderToStaticMarkup(createElement(LessonAnswersShell, props))).toContain(
+      "Yes! Shake it off and swing again.",
+    );
+  });
+
+  it("returns nothing for a refused write and replaces an earlier answer for the same item", async () => {
+    expect(
+      await submitLessonAnswer("team_comets", "participant_rowan", "after-a-strikeout", 0, () =>
+        Promise.resolve({ ok: false, json: undefined }),
+      ),
+    ).toBeUndefined();
+    const wrong = {
+      participantId: "participant_casey",
+      quizId: "after-a-strikeout",
+      answer: 0,
+      outcome: "try_again" as const,
+      feedback: "Not quite.",
+    };
+    const right = { ...wrong, answer: 1, outcome: "correct" as const, feedback: "Yes!" };
+    expect(mergeLessonAnswer([wrong], right)).toEqual([right]);
+    const html = renderToStaticMarkup(
+      createElement(LessonAnswers, { answers: [right], players, quiz, teamId: "team_comets" }),
+    );
+    expect(html).toContain("Yes!");
+    expect(html).not.toContain("Not quite.");
+  });
+
+  it("refuses a guardian writing for a profile they do not manage", async () => {
+    const { app, sql } = flagOn;
+    const ownerCookie = await signIn(app);
+    const { teamId, participantIds } = await seedTeam(app, ownerCookie);
+    const [casey, rowan] = participantIds;
+    const [first] = currentLesson().quiz;
+    if (casey === undefined || rowan === undefined || first === undefined) {
+      throw new Error("Seed data is missing.");
+    }
+    const guardianCookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
+    const refused = await answer(app, guardianCookie, teamId, {
+      participantId: rowan,
+      quizId: first.id,
+      answer: first.answer,
+    });
+    expect(refused.status).toBe(404);
+    expect(json(refused)).toEqual({ error: "participant not found" });
+    const rows = (await sql.prepare("SELECT id FROM lesson_answers").all([])) as unknown[];
+    expect(rows).toHaveLength(0);
   });
 });

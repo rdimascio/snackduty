@@ -56,7 +56,14 @@ export function teamRoleCapabilities(role: string) {
 
 function teamPermission(role: TeamPolicyRole, permission: DomainPermission): boolean {
   const capabilities = teamRoleCapabilities(role);
-  if (["memberships.manage", "roles.manage", "team.settings.manage"].includes(permission)) {
+  if (
+    [
+      "memberships.manage",
+      "roles.manage",
+      "team.settings.manage",
+      "season.lessons.manage",
+    ].includes(permission)
+  ) {
     return capabilities.delegate;
   }
   if (["team.read", "season.read", "roster.read"].includes(permission)) return capabilities.read;
