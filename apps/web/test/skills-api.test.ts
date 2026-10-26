@@ -17,7 +17,16 @@ import { identityServices } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
 import { reelSkillMap, taxonomySkillForReelSkill } from "../app/skills/reel-skill-map";
-import { appendCheckPassed, playerIdFor, wholeYearsBetween } from "../app/skills/skill-events";
+import { submitLessonAnswer } from "../app/lessons/lesson-answers";
+import type { PlayerCardEntry } from "../app/skills/player-card";
+import {
+  applyPlayerCardUpdate,
+  refreshPlayerCard,
+  skillCardUrl,
+  subscribePlayerCardUpdates,
+} from "../app/skills/player-card-updates";
+import type { PlayerCardUpdate } from "../app/skills/player-card-updates";
+import { appendCheckPassed, PLAYER_CARD_RULESET, playerIdFor } from "../app/skills/skill-events";
 import { registerRuntimePages } from "../runtime/web-surface";
 
 process.env.LESTO_DB = ":memory:";
@@ -63,6 +72,16 @@ const MONDAY_2026_10_26_NOON_UTC = Date.UTC(2026, 9, 26, 12);
 const WEEK_MS = 7 * 24 * 60 * 60 * 1_000;
 const TEAM_TIME_ZONE = "America/Los_Angeles";
 const CASEY_BIRTH_DATE = "2020-04-09";
+const LITTLE_LEAGUE_AREAS = [
+  "hitting",
+  "bunting",
+  "baserunning",
+  "infield",
+  "outfield",
+  "baseball-iq",
+  "mental",
+];
+const littleLeague = { ruleset: PLAYER_CARD_RULESET };
 
 let now = MONDAY_2026_10_26_NOON_UTC;
 const clock = () => now;
@@ -163,10 +182,25 @@ async function personIdOf(app: App, cookie: string): Promise<string> {
   return (json(session) as { person: { id: string } }).person.id;
 }
 
-async function seedTeam(app: App, cookie: string) {
+interface SeedChild {
+  readonly displayName: string;
+  readonly birthDate?: string;
+}
+
+const defaultChildren: readonly SeedChild[] = [
+  { displayName: "Casey Kid", birthDate: CASEY_BIRTH_DATE },
+  { displayName: "Rowan Kid", birthDate: "2020-06-14" },
+];
+
+async function seedTeam(
+  app: App,
+  cookie: string,
+  name = "Coach Pitch Comets",
+  children: readonly SeedChild[] = defaultChildren,
+) {
   const team = await app.handle("POST", "/api/teams", {
     headers: { ...sameOrigin, cookie },
-    body: { name: "Coach Pitch Comets" },
+    body: { name },
   });
   expect(team.status).toBe(201);
   const teamId = (json(team) as { team: { id: string } }).team.id;
@@ -182,23 +216,20 @@ async function seedTeam(app: App, cookie: string) {
   expect(season.status).toBe(201);
   const seasonId = (json(season) as { season: { id: string } }).season.id;
   const participantIds: string[] = [];
-  for (const [displayName, birthDate] of [
-    ["Casey Kid", CASEY_BIRTH_DATE],
-    ["Rowan Kid", "2020-06-14"],
-  ] as const) {
+  for (const body of children) {
     const child = await app.handle(
       "POST",
       `/api/teams/${teamId}/seasons/${seasonId}/participants`,
-      { headers: { ...sameOrigin, cookie }, body: { displayName, birthDate } },
+      { headers: { ...sameOrigin, cookie }, body },
     );
     expect(child.status).toBe(201);
     participantIds.push(
       (json(child) as { participant: { participantId: string } }).participant.participantId,
     );
   }
-  const [casey] = participantIds;
-  if (casey === undefined) throw new Error("Seed data is missing.");
-  return { teamId, seasonId, casey };
+  const [casey, rowan] = participantIds;
+  if (casey === undefined || rowan === undefined) throw new Error("Seed data is missing.");
+  return { teamId, seasonId, casey, rowan };
 }
 
 async function joinAsSecondAdult(
@@ -283,7 +314,17 @@ describe("Reel skill map", () => {
     const known = new Set(taxonomyV0.skills.map((skill) => skill.id));
     for (const skill of Object.values(reelSkillMap)) expect(known.has(skill)).toBe(true);
     expect(taxonomySkillForReelSkill("constructor")).toBeUndefined();
-    expect(taxonomySkillForReelSkill("mistakes-are-ok")).toBeUndefined();
+    expect(taxonomySkillForReelSkill("no-such-reel-skill")).toBeUndefined();
+  });
+
+  it("maps every strike-out episode skill to mental.failure", () => {
+    const strikeOutSkills = readManifest("its-ok-to-strike-out.v1.episode.json").quiz.map(
+      (item) => item.skill ?? "",
+    );
+    expect(strikeOutSkills.length).toBeGreaterThan(0);
+    for (const skill of [...strikeOutSkills, "cheer-teammates"]) {
+      expect(taxonomySkillForReelSkill(skill)).toBe("mental.failure");
+    }
   });
 });
 
@@ -400,23 +441,23 @@ describe("skill events from lesson answers", () => {
   });
 
   it("writes no event and logs one structured warning for an unmapped Reel skill", async () => {
-    const { app, guardianCookie, teamId, casey, lesson } = await guardianFixture(
-      flagOn,
-      strikeOut.lesson,
-    );
+    const { casey, lesson } = await guardianFixture(flagOn, strikeOut.lesson);
     const [first] = lesson.quiz;
     if (first === undefined) throw new Error("Lesson has no quiz.");
-    const reelSkill = strikeOut.quizSkills?.[first.id];
-    expect(reelSkill).toBeDefined();
-    expect(taxonomySkillForReelSkill(reelSkill ?? "")).toBeUndefined();
+    const reelSkill = "no-such-reel-skill";
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    const response = await answer(app, guardianCookie, teamId, {
-      participantId: casey,
-      quizId: first.id,
-      answer: first.answer,
-    });
-    expect(response.status).toBe(200);
+    await flagOn.db.transaction((tx) =>
+      appendCheckPassed(tx, {
+        participantId: casey,
+        seriesId: lesson.seriesId,
+        episodeSlug: lesson.slug,
+        quizId: first.id,
+        reelSkill,
+        occurredAtMs: now,
+        timeZone: TEAM_TIME_ZONE,
+      }),
+    );
 
     expect(await storedEvents(flagOn)).toEqual([]);
     const unmapped = warn.mock.calls.filter(([line]) =>
@@ -432,6 +473,35 @@ describe("skill events from lesson answers", () => {
       itemId: first.id,
     });
     expect(JSON.stringify(logged)).not.toContain(casey);
+  });
+
+  it("writes a mental.failure check_passed for a correct strike-out answer", async () => {
+    const { app, guardianCookie, teamId, casey, lesson } = await guardianFixture(
+      flagOn,
+      strikeOut.lesson,
+    );
+    const [first] = lesson.quiz;
+    if (first === undefined) throw new Error("Lesson has no quiz.");
+
+    const response = await answer(app, guardianCookie, teamId, {
+      participantId: casey,
+      quizId: first.id,
+      answer: first.answer,
+    });
+    expect(response.status).toBe(200);
+
+    const rows = await storedEvents(flagOn);
+    expect(rows.map((row) => JSON.parse(row.event) as Record<string, unknown>)).toMatchObject([
+      {
+        type: "check_passed",
+        skill: "mental.failure",
+        source: { kind: "reel-episode", id: `blooper/${lesson.slug}`, itemId: first.id },
+      },
+    ]);
+    const card = json(await readCard(app, guardianCookie, teamId, casey)) as {
+      areas: { area: string; rating: number }[];
+    };
+    expect(card.areas.find((area) => area.area === "mental")?.rating).toBe(1);
   });
 
   it("commits the answer and writes no event when the Reel quiz id breaks the event schema", async () => {
@@ -532,34 +602,46 @@ describe("skill card API", () => {
 
     const response = await readCard(app, guardianCookie, teamId, casey);
     expect(response.status).toBe(200);
-    const localToday = new Intl.DateTimeFormat("en-CA", {
-      timeZone: TEAM_TIME_ZONE,
-    }).format(now);
-    const ageYears = wholeYearsBetween(CASEY_BIRTH_DATE, localToday);
-    expect(ageYears).toBe(6);
     const expected = rate(
       parseSkillEvents(rows.map((row) => JSON.parse(row.event))),
       taxonomyV0,
       rulesV0,
-      { ageYears },
+      littleLeague,
     );
     expect(json(response)).toEqual(expected);
-    expect(expected.overall).toBeGreaterThan(0);
-    expect(expected.areas.map((area) => area.area)).not.toContain("hitting");
+    expect(expected.skills.map((skill) => [skill.skill, skill.rating])).toEqual([
+      ["infield.ready-position", 1],
+      ["baserunning.out-of-the-box", 3],
+    ]);
+    expect(expected.areas).toEqual(
+      LITTLE_LEAGUE_AREAS.map((area) => ({ area, rating: area === "baserunning" ? 1 : 0 })),
+    );
+    expect(expected.overall).toBe(0);
   });
 
-  it("counts whole years at the team's local today", () => {
-    expect(wholeYearsBetween("2020-04-09", "2026-04-08")).toBe(5);
-    expect(wholeYearsBetween("2020-04-09", "2026-04-09")).toBe(6);
-    expect(wholeYearsBetween("2020-02-29", "2026-02-28")).toBe(5);
-    expect(wholeYearsBetween("2020-02-29", "2026-03-01")).toBe(6);
+  it("rates with the Little League rule set", () => {
+    expect(PLAYER_CARD_RULESET).toBe("little-league");
+  });
+
+  it("returns a Little League card for a child with no birth date", async () => {
+    const { app } = flagOn;
+    const ownerCookie = await signIn(app);
+    const { teamId, casey } = await seedTeam(app, ownerCookie, "No Birthday Bats", [
+      { displayName: "Sam Kid" },
+      { displayName: "Alex Kid" },
+    ]);
+    const guardianCookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
+
+    const response = await readCard(app, guardianCookie, teamId, casey);
+    expect(response.status).toBe(200);
+    expect(json(response)).toEqual(rate([], taxonomyV0, rulesV0, littleLeague));
   });
 
   it("returns an empty card when the child has no events", async () => {
     const { app, guardianCookie, teamId, casey } = await guardianFixture(flagOn, runToFirst.lesson);
     const response = await readCard(app, guardianCookie, teamId, casey);
     expect(response.status).toBe(200);
-    expect(json(response)).toEqual(rate([], taxonomyV0, rulesV0, { ageYears: 6 }));
+    expect(json(response)).toEqual(rate([], taxonomyV0, rulesV0, littleLeague));
   });
 
   it("refuses a coach who is not the child's guardian", async () => {
@@ -642,7 +724,49 @@ describe("player card on /app", () => {
     expect(html).toContain(`<span class="text-2xl font-black">${card.overall}</span>`);
     expect(html).toContain("Baserunning");
     expect(html).toContain("Infield");
+    expect(html).toContain("Mental");
+    expect(html).not.toContain("Pitching");
     expect(card.areas.length).toBeGreaterThan(0);
+  });
+
+  it("shows one card per managed child across every team", async () => {
+    const { app, sql } = flagOn;
+    const ownerCookie = await signIn(app);
+    const first = await seedTeam(app, ownerCookie);
+    const second = await seedTeam(app, ownerCookie, "Majors Meteors", [
+      { displayName: "Jordan Kid" },
+      { displayName: "Riley Kid" },
+    ]);
+    await joinAsSecondAdult(app, ownerCookie, first.teamId, first.casey);
+    const guardianCookie = await joinAsSecondAdult(app, ownerCookie, second.teamId, second.casey);
+    const stamp = new Date(now).toISOString();
+    await sql
+      .prepare(
+        "INSERT INTO memberships (id, team_id, season_id, member_kind, member_person_id, member_participant_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run([
+        "casey-on-second-team",
+        second.teamId,
+        second.seasonId,
+        "participant",
+        null,
+        first.casey,
+        "active",
+        stamp,
+        stamp,
+      ]);
+
+    const html = await pageText(
+      await app.handle("GET", "/app", { headers: { cookie: guardianCookie } }),
+    );
+    const section = html.slice(
+      html.indexOf('aria-label="Player card"'),
+      html.indexOf('aria-label="Roster"'),
+    );
+    expect(section.split('<span class="text-muted-foreground">Overall </span>')).toHaveLength(3);
+    expect(section).toContain("Casey Kid");
+    expect(section).toContain("Jordan Kid");
+    expect(section).not.toContain("Riley Kid");
   });
 
   it("shows no player card to a coach who manages no child", async () => {
@@ -672,5 +796,89 @@ describe("player card on /app", () => {
     const html = await pageText(page);
     expect(html).toContain("Coach Pitch Comets");
     expect(html).not.toContain("Player card");
+  });
+});
+
+describe("player card refresh after an answer", () => {
+  function cardGetter(app: App, cookie: string, urls: string[]) {
+    return async (url: string) => {
+      urls.push(url);
+      const response = await app.handle("GET", url, { headers: { cookie } });
+      return { ok: response.status === 200, json: json(response) };
+    };
+  }
+
+  it("re-fetches the card endpoint and updates only that child's card", async () => {
+    const { app, guardianCookie, teamId, casey, lesson } = await guardianFixture(
+      flagOn,
+      runToFirst.lesson,
+    );
+    const target = new EventTarget();
+    let players: PlayerCardEntry[] = [
+      { participantId: casey, label: "Casey Kid", overall: 0, areas: [] },
+      { participantId: "participant_other", label: "Other Kid", overall: 7, areas: [] },
+    ];
+    const unsubscribe = subscribePlayerCardUpdates((update) => {
+      players = applyPlayerCardUpdate(players, update);
+    }, target);
+    const post = async (url: string, body: unknown) => {
+      const response = await app.handle("POST", url, {
+        headers: { ...sameOrigin, cookie: guardianCookie },
+        body,
+      });
+      return { ok: response.status === 200, json: json(response) };
+    };
+
+    for (const item of lesson.quiz) {
+      const result = await submitLessonAnswer(teamId, casey, item.id, item.answer, post);
+      expect(result?.outcome).toBe("correct");
+    }
+    const urls: string[] = [];
+    await refreshPlayerCard(teamId, casey, {
+      target,
+      get: cardGetter(app, guardianCookie, urls),
+    });
+    unsubscribe();
+
+    const card = json(await readCard(app, guardianCookie, teamId, casey)) as PlayerCardUpdate;
+    expect(urls).toEqual([skillCardUrl(teamId, casey)]);
+    expect(players).toEqual([
+      { participantId: casey, label: "Casey Kid", overall: card.overall, areas: card.areas },
+      { participantId: "participant_other", label: "Other Kid", overall: 7, areas: [] },
+    ]);
+    expect(card.areas.find((area) => area.area === "baserunning")?.rating).toBe(1);
+  });
+
+  it("publishes nothing when the card read is refused or fails", async () => {
+    const { app, ownerCookie, teamId, casey } = await guardianFixture(flagOn, runToFirst.lesson);
+    const target = new EventTarget();
+    const updates: PlayerCardUpdate[] = [];
+    const unsubscribe = subscribePlayerCardUpdates((update) => updates.push(update), target);
+
+    const refused = await refreshPlayerCard(teamId, casey, {
+      target,
+      get: cardGetter(app, ownerCookie, []),
+    });
+    const failed = await refreshPlayerCard(teamId, casey, {
+      target,
+      get: () => Promise.reject(new Error("offline")),
+    });
+    unsubscribe();
+
+    expect(refused).toBeUndefined();
+    expect(failed).toBeUndefined();
+    expect(updates).toEqual([]);
+  });
+
+  it("stops listening after unsubscribe", async () => {
+    const target = new EventTarget();
+    const updates: PlayerCardUpdate[] = [];
+    const unsubscribe = subscribePlayerCardUpdates((update) => updates.push(update), target);
+    unsubscribe();
+    await refreshPlayerCard("team_x", "participant_x", {
+      target,
+      get: () => Promise.resolve({ ok: true, json: { overall: 3, areas: [] } }),
+    });
+    expect(updates).toEqual([]);
   });
 });

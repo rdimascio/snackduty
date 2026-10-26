@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 
+import { refreshPlayerCard } from "../skills/player-card-updates";
+
 export interface LessonAnswerPlayer {
   readonly participantId: string;
   readonly label: string;
@@ -28,6 +30,8 @@ export type LessonAnswersProps = {
 };
 
 export type AnswerPoster = (url: string, body: unknown) => Promise<{ ok: boolean; json: unknown }>;
+
+export type PlayerCardRefresher = (teamId: string, participantId: string) => Promise<unknown>;
 
 interface AnswerResponse {
   readonly answer: {
@@ -133,7 +137,11 @@ export function LessonAnswers({
   players,
   answers: initialAnswers,
   post,
-}: LessonAnswersProps & { readonly post?: AnswerPoster }): ReactNode {
+  refreshCard = refreshPlayerCard,
+}: LessonAnswersProps & {
+  readonly post?: AnswerPoster;
+  readonly refreshCard?: PlayerCardRefresher;
+}): ReactNode {
   const [participantId, setParticipantId] = useState(players[0]?.participantId);
   const [answers, setAnswers] = useState<readonly LessonAnswerResult[]>(initialAnswers);
   const [pending, setPending] = useState<string | undefined>();
@@ -145,8 +153,12 @@ export function LessonAnswers({
     setFailed(false);
     try {
       const result = await submitLessonAnswer(teamId, participantId, quizId, choice, post);
-      if (result === undefined) setFailed(true);
-      else setAnswers((current) => mergeLessonAnswer(current, result));
+      if (result === undefined) {
+        setFailed(true);
+      } else {
+        setAnswers((current) => mergeLessonAnswer(current, result));
+        void refreshCard(teamId, participantId).catch(() => null);
+      }
     } catch {
       setFailed(true);
     } finally {

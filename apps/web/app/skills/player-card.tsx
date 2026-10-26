@@ -1,4 +1,7 @@
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+
+import { applyPlayerCardUpdate, subscribePlayerCardUpdates } from "./player-card-updates";
 
 export interface PlayerCardArea {
   readonly area: string;
@@ -22,6 +25,7 @@ const areaLabels: Readonly<Record<string, string>> = {
   pitching: "Pitching",
   catching: "Catching",
   "baseball-iq": "Baseball IQ",
+  mental: "Mental",
 };
 
 export function areaLabel(area: string): string {
@@ -50,18 +54,32 @@ function PlayerCardItem({ player }: { player: PlayerCardEntry }): ReactNode {
   );
 }
 
-export function PlayerCardSection({ players }: { players: readonly PlayerCardEntry[] }): ReactNode {
+export type PlayerCardsProps = {
+  readonly players: readonly PlayerCardEntry[];
+};
+
+export function PlayerCardList({ players }: PlayerCardsProps): ReactNode {
   return (
-    <section
-      aria-label="Player card"
-      className="rounded-2xl border border-border bg-card p-5 shadow-sm"
-    >
-      <p className="text-sm font-bold text-primary">Player card</p>
-      <ul className="mt-3 grid gap-4 sm:grid-cols-2">
-        {players.map((player) => (
-          <PlayerCardItem key={player.participantId} player={player} />
-        ))}
-      </ul>
-    </section>
+    <ul className="mt-3 grid gap-4 sm:grid-cols-2">
+      {players.map((player) => (
+        <PlayerCardItem key={player.participantId} player={player} />
+      ))}
+    </ul>
   );
+}
+
+export function LivePlayerCards({
+  players: initialPlayers,
+  target,
+}: PlayerCardsProps & { readonly target?: EventTarget }): ReactNode {
+  const [players, setPlayers] = useState<readonly PlayerCardEntry[]>(initialPlayers);
+  useEffect(
+    () =>
+      subscribePlayerCardUpdates(
+        (update) => setPlayers((current) => applyPlayerCardUpdate(current, update)),
+        target,
+      ),
+    [target],
+  );
+  return <PlayerCardList players={players} />;
 }

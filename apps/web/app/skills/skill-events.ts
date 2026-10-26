@@ -9,7 +9,7 @@ import {
   skillEventSchema,
   taxonomyV0,
 } from "@snackday/skill-engine";
-import type { Card, SkillEvent } from "@snackday/skill-engine";
+import type { Card, RulesetId, SkillEvent } from "@snackday/skill-engine";
 
 import { participants } from "../lib/server/roster";
 import { taxonomySkillForReelSkill } from "./reel-skill-map";
@@ -50,13 +50,6 @@ export function localDateIn(instantMs: number, timeZone: string): string {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date(instantMs));
-}
-
-export function wholeYearsBetween(birthDate: string, onDate: string): number {
-  const [birthYear, birthMonthDay] = [Number(birthDate.slice(0, 4)), birthDate.slice(5)];
-  const [year, monthDay] = [Number(onDate.slice(0, 4)), onDate.slice(5)];
-  const years = year - birthYear - (monthDay < birthMonthDay ? 1 : 0);
-  return Math.max(0, years);
 }
 
 async function checkPassedEventId(
@@ -148,6 +141,8 @@ export async function participantSkillEvents(tx: Db, participantId: string): Pro
     .toSorted((left, right) => left.id.localeCompare(right.id));
 }
 
-export function rateParticipant(events: readonly SkillEvent[], ageYears: number): Card {
-  return rate(events, taxonomyV0, rulesV0, { ageYears });
+export const PLAYER_CARD_RULESET: RulesetId = "little-league";
+
+export function rateParticipant(events: readonly SkillEvent[]): Card {
+  return rate(events, taxonomyV0, rulesV0, { ruleset: PLAYER_CARD_RULESET });
 }

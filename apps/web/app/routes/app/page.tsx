@@ -10,8 +10,8 @@ import type { RosterEntry } from "../../lib/server/team-reads";
 import { LessonOfTheWeekCard } from "../../lessons/lesson-card";
 import type { LessonCardProps } from "../../lessons/lesson-card";
 import { lessonServicesFrom, loadLessonCard } from "../../lessons/lessons";
-import { PlayerCardSection } from "../../skills/player-card";
-import type { PlayerCardEntry } from "../../skills/player-card";
+import { PlayerCardSection } from "../../skills/player-card-section";
+import type { PlayerCardEntry } from "../../skills/player-card-section";
 import { loadPlayerCards } from "../../skills/skill-card";
 import type { PlayerCard } from "../../skills/skill-card";
 
@@ -69,9 +69,7 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
   const lesson =
     card === undefined ? undefined : { ...card, players: answerPlayers(card.progress, roster) };
   const playerCards =
-    lessons === undefined
-      ? []
-      : cardEntries(await loadPlayerCards(lessons, identity.person.id, first.team.id), roster);
+    lessons === undefined ? [] : cardEntries(await loadPlayerCards(lessons, identity.person.id));
   return {
     state: "team",
     ...(lesson === undefined ? {} : { lesson }),
@@ -94,14 +92,10 @@ function answerPlayers(
   }));
 }
 
-function cardEntries(
-  cards: readonly PlayerCard[],
-  roster: readonly RosterEntry[],
-): PlayerCardEntry[] {
-  const labels = answerPlayers(cards, roster);
-  return cards.map(({ participantId, card }, index) => ({
+function cardEntries(cards: readonly PlayerCard[]): PlayerCardEntry[] {
+  return cards.map(({ participantId, label, card }) => ({
     participantId,
-    label: labels[index]?.label ?? `Player ${index + 1}`,
+    label,
     overall: card.overall,
     areas: card.areas.map(({ area, rating }) => ({ area, rating })),
   }));
