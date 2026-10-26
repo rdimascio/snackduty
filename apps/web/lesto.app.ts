@@ -7,6 +7,7 @@ import { createAppleIdentityVerifier } from "./app/lib/server/apple-identity";
 import { unavailableInviteDeliverer } from "./runtime/delivery";
 import { runtimeConfiguration } from "./runtime/config";
 import { aesGcmInvitationPayloadCipher } from "./app/lib/server/invitation-outbox";
+import { reelLessonCatalog } from "./app/lessons/catalog";
 
 // Lesto invokes this factory per boot; importing it opens no database.
 export default async function applicationConfig() {
@@ -28,6 +29,10 @@ export default async function applicationConfig() {
     clock: Date.now,
     mode,
     developmentSignIn: env.SNACKDAY_DEV_SIGN_IN,
+    lessons: {
+      enabled: env.SNACKDAY_LESSON_OF_THE_WEEK,
+      catalog: reelLessonCatalog({ clock: Date.now }),
+    },
     inviteDelivery: mode === "development" ? devInviteDeliverer() : unavailableInviteDeliverer(),
     ...(mode === "development"
       ? {

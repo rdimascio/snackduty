@@ -7,3 +7,4 @@ export * from "./primitives";
 export * from "./teams";
 export * from "./api-contracts";
 export * from "./coordination-contracts";
+export * from "./lessons";

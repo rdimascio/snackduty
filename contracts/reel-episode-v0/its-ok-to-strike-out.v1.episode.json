@@ -1,0 +1,255 @@
+{
+  "schema": "reel.episode/v0",
+  "series": {
+    "id": "blooper",
+    "title": "Coach Blooper's Baseball",
+    "site": "https://learn.dimasciobaseball.com"
+  },
+  "episode": {
+    "slug": "its-ok-to-strike-out",
+    "number": 1,
+    "title": "It's OK to Strike Out!",
+    "blurb": "Coach Blooper swings at a ball over his head, closes his eyes, and strikes out. Then he learns the Blooper Bounce: breathe, next pitch, cheer your team.",
+    "ages": {
+      "min": 5,
+      "max": 12
+    },
+    "version": "v1",
+    "page": "https://learn.dimasciobaseball.com/episodes/its-ok-to-strike-out/"
+  },
+  "media": {
+    "video": "https://media.dimasciobaseball.com/episodes/its-ok-to-strike-out/v1/video.mp4",
+    "poster": "https://media.dimasciobaseball.com/episodes/its-ok-to-strike-out/v1/poster.jpg",
+    "captions": [
+      {
+        "lang": "en",
+        "label": "English",
+        "url": "https://media.dimasciobaseball.com/episodes/its-ok-to-strike-out/v1/captions.en.vtt"
+      }
+    ],
+    "seconds": 212.6
+  },
+  "skills": [
+    "watch-the-ball",
+    "mistakes-are-ok",
+    "reset-routine",
+    "cheer-teammates"
+  ],
+  "quiz": [
+    {
+      "id": "after-a-strikeout",
+      "prompt": "What do you do after you strike out?",
+      "choices": [
+        "Take a big breath and say \"next pitch!\"",
+        "Throw your bat",
+        "Go home"
+      ],
+      "answer": 0,
+      "feedback": {
+        "correct": "That's the Blooper Bounce!",
+        "wrong": "Oops, a blooper! Try again: breathe, next pitch, cheer."
+      },
+      "skill": "reset-routine"
+    },
+    {
+      "id": "eyes-on-the-ball",
+      "prompt": "Where do your eyes go when you swing?",
+      "choices": [
+        "On the ball",
+        "Closed tight",
+        "On the crowd"
+      ],
+      "answer": 0,
+      "feedback": {
+        "correct": "Yes! Watch the ball all the way to your bat.",
+        "wrong": "Coach Blooper tried that. Keep your eyes on the ball!"
+      },
+      "skill": "watch-the-ball"
+    },
+    {
+      "id": "is-missing-ok",
+      "prompt": "Is it okay to miss?",
+      "choices": [
+        "Yes! Even big leaguers miss a lot",
+        "No, never"
+      ],
+      "answer": 0,
+      "feedback": {
+        "correct": "Right! Missing means you were brave enough to swing.",
+        "wrong": "Even the best hitters miss most of the time. It is okay!"
+      },
+      "skill": "mistakes-are-ok"
+    }
+  ],
+  "transcript": [
+    {
+      "who": "Narrator",
+      "text": "Meet Coach Blooper! He loves baseball more than anything. He is... still learning."
+    },
+    {
+      "who": "Coach",
+      "text": "Hiya, team! Today I'm gonna show you the most perfect swing in the whole world!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Um, Coach? Your bat is upside down."
+    },
+    {
+      "who": "Coach",
+      "text": "Whoops! That's a blooper!"
+    },
+    {
+      "who": "Ump",
+      "text": "Batter up!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Here comes the first pitch. It's way up high, over Coach's head."
+    },
+    {
+      "who": "Coach",
+      "text": "I'll get it! Hi-yaaa!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Coach swung so hard, he spun around three times! Strike one!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Here's the trick. Swing at strikes. A strike is a pitch over home plate, between your knees and the middle of your chest."
+    },
+    {
+      "who": "Narrator",
+      "text": "Pitch number two. Coach is ready... and he closes his eyes!"
+    },
+    {
+      "who": "Coach",
+      "text": "If I can't see it, it can't scare me!"
+    },
+    {
+      "who": "Ump",
+      "text": "Strike two!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Keep your eyes open, Coach! Watch the ball, all the way from the pitcher's hand to your bat."
+    },
+    {
+      "who": "Narrator",
+      "text": "Okay. This time Coach watches the ball. He swings at a strike. It's a great swing..."
+    },
+    {
+      "who": "Narrator",
+      "text": "...and he misses."
+    },
+    {
+      "who": "Ump",
+      "text": "Strike three! You're out!"
+    },
+    {
+      "who": "Coach",
+      "text": "Aww. I struck out. I'm the worst baseball player ever."
+    },
+    {
+      "who": "Narrator",
+      "text": "Hold on, Coach. Here's a secret. Even the best hitters in the big leagues miss most of the time."
+    },
+    {
+      "who": "Narrator",
+      "text": "If a big league hitter gets a hit three times out of ten, that's great! The other seven times, they don't get a hit, and they're still stars."
+    },
+    {
+      "who": "Coach",
+      "text": "Wait... so missing is part of baseball?"
+    },
+    {
+      "who": "Narrator",
+      "text": "Yep! And a strikeout means you were brave enough to step up and try."
+    },
+    {
+      "who": "Narrator",
+      "text": "So what do you do after a strikeout? Let's learn the Blooper Bounce!"
+    },
+    {
+      "who": "Narrator",
+      "text": "One. Take a big, slow breath."
+    },
+    {
+      "who": "Narrator",
+      "text": "Two. Say, next pitch!"
+    },
+    {
+      "who": "Coach",
+      "text": "Next pitch!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Three. Go cheer for your teammate."
+    },
+    {
+      "who": "Coach",
+      "text": "Go, go, go! You got this, buddy!"
+    },
+    {
+      "who": "Narrator",
+      "text": "When we cheer for each other, everybody plays braver. That's what teammates do."
+    },
+    {
+      "who": "Narrator",
+      "text": "Next time up, Coach takes a breath, watches the ball, and swings!"
+    },
+    {
+      "who": "Coach",
+      "text": "I hit it! I hit it!"
+    },
+    {
+      "who": "Narrator",
+      "text": "It's a little blooper that drops over the infield. Run, Coach, run!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Coach! First base is the other way!"
+    },
+    {
+      "who": "Coach",
+      "text": "Oops! Blooper!"
+    },
+    {
+      "who": "Song",
+      "text": "Strike one, strike two, oh what do you do?"
+    },
+    {
+      "who": "Song",
+      "text": "Take a big breath, the next pitch is new!"
+    },
+    {
+      "who": "Song",
+      "text": "Eyes on the ball, swing at a strike,"
+    },
+    {
+      "who": "Song",
+      "text": "Every big leaguer misses, alright!"
+    },
+    {
+      "who": "Song",
+      "text": "It's okay to strike out, give a shout, shake it out!"
+    },
+    {
+      "who": "Song",
+      "text": "Cheer your team and try again, that's what baseball's all about!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Let's remember. Swing at strikes. Watch the ball. And if you miss, do the Blooper Bounce."
+    },
+    {
+      "who": "Coach",
+      "text": "Breathe, next pitch, cheer your team! See ya next time, team! Whoa!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Bye, everybody!"
+    }
+  ],
+  "publishedAt": "2026-10-25T01:27:03.626Z"
+}

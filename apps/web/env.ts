@@ -34,6 +34,7 @@ export const env = defineEnv({
     LESTO_DB: envField.string().default("lesto.db"),
     // Explicitly opt in to the local-only fixed adult sign-in routes.
     SNACKDAY_DEV_SIGN_IN: envField.boolean().default(false),
+    SNACKDAY_LESSON_OF_THE_WEEK: envField.boolean().default(false),
     SNACKDAY_RUNTIME_MODE: envField.string().default("development"),
     SNACKDAY_APPLE_CLIENT_ID: envField.string().optional(),
     // Add server-only secrets here — e.g. SESSION_SECRET: envField.string().
