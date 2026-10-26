@@ -276,9 +276,9 @@ except Exception as error:
         status, body, headers = request('/__snackday/release')
         require(status == 200 and json.loads(body) == {'releaseCommit': commit, 'artifactDigest': digest})
         require(headers['Cache-Control'] == 'no-store')
-        require(len(events()) == 1 and len(events()[0]['migrations_applied']) == 13)
+        require(len(events()) == 1 and len(events()[0]['migrations_applied']) == 14)
         ledger = sql('SELECT version FROM schema_migrations ORDER BY version;')
-        require(len(ledger.splitlines()) == 13)
+        require(len(ledger.splitlines()) == 14)
         require(sql("SELECT count(*) FROM pg_stat_ssl s JOIN pg_stat_activity a USING(pid) "
                     "WHERE a.usename='snackday' AND a.datname='snackday' AND s.ssl;") != '0')
         passed('startup-migrations-tls-readiness-release-identity')

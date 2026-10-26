@@ -80,9 +80,18 @@ const reelCatalogSchema = z.object({
   ),
 });
 
-export type ReelParseResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly reason: "wrong_contract" | "invalid" };
+export type ReelParseFailure = {
+  readonly ok: false;
+  readonly reason: "wrong_contract" | "invalid";
+};
+
+export type ReelParseResult<T> = { readonly ok: true; readonly value: T } | ReelParseFailure;
+
+export type ReelQuizSkills = Readonly<Record<string, string>>;
+
+export type ReelEpisodeResult =
+  | { readonly ok: true; readonly value: Lesson; readonly quizSkills: ReelQuizSkills }
+  | ReelParseFailure;
 
 function contractOf(input: unknown): unknown {
   return typeof input === "object" && input !== null && "schema" in input
@@ -90,7 +99,7 @@ function contractOf(input: unknown): unknown {
     : undefined;
 }
 
-export function parseReelEpisode(input: unknown): ReelParseResult<Lesson> {
+export function parseReelEpisode(input: unknown): ReelEpisodeResult {
   if (contractOf(input) !== REEL_EPISODE_CONTRACT) return { ok: false, reason: "wrong_contract" };
   const parsed = reelEpisodeSchema.safeParse(input);
   if (!parsed.success) return { ok: false, reason: "invalid" };
@@ -113,7 +122,12 @@ export function parseReelEpisode(input: unknown): ReelParseResult<Lesson> {
       feedback: { correct: item.feedback.correct, wrong: item.feedback.wrong },
     })),
   });
-  return lesson.success ? { ok: true, value: lesson.data } : { ok: false, reason: "invalid" };
+  if (!lesson.success) return { ok: false, reason: "invalid" };
+  return {
+    ok: true,
+    value: lesson.data,
+    quizSkills: Object.fromEntries(quiz.map((item) => [item.id, item.skill])),
+  };
 }
 
 export function parseReelCatalog(input: unknown): ReelParseResult<readonly string[]> {

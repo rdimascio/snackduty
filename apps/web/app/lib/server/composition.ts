@@ -43,6 +43,8 @@ import { registerTeamReadRoutes } from "./team-reads";
 import { addSeasonLessonAgeBand, createTeamsAndSeasons, registerTeamRoutes } from "./teams";
 import { createLessonAnswers, lessonServices, registerLessonRoutes } from "../../lessons/lessons";
 import type { LessonOptions } from "../../lessons/lessons";
+import { registerSkillCardRoutes } from "../../skills/skill-card";
+import { createSkillEvents } from "../../skills/skill-events";
 
 // The client/styles surface every route composes onto. Domain routes are
 // registered by their own modules below — each owns its schema, migration, and
@@ -150,8 +152,19 @@ export const applicationMigrations = [
   createEventCreationReceipts,
   createLessonAnswers,
   addSeasonLessonAgeBand,
+  createSkillEvents,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
+function registerLessonSurface(app: Lesto, options: ApplicationOptions): Lesto {
+  if (options.lessons?.enabled !== true) return app;
+  const services = lessonServices(options.db, options.clock, options.lessons);
+  return registerSkillCardRoutes(
+    registerLessonRoutes(app, options.sessions, services),
+    options.sessions,
+    services,
+  );
+}
+
 export function createApplication(options: ApplicationOptions) {
   if (options.mode !== "development" && options.developmentSignIn) {
     throw new Error("Development authentication requires development mode.");
@@ -189,13 +202,7 @@ export function createApplication(options: ApplicationOptions) {
   const config: LestoAppConfig = {
     db: options.sql,
     app: registerSessionRoutes(
-      options.lessons?.enabled === true
-        ? registerLessonRoutes(
-            domainApp,
-            options.sessions,
-            lessonServices(options.db, options.clock, options.lessons),
-          )
-        : domainApp,
+      registerLessonSurface(domainApp, options),
       createAuthentication({
         db: options.db,
         sessions: options.sessions,

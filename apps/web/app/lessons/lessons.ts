@@ -36,6 +36,7 @@ import { isValidTimeZone } from "../lib/server/event-time";
 import { authenticatedAdult, people } from "../lib/server/identity";
 import { guardianRelationships, memberships, participants } from "../lib/server/roster";
 import { seasonLessonAgeBand, seasons, teamAccess } from "../lib/server/teams";
+import { appendCheckPassed } from "../skills/skill-events";
 import type { LessonCatalog } from "./catalog";
 
 export interface LessonProgressAnswer extends LessonAnswerRecord {
@@ -118,7 +119,7 @@ export function lessonServices(
   return { db, clock, catalog: options.catalog };
 }
 
-async function currentSeason(tx: Db, teamId: string) {
+export async function currentSeason(tx: Db, teamId: string) {
   const rows = await tx
     .select()
     .from(seasons)
@@ -131,21 +132,25 @@ async function currentSeason(tx: Db, teamId: string) {
   return rows[0];
 }
 
+export function seasonTimeZone(season: { readonly timeZone: string } | undefined): string {
+  return season !== undefined && isValidTimeZone(season.timeZone) ? season.timeZone : "UTC";
+}
+
 async function currentTeamLesson(
   services: LessonServices,
   lessons: readonly Lesson[],
   tx: Db,
   teamId: string,
-): Promise<Lesson | undefined> {
+): Promise<{ readonly lesson: Lesson; readonly timeZone: string } | undefined> {
   const season = await currentSeason(tx, teamId);
-  const timeZone =
-    season !== undefined && isValidTimeZone(season.timeZone) ? season.timeZone : "UTC";
-  return selectLessonOfTheWeek(
+  const timeZone = seasonTimeZone(season);
+  const lesson = selectLessonOfTheWeek(
     lessons,
     resolveLessonAgeBand(season === undefined ? undefined : seasonLessonAgeBand(season)),
     services.clock(),
     timeZone,
   );
+  return lesson === undefined ? undefined : { lesson, timeZone };
 }
 
 async function rosteredSeasonIds(tx: Db, teamId: string, participantId: string) {
@@ -187,7 +192,7 @@ async function isManagingGuardian(tx: Db, personId: string, participantId: strin
   );
 }
 
-async function mayManageParticipant(
+export async function mayManageParticipant(
   tx: Db,
   personId: string,
   teamId: string,
@@ -208,7 +213,7 @@ async function mayManageParticipant(
   return false;
 }
 
-async function teamParticipantIds(tx: Db, teamId: string): Promise<string[]> {
+export async function teamParticipantIds(tx: Db, teamId: string): Promise<string[]> {
   const rows = await tx
     .select()
     .from(memberships)
@@ -323,8 +328,9 @@ export async function readTeamLesson(
   return services.db.transaction(async (tx) => {
     const access = await teamAccess(tx, teamId, personId);
     if (access === undefined) return teamNotFound;
-    const lesson = await currentTeamLesson(services, lessons, tx, access.team.id);
-    if (lesson === undefined) return lessonNotFound;
+    const current = await currentTeamLesson(services, lessons, tx, access.team.id);
+    if (current === undefined) return lessonNotFound;
+    const { lesson } = current;
 
     const roster = await teamParticipantIds(tx, access.team.id);
     const answers = await episodeAnswers(tx, lesson, roster);
@@ -372,8 +378,9 @@ export async function recordLessonAnswer(
   return services.db.transaction(async (tx) => {
     const access = await teamAccess(tx, teamId, personId);
     if (access === undefined) return teamNotFound;
-    const lesson = await currentTeamLesson(services, lessons, tx, access.team.id);
-    if (lesson === undefined) return lessonNotFound;
+    const current = await currentTeamLesson(services, lessons, tx, access.team.id);
+    if (current === undefined) return lessonNotFound;
+    const { lesson, timeZone } = current;
     const item = lesson.quiz.find((candidate) => candidate.id === input.quizId);
     if (item === undefined) return { ok: false, status: 404, error: "quiz item not found" };
     if (input.answer >= item.choices.length) {
@@ -384,7 +391,15 @@ export async function recordLessonAnswer(
     }
 
     const outcome = lessonOutcomeFor(item, input.answer);
-    const now = new Date(services.clock()).toISOString();
+    const nowMs = services.clock();
+    const now = new Date(nowMs).toISOString();
+    const answerKey = and(
+      eq(lessonAnswers.participantId, input.participantId),
+      eq(lessonAnswers.seriesId, lesson.seriesId),
+      eq(lessonAnswers.episodeSlug, lesson.slug),
+      eq(lessonAnswers.quizId, item.id),
+    );
+    const previous = await tx.select().from(lessonAnswers).where(answerKey).get();
     await tx.raw(upsertLessonAnswerSql, [
       `lesson_answer_${crypto.randomUUID()}`,
       input.participantId,
@@ -397,19 +412,19 @@ export async function recordLessonAnswer(
       now,
       now,
     ]);
-    const stored = await tx
-      .select()
-      .from(lessonAnswers)
-      .where(
-        and(
-          eq(lessonAnswers.participantId, input.participantId),
-          eq(lessonAnswers.seriesId, lesson.seriesId),
-          eq(lessonAnswers.episodeSlug, lesson.slug),
-          eq(lessonAnswers.quizId, item.id),
-        ),
-      )
-      .get();
+    const stored = await tx.select().from(lessonAnswers).where(answerKey).get();
     if (stored === undefined) throw new Error("Lesson answer disappeared during write.");
+    if (outcome === "correct" && previous?.outcome !== "correct") {
+      await appendCheckPassed(tx, {
+        participantId: input.participantId,
+        seriesId: lesson.seriesId,
+        episodeSlug: lesson.slug,
+        quizId: item.id,
+        reelSkill: services.catalog.reelSkill(lesson, item.id),
+        occurredAtMs: nowMs,
+        timeZone,
+      });
+    }
     const answer = projectAnswer(stored);
     return { ok: true, value: { answer, feedback: feedbackFor(item, answer.outcome) } };
   });
