@@ -30,7 +30,11 @@ function persistedTeam(role: string): PolicyContext {
   return {
     account,
     target: { teamId, seasonId },
-    team: { id: teamId, status: "active", createdByPersonId: actor.personId },
+    team: {
+      id: teamId,
+      status: "active",
+      createdByPersonId: role === "owner" ? actor.personId : "person_team_creator",
+    },
     season: { id: seasonId, teamId, status: "active" },
     teamMemberships: [{ teamId, personId: actor.personId, role, status: "active" }],
     memberships: [],
@@ -73,8 +77,11 @@ function seasonRole(kind: "manager" | "coach" | "guardian"): PolicyContext {
 }
 
 describe("season lesson age band", () => {
-  it("is managed only by a league manager role, never by a team owner, coach, or adult", () => {
-    for (const role of ["owner", "coach", "adult"]) {
+  it("is managed by the team owner or a league manager role, never by a coach or adult", () => {
+    expect(evaluatePolicy(actor, "season.lessons.manage", persistedTeam("owner")).allowed).toBe(
+      true,
+    );
+    for (const role of ["coach", "adult"]) {
       expect(evaluatePolicy(actor, "season.lessons.manage", persistedTeam(role)).allowed).toBe(
         false,
       );

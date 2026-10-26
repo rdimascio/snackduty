@@ -797,7 +797,7 @@ describe("season lesson age band", () => {
     expect(await currentSlug(app, cookie, teamId)).toBe(currentLesson().slug);
   });
 
-  it("refuses the season band write to anyone without the league manager permission", async () => {
+  it("lets only the team owner set the season band", async () => {
     const { app } = flagOn;
     const ownerCookie = await signIn(app);
     const { teamId, seasonId, participantIds } = await seedTeam(app, ownerCookie);
@@ -805,13 +805,15 @@ describe("season lesson age band", () => {
     if (casey === undefined) throw new Error("Seed data is missing.");
     const body = { lessonAgeBand: { min: 8, max: 12 } };
 
-    const owner = await setSeasonBand(app, ownerCookie, teamId, seasonId, body);
-    expect(owner.status).toBe(403);
-    expect(json(owner)).toEqual({ error: "league manager permission required" });
-
     const guardianCookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
     const guardian = await setSeasonBand(app, guardianCookie, teamId, seasonId, body);
     expect(guardian.status).toBe(403);
+    expect(json(guardian)).toEqual({ error: "team owner permission required" });
+    expect(await storedBand(flagOn, seasonId)).toBeNull();
+
+    const owner = await setSeasonBand(app, ownerCookie, teamId, seasonId, body);
+    expect(owner.status).toBe(200);
+    expect(JSON.parse((await storedBand(flagOn, seasonId)) ?? "null")).toEqual({ min: 8, max: 12 });
 
     const anonymous = await app.handle(
       "PUT",
@@ -828,7 +830,7 @@ describe("season lesson age band", () => {
       setSeasonBand(app, ownerCookie, teamId, seasonId, { lessonAgeBand: { min: 9, max: 6 } }),
     ).rejects.toMatchObject({ code: "WEB_VALIDATION_FAILED" });
 
-    expect(await storedBand(flagOn, seasonId)).toBeNull();
+    expect(JSON.parse((await storedBand(flagOn, seasonId)) ?? "null")).toEqual({ min: 8, max: 12 });
   });
 
   it("refuses a stranger with the same 404 a missing team gets", async () => {

@@ -338,7 +338,7 @@ async function readTeam(c: Context<"/api/teams/:teamId">, db: Db, sessions: Sess
 }
 
 const seasonNotFound = { error: "season not found" } as const;
-const leagueManagerRequired = { error: "league manager permission required" } as const;
+const seasonLessonsManageRequired = { error: "team owner permission required" } as const;
 
 async function setSeasonLessonAgeBand(
   c: Context<"/api/teams/:teamId/seasons/:seasonId/lesson-age-band">,
@@ -382,7 +382,7 @@ async function setSeasonLessonAgeBand(
 
   if (outcome === "no-team") return c.json(notFound, 404);
   if (outcome === "no-season") return c.json(seasonNotFound, 404);
-  if (outcome === "forbidden") return c.json(leagueManagerRequired, 403);
+  if (outcome === "forbidden") return c.json(seasonLessonsManageRequired, 403);
   return c.json({ season: outcome });
 }
 
