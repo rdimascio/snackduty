@@ -1,0 +1,25 @@
+contract: reel.episode/v0
+repository: rdimascio/pips-ai-adventures
+branch: feat/blooper-ep2
+commit: a3709da779eeddd1355bb737391d681c475b5679
+vendored: 2026-10-25
+
+Files are stored byte-for-byte as published and are excluded from oxfmt.
+
+episode-v0.schema.json
+  from: docs/contracts/episode-v0.schema.json at the commit above
+  spec: docs/contracts/episode-v0.md at the commit above
+  git blob: 89080be40c94860740249908773f8d060302e06c
+  sha256: 7adeea463a48e938aa4b5b8042cd37dbe1e68195169ad4b242a3f809549582ce
+
+catalog.json
+  from: https://learn.dimasciobaseball.com/episodes.json
+  sha256: b0102feff002745a2bc47568011685e66b01c4dc79a8cacec81ebcc98d6162a3
+
+its-ok-to-strike-out.v1.episode.json
+  from: https://media.dimasciobaseball.com/episodes/its-ok-to-strike-out/v1/episode.json
+  sha256: 9c9e935cef84649ba8d5c4d6005175f11c566c71f6b96eab2e573c36dc16bc98
+
+run-to-first.v1.episode.json
+  from: https://media.dimasciobaseball.com/episodes/run-to-first/v1/episode.json
+  sha256: c1d47a80e7f15d46b60a4a32004c66346b61546663bc57230935991ed388f7f8

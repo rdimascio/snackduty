@@ -1,0 +1,214 @@
+{
+  "schema": "reel.episode/v0",
+  "series": {
+    "id": "blooper",
+    "title": "Coach Blooper's Baseball",
+    "site": "https://learn.dimasciobaseball.com"
+  },
+  "episode": {
+    "slug": "run-to-first",
+    "number": 2,
+    "title": "Run to First!",
+    "blurb": "Coach Blooper hits the ball and runs to third base, stops on first base so fast he wobbles, and watches a butterfly in the field. Then he learns to run to first, run right through it, and get in ready position.",
+    "ages": {
+      "min": 5,
+      "max": 7
+    },
+    "version": "v1",
+    "page": "https://learn.dimasciobaseball.com/episodes/run-to-first/"
+  },
+  "media": {
+    "video": "https://media.dimasciobaseball.com/episodes/run-to-first/v1/video.mp4",
+    "poster": "https://media.dimasciobaseball.com/episodes/run-to-first/v1/poster.jpg",
+    "captions": [
+      {
+        "lang": "en",
+        "label": "English",
+        "url": "https://media.dimasciobaseball.com/episodes/run-to-first/v1/captions.en.vtt"
+      }
+    ],
+    "seconds": 165.4
+  },
+  "skills": [
+    "run-to-first",
+    "run-through-first",
+    "ready-position",
+    "mistakes-are-ok"
+  ],
+  "quiz": [
+    {
+      "id": "where-to-run",
+      "prompt": "You hit the ball! Where do you run?",
+      "choices": [
+        "First base",
+        "Third base",
+        "The snack stand"
+      ],
+      "answer": 0,
+      "feedback": {
+        "correct": "Yes! Drop the bat and run to first base.",
+        "wrong": "Oops, that's a blooper! Run to first base. It's on your right."
+      },
+      "skill": "run-to-first"
+    },
+    {
+      "id": "at-first-base",
+      "prompt": "When you get to first base, what do you do?",
+      "choices": [
+        "Run right through it",
+        "Stop and sit down"
+      ],
+      "answer": 0,
+      "feedback": {
+        "correct": "Zoom! Run right through it. Safe!",
+        "wrong": "Coach tried that and wobbled! Run right through first base."
+      },
+      "skill": "run-through-first"
+    },
+    {
+      "id": "ready-position",
+      "prompt": "What is ready position?",
+      "choices": [
+        "Feet apart, knees bent, glove ready",
+        "Watching a butterfly"
+      ],
+      "answer": 0,
+      "feedback": {
+        "correct": "You're ready! Feet apart, knees bent, glove ready.",
+        "wrong": "Butterflies are fun, but get ready: feet apart, knees bent, glove ready!"
+      },
+      "skill": "ready-position"
+    }
+  ],
+  "transcript": [
+    {
+      "who": "Narrator",
+      "text": "Coach Blooper is back! Today he's gonna hit the ball and run."
+    },
+    {
+      "who": "Coach",
+      "text": "Watch this, team! Batter up!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Coach... your bat is upside down again!"
+    },
+    {
+      "who": "Coach",
+      "text": "Whoops! That's a blooper!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Coach takes a big breath, watches the ball, and swings!"
+    },
+    {
+      "who": "Coach",
+      "text": "I hit it! I hit it!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Now drop the bat and run! Run, Coach, run!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Coach! That's the other way! That's third base!"
+    },
+    {
+      "who": "Coach",
+      "text": "Oops! Blooper!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Here's the rule. After you hit the ball, drop the bat and run to first base."
+    },
+    {
+      "who": "Narrator",
+      "text": "Stand on home plate. First base is on your right."
+    },
+    {
+      "who": "Narrator",
+      "text": "You run to first, then second, then third, then all the way home!"
+    },
+    {
+      "who": "Coach",
+      "text": "First, second, third, home! It's a big square!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Okay, Coach. Run as fast as you can to first base."
+    },
+    {
+      "who": "Coach",
+      "text": "Here I go! Zoom, zoom, zoom... and STOP!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Coach stopped so fast, he wobbled! At first base, you can run right through it. Don't slow down!"
+    },
+    {
+      "who": "Coach",
+      "text": "Run right through it. Here I go again!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Zoom! Right through the base! Safe!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Now Coach is playing in the field. Is he ready for the ball?"
+    },
+    {
+      "who": "Coach",
+      "text": "Ooh, look! A butterfly!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Coach! Get ready! The ball might come to you."
+    },
+    {
+      "who": "Coach",
+      "text": "Okay! Feet apart... knees bent... glove ready! Like a superhero!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Here comes the ball... and Coach stops it! Great job, Coach!"
+    },
+    {
+      "who": "Song",
+      "text": "Hit the ball and drop the bat,"
+    },
+    {
+      "who": "Song",
+      "text": "Run to first, now how about that!"
+    },
+    {
+      "who": "Song",
+      "text": "Run right through, don't stop or slow,"
+    },
+    {
+      "who": "Song",
+      "text": "Get in ready, here we go!"
+    },
+    {
+      "who": "Song",
+      "text": "Feet apart and knees bent low,"
+    },
+    {
+      "who": "Song",
+      "text": "Coach Blooper says go, go, go!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Let's remember. Hit the ball and run to first. Run right through it. And in the field, get in ready position."
+    },
+    {
+      "who": "Coach",
+      "text": "Run to first! Run right through! Get ready! See ya next time, team! Whoa!"
+    },
+    {
+      "who": "Narrator",
+      "text": "Bye, everybody!"
+    }
+  ],
+  "publishedAt": "2026-10-25T01:40:34.277Z"
+}

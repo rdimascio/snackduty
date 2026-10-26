@@ -7,6 +7,9 @@ import { appServices } from "../../lib/server/app-services";
 import { authenticatedAdult } from "../../lib/server/identity";
 import { listAccessibleTeams, loadRoster } from "../../lib/server/team-reads";
 import type { RosterEntry } from "../../lib/server/team-reads";
+import { LessonOfTheWeekCard } from "../../lessons/lesson-card";
+import type { LessonCardData } from "../../lessons/lessons";
+import { lessonServicesFrom, loadLessonCard } from "../../lessons/lessons";
 
 type OverviewData =
   | { readonly state: "signed-out" }
@@ -16,6 +19,7 @@ type OverviewData =
       readonly teamName: string;
       readonly seasonLabel: string | undefined;
       readonly roster: readonly RosterEntry[];
+      readonly lesson?: LessonCardData;
     };
 
 /**
@@ -39,8 +43,14 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
   if (first === undefined) return { state: "no-team" };
 
   const season = first.seasons[0];
+  const lessons = lessonServicesFrom(c);
+  const lesson =
+    lessons === undefined
+      ? undefined
+      : await loadLessonCard(lessons, identity.person.id, first.team.id);
   return {
     state: "team",
+    ...(lesson === undefined ? {} : { lesson }),
     teamName: first.team.name,
     seasonLabel: season?.label,
     roster:
@@ -172,10 +182,12 @@ function RosterSection({ roster }: { roster: readonly RosterEntry[] }): ReactNod
 }
 
 function TeamOverview({
+  lesson,
   roster,
   seasonLabel,
   teamName,
 }: {
+  lesson: LessonCardData | undefined;
   roster: readonly RosterEntry[];
   seasonLabel: string | undefined;
   teamName: string;
@@ -189,6 +201,11 @@ function TeamOverview({
           {seasonLabel === undefined ? "No season yet" : seasonLabel}
         </p>
       </div>
+      {lesson === undefined ? null : (
+        <div className="mt-8">
+          <LessonOfTheWeekCard {...lesson} />
+        </div>
+      )}
       <section aria-label="Roster" className="mt-8">
         <h2 className="text-xl font-bold">Roster</h2>
         <div className="mt-4">
@@ -204,7 +221,12 @@ function Overview(data: PageProps<typeof load>): ReactNode {
   if (data.state === "no-team") return <NoTeam />;
 
   return (
-    <TeamOverview roster={data.roster} seasonLabel={data.seasonLabel} teamName={data.teamName} />
+    <TeamOverview
+      lesson={data.lesson}
+      roster={data.roster}
+      seasonLabel={data.seasonLabel}
+      teamName={data.teamName}
+    />
   );
 }
 

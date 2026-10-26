@@ -41,6 +41,8 @@ import { registerRosterImportRoutes } from "./roster-import";
 import { createRoster, registerRosterRoutes } from "./roster";
 import { registerTeamReadRoutes } from "./team-reads";
 import { createTeamsAndSeasons, registerTeamRoutes } from "./teams";
+import { createLessonAnswers, lessonServices, registerLessonRoutes } from "../../lessons/lessons";
+import type { LessonOptions } from "../../lessons/lessons";
 
 // The client/styles surface every route composes onto. Domain routes are
 // registered by their own modules below — each owns its schema, migration, and
@@ -132,6 +134,7 @@ export interface ApplicationOptions {
   readonly appleVerifier?: import("./application-contracts").AppleIdentityVerifier;
   readonly invitationCipher?: InvitationPayloadCipher;
   readonly dialect?: Dialect;
+  readonly lessons?: LessonOptions;
 }
 export const applicationMigrations = [
   createIdentity,
@@ -145,6 +148,7 @@ export const applicationMigrations = [
   createInvitationRecipientBinding,
   createInvitationOutbox,
   createEventCreationReceipts,
+  createLessonAnswers,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 export function createApplication(options: ApplicationOptions) {
@@ -168,22 +172,29 @@ export function createApplication(options: ApplicationOptions) {
               JSON.stringify({ level: "error", event: "invitation.scheduling_failed" }),
             ),
         });
+  const domainApp = buildApp(
+    options.db,
+    options.sessions,
+    options.developmentSignIn,
+    options.inviteDelivery,
+    options.clock,
+    options.exposeCalendarFeeds ?? options.mode === "development",
+    {
+      clock: options.clock,
+      ...(outbox === undefined ? {} : { outbox }),
+      verifiedEmails: verifiedRecipientEmails,
+    },
+  );
   const config: LestoAppConfig = {
     db: options.sql,
     app: registerSessionRoutes(
-      buildApp(
-        options.db,
-        options.sessions,
-        options.developmentSignIn,
-        options.inviteDelivery,
-        options.clock,
-        options.exposeCalendarFeeds ?? options.mode === "development",
-        {
-          clock: options.clock,
-          ...(outbox === undefined ? {} : { outbox }),
-          verifiedEmails: verifiedRecipientEmails,
-        },
-      ),
+      options.lessons?.enabled === true
+        ? registerLessonRoutes(
+            domainApp,
+            options.sessions,
+            lessonServices(options.db, options.clock, options.lessons),
+          )
+        : domainApp,
       createAuthentication({
         db: options.db,
         sessions: options.sessions,

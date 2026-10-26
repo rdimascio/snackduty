@@ -1,4 +1,7 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["docs/platform/probes/evidence/platform-manifest-v0.json"]
+  "ignorePatterns": [
+    "docs/platform/probes/evidence/platform-manifest-v0.json",
+    "contracts/reel-episode-v0/*.json"
+  ]
 }
