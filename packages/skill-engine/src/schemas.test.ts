@@ -31,6 +31,7 @@ const readyPosition = {
   tier: 1,
   ageMin: 5,
   status: "active",
+  rulesets: ["little-league"],
 };
 
 function taxonomy(skills: unknown[]) {
@@ -54,6 +55,7 @@ describe("taxonomy v0", () => {
       "hitting.approach-by-count": 4,
       "pitching.pickoffs": 4,
       "baseball-iq.history": 1,
+      "mental.failure": 1,
     });
   });
 
@@ -68,6 +70,7 @@ describe("taxonomy v0", () => {
       "pitching",
       "catching",
       "baseball-iq",
+      "mental",
     ]);
   });
 
@@ -93,6 +96,68 @@ describe("taxonomy v0", () => {
     expect(
       taxonomySchema.safeParse(
         taxonomy([{ ...readyPosition, id: "catching.framing", area: "catching" }]),
+      ).success,
+    ).toBe(false);
+  });
+});
+
+function littleLeagueSkills(tagged: boolean): string[] {
+  return taxonomyV0.skills
+    .filter((skill) => skill.rulesets.includes("little-league") === tagged)
+    .map((skill) => skill.id)
+    .toSorted();
+}
+
+describe("taxonomy rule sets", () => {
+  it("tags every skill legal and taught in Little League and leaves leadoff skills untagged", () => {
+    expect(littleLeagueSkills(true)).toStrictEqual([
+      "baseball-iq.history",
+      "baserunning.hook-slide",
+      "baserunning.out-of-the-box",
+      "bunting.sacrifice",
+      "hitting.approach-by-count",
+      "infield.cutoff-lead",
+      "infield.cutoff-trail",
+      "infield.ready-position",
+      "infield.throw-on-the-run",
+      "mental.failure",
+      "outfield.hit-the-cutoff",
+      "pitching.pickoffs",
+    ]);
+    expect(littleLeagueSkills(false)).toStrictEqual([
+      "baserunning.leads",
+      "first-base.holding-runner",
+    ]);
+  });
+
+  it("keeps ageMin on every skill", () => {
+    expect(taxonomyV0.skills.every((skill) => Number.isInteger(skill.ageMin))).toBe(true);
+  });
+});
+
+describe("taxonomy rule set schema", () => {
+  it("accepts a skill with no rule set", () => {
+    expect(taxonomySchema.safeParse(taxonomy([{ ...readyPosition, rulesets: [] }])).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects a skill without a rule set list", () => {
+    const { rulesets: _rulesets, ...untagged } = readyPosition;
+    expect(taxonomySchema.safeParse(taxonomy([untagged])).success).toBe(false);
+  });
+
+  it("rejects a rule set id that is not kebab-case", () => {
+    expect(
+      taxonomySchema.safeParse(taxonomy([{ ...readyPosition, rulesets: ["Little League"] }]))
+        .success,
+    ).toBe(false);
+  });
+
+  it("rejects a repeated rule set on one skill", () => {
+    expect(
+      taxonomySchema.safeParse(
+        taxonomy([{ ...readyPosition, rulesets: ["little-league", "little-league"] }]),
       ).success,
     ).toBe(false);
   });

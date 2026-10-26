@@ -1,6 +1,6 @@
 {
-  "player": {
-    "ageYears": 5
+  "options": {
+    "ruleset": "little-league"
   },
   "events": [
     {
@@ -168,7 +168,7 @@
       "id": "evt_011",
       "playerId": "plr_fixture",
       "type": "drill_completed",
-      "skill": "infield.cutoff-lead",
+      "skill": "first-base.holding-runner",
       "source": {
         "kind": "module",
         "id": "cutoffs-and-relays",
@@ -184,7 +184,7 @@
       "id": "evt_012",
       "playerId": "plr_fixture",
       "type": "drill_completed",
-      "skill": "infield.cutoff-lead",
+      "skill": "first-base.holding-runner",
       "source": {
         "kind": "module",
         "id": "cutoffs-and-relays",
@@ -192,38 +192,6 @@
         "itemId": "lead-relay-double-down-the-line"
       },
       "occurredAt": "2026-10-01T15:11:00Z",
-      "localDate": "2026-10-01",
-      "app": "ballplayer"
-    },
-    {
-      "contract": "skill.events/v0",
-      "id": "evt_013",
-      "playerId": "plr_fixture",
-      "type": "drill_completed",
-      "skill": "infield.cutoff-lead",
-      "source": {
-        "kind": "module",
-        "id": "cutoffs-and-relays",
-        "version": 1,
-        "itemId": "lead-relay-double-down-the-line"
-      },
-      "occurredAt": "2026-10-01T15:12:00Z",
-      "localDate": "2026-10-01",
-      "app": "ballplayer"
-    },
-    {
-      "contract": "skill.events/v0",
-      "id": "evt_014",
-      "playerId": "plr_fixture",
-      "type": "drill_completed",
-      "skill": "infield.cutoff-lead",
-      "source": {
-        "kind": "module",
-        "id": "cutoffs-and-relays",
-        "version": 1,
-        "itemId": "lead-relay-double-down-the-line"
-      },
-      "occurredAt": "2026-10-01T15:13:00Z",
       "localDate": "2026-10-01",
       "app": "ballplayer"
     }
@@ -239,29 +207,49 @@
         "streakAtLast": 1
       },
       {
-        "skill": "infield.cutoff-lead",
-        "rating": 3,
-        "points": 12,
-        "drills": 4,
-        "lastTrainedAt": "2026-10-01T15:13:00Z",
+        "skill": "first-base.holding-runner",
+        "rating": 1,
+        "points": 10,
+        "drills": 2,
+        "lastTrainedAt": "2026-10-01T15:11:00Z",
         "streakAtLast": 1
       }
     ],
     "areas": [
+      {
+        "area": "hitting",
+        "rating": 0
+      },
+      {
+        "area": "bunting",
+        "rating": 0
+      },
       {
         "area": "baserunning",
         "rating": 0
       },
       {
         "area": "infield",
-        "rating": 15
+        "rating": 3
+      },
+      {
+        "area": "outfield",
+        "rating": 0
+      },
+      {
+        "area": "pitching",
+        "rating": 0
       },
       {
         "area": "baseball-iq",
         "rating": 0
+      },
+      {
+        "area": "mental",
+        "rating": 0
       }
     ],
-    "overall": 5,
+    "overall": 0,
     "explain": [
       {
         "event": "evt_001",
@@ -305,19 +293,11 @@
       },
       {
         "event": "evt_011",
-        "points": 3
+        "points": 5
       },
       {
         "event": "evt_012",
-        "points": 3
-      },
-      {
-        "event": "evt_013",
-        "points": 3
-      },
-      {
-        "event": "evt_014",
-        "points": 3
+        "points": 5
       }
     ]
   }

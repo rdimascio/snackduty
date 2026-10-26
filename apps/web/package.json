@@ -30,7 +30,6 @@
     "@lesto/web": "^0.2.0",
     "@snackday/domain": "workspace:*",
     "@snackday/skill-engine": "workspace:*",
-    "better-sqlite3": "^11.10.0",
     "clsx": "^2.1.1",
     "jose": "^6.2.12",
     "lucide-react": "^0.515.0",
@@ -51,6 +50,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "happy-dom": "^21.0.4",
     "typescript": "^5.7.0",
     "vitest": "^4.1.8"
   }

@@ -13,6 +13,9 @@ export const skillIdSchema = z
   .regex(new RegExp(`^${kebabPattern}\\.${kebabPattern}$`, "u"));
 export type SkillId = z.infer<typeof skillIdSchema>;
 
+export const rulesetIdSchema = z.string().regex(new RegExp(`^${kebabPattern}$`, "u"));
+export type RulesetId = z.infer<typeof rulesetIdSchema>;
+
 export const tierSchema = z.literal([1, 2, 3, 4]);
 export type Tier = z.infer<typeof tierSchema>;
 
@@ -23,9 +26,13 @@ export const taxonomySkillSchema = z
     tier: tierSchema,
     ageMin: z.number().int().min(0).max(18),
     status: z.enum(["active", "retired"]),
+    rulesets: z.array(rulesetIdSchema),
   })
   .refine((skill) => skill.id.startsWith(`${skill.area}.`), {
     message: "Skill id must start with its area id",
+  })
+  .refine((skill) => new Set(skill.rulesets).size === skill.rulesets.length, {
+    message: "Skill rule sets must be unique",
   });
 export type TaxonomySkill = z.infer<typeof taxonomySkillSchema>;
 

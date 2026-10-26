@@ -1,67 +1,44 @@
 import { eq } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { Context, Lesto } from "@lesto/web";
-import { resolveLessonAgeBand } from "@snackday/domain";
 import type { Card } from "@snackday/skill-engine";
 
-import type { Clock, SessionService as Sessions } from "../lib/server/application-contracts";
-import { authenticatedAdult } from "../lib/server/identity";
+import type { SessionService as Sessions } from "../lib/server/application-contracts";
+import { authenticatedAdult, people } from "../lib/server/identity";
 import { participants } from "../lib/server/roster";
-import { seasonLessonAgeBand, teamAccess } from "../lib/server/teams";
-import {
-  currentSeason,
-  mayManageParticipant,
-  seasonTimeZone,
-  teamParticipantIds,
-} from "../lessons/lessons";
+import { listAccessibleTeams } from "../lib/server/team-reads";
+import { teamAccess } from "../lib/server/teams";
+import { mayManageParticipant, teamParticipantIds } from "../lessons/lessons";
 import type { LessonResult } from "../lessons/lessons";
-import {
-  localDateIn,
-  participantSkillEvents,
-  rateParticipant,
-  wholeYearsBetween,
-} from "./skill-events";
+import { participantSkillEvents, rateParticipant } from "./skill-events";
 
 export interface SkillCardServices {
   readonly db: Db;
-  readonly clock: Clock;
 }
 
 export interface PlayerCard {
   readonly participantId: string;
+  readonly teamId: string;
+  readonly label: string;
   readonly card: Card;
 }
 
 const teamNotFound = { ok: false, status: 404, error: "team not found" } as const;
 const participantNotFound = { ok: false, status: 404, error: "participant not found" } as const;
 
-async function participantAgeYears(
-  services: SkillCardServices,
-  tx: Db,
-  teamId: string,
-  participantId: string,
-): Promise<number> {
-  const season = await currentSeason(tx, teamId);
+async function participantCard(tx: Db, participantId: string): Promise<Card> {
+  return rateParticipant(await participantSkillEvents(tx, participantId));
+}
+
+async function participantLabel(tx: Db, participantId: string): Promise<string | undefined> {
   const participant = await tx
     .select()
     .from(participants)
     .where(eq(participants.id, participantId))
     .get();
-  const birthDate = participant?.birthDate ?? null;
-  if (birthDate === null) {
-    return resolveLessonAgeBand(season === undefined ? undefined : seasonLessonAgeBand(season)).min;
-  }
-  return wholeYearsBetween(birthDate, localDateIn(services.clock(), seasonTimeZone(season)));
-}
-
-async function participantCard(
-  services: SkillCardServices,
-  tx: Db,
-  teamId: string,
-  participantId: string,
-): Promise<Card> {
-  const ageYears = await participantAgeYears(services, tx, teamId, participantId);
-  return rateParticipant(await participantSkillEvents(tx, participantId), ageYears);
+  if (participant === undefined) return undefined;
+  const person = await tx.select().from(people).where(eq(people.id, participant.personId)).get();
+  return person?.displayName;
 }
 
 export async function readSkillCard(
@@ -78,31 +55,36 @@ export async function readSkillCard(
     }
     return {
       ok: true,
-      value: await participantCard(services, tx, access.team.id, participantId),
+      value: await participantCard(tx, participantId),
     };
   });
+}
+
+async function managedPlayerCards(tx: Db, personId: string): Promise<PlayerCard[]> {
+  const cards: PlayerCard[] = [];
+  const carded = new Set<string>();
+  for (const { team } of await listAccessibleTeams(tx, personId)) {
+    for (const participantId of await teamParticipantIds(tx, team.id)) {
+      if (carded.has(participantId)) continue;
+      if (!(await mayManageParticipant(tx, personId, team.id, participantId))) continue;
+      carded.add(participantId);
+      cards.push({
+        participantId,
+        teamId: team.id,
+        label: (await participantLabel(tx, participantId)) ?? `Player ${cards.length + 1}`,
+        card: await participantCard(tx, participantId),
+      });
+    }
+  }
+  return cards;
 }
 
 export async function loadPlayerCards(
   services: SkillCardServices,
   personId: string,
-  teamId: string,
 ): Promise<readonly PlayerCard[]> {
   try {
-    return await services.db.transaction(async (tx) => {
-      const access = await teamAccess(tx, teamId, personId);
-      if (access === undefined) return [];
-      const cards: PlayerCard[] = [];
-      for (const participantId of await teamParticipantIds(tx, access.team.id)) {
-        if (await mayManageParticipant(tx, personId, access.team.id, participantId)) {
-          cards.push({
-            participantId,
-            card: await participantCard(services, tx, access.team.id, participantId),
-          });
-        }
-      }
-      return cards;
-    });
+    return await services.db.transaction((tx) => managedPlayerCards(tx, personId));
   } catch {
     console.warn(JSON.stringify({ level: "warn", event: "skills.player_cards_unavailable" }));
     return [];
