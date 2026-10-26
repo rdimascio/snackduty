@@ -47,7 +47,7 @@ export const lessonSchema = z.strictObject({
 });
 export type Lesson = z.infer<typeof lessonSchema>;
 
-export type PublicLessonQuizItem = Omit<LessonQuizItem, "answer">;
+export type PublicLessonQuizItem = Omit<LessonQuizItem, "answer" | "feedback">;
 export type PublicLesson = Omit<Lesson, "quiz"> & {
   readonly quiz: readonly PublicLessonQuizItem[];
 };
@@ -55,7 +55,7 @@ export type PublicLesson = Omit<Lesson, "quiz"> & {
 export function publicLesson(lesson: Lesson): PublicLesson {
   return {
     ...lesson,
-    quiz: lesson.quiz.map(({ answer: _answer, ...item }) => item),
+    quiz: lesson.quiz.map(({ answer: _answer, feedback: _feedback, ...item }) => item),
   };
 }
 

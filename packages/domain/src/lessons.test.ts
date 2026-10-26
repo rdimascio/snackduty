@@ -155,8 +155,8 @@ describe("public lesson", () => {
       id: "which-way",
       prompt: "Which way?",
       choices: ["First", "Third"],
-      feedback: { correct: "Yes", wrong: "Not quite" },
     });
     expect(JSON.stringify(projected)).not.toContain('"answer"');
+    expect(JSON.stringify(projected)).not.toContain("Not quite");
   });
 });
