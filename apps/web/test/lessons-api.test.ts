@@ -359,12 +359,13 @@ describe("lesson of the week selection", () => {
 describe("lesson completion records", () => {
   it("writes and reads answers keyed by participant, series, episode, and quiz item", async () => {
     const { app, sql } = flagOn;
-    const cookie = await signIn(app);
-    const { teamId, participantIds } = await seedTeam(app, cookie);
+    const coachCookie = await signIn(app);
+    const { teamId, participantIds } = await seedTeam(app, coachCookie);
     const [casey] = participantIds;
     const lesson = currentLesson();
     const [first] = lesson.quiz;
     if (casey === undefined || first === undefined) throw new Error("Seed data is missing.");
+    const cookie = await joinAsSecondAdult(app, coachCookie, teamId, casey);
     const wrongChoice = first.answer === 0 ? 1 : 0;
 
     const wrong = await answer(app, cookie, teamId, {
@@ -429,13 +430,48 @@ describe("lesson completion records", () => {
     const view = json(read) as {
       lesson: Lesson;
       progress: { participantId: string; answers: { quizId: string; outcome: string }[] }[];
-      completedParticipants: number;
     };
     expect(view.lesson.slug).toBe(lesson.slug);
     expect(view.progress.find((entry) => entry.participantId === casey)?.answers).toEqual([
       expect.objectContaining({ quizId: first.id, outcome: "correct" }),
     ]);
-    expect(view.completedParticipants).toBe(0);
+
+    const coachRead = await app.handle("GET", `/api/teams/${teamId}/lessons/current`, {
+      headers: { cookie: coachCookie },
+    });
+    expect(json(coachRead)).toMatchObject({ progress: [], completedParticipants: 0 });
+  });
+
+  it("refuses a coach who is not the child's guardian and shows the coach no per-child answers", async () => {
+    const { app } = flagOn;
+    const coachCookie = await signIn(app);
+    const { teamId, participantIds } = await seedTeam(app, coachCookie);
+    const [casey] = participantIds;
+    const [first] = currentLesson().quiz;
+    if (casey === undefined || first === undefined) throw new Error("Seed data is missing.");
+    const guardianCookie = await joinAsSecondAdult(app, coachCookie, teamId, casey);
+    expect(
+      (
+        await answer(app, guardianCookie, teamId, {
+          participantId: casey,
+          quizId: first.id,
+          answer: first.answer,
+        })
+      ).status,
+    ).toBe(200);
+
+    const coachWrite = await answer(app, coachCookie, teamId, {
+      participantId: casey,
+      quizId: first.id,
+      answer: first.answer === 0 ? 1 : 0,
+    });
+    expect(coachWrite.status).toBe(404);
+    expect(json(coachWrite)).toEqual({ error: "participant not found" });
+
+    const coachRead = await app.handle("GET", `/api/teams/${teamId}/lessons/current`, {
+      headers: { cookie: coachCookie },
+    });
+    expect((json(coachRead) as { progress: unknown[] }).progress).toEqual([]);
   });
 
   it("gives a coach the completed-participant count for the current lesson", async () => {
@@ -443,13 +479,14 @@ describe("lesson completion records", () => {
     const cookie = await signIn(app);
     const { teamId, participantIds } = await seedTeam(app, cookie);
     const lesson = currentLesson();
-    const [casey, rowan] = participantIds;
-    if (casey === undefined || rowan === undefined) throw new Error("Seed data is missing.");
+    const [casey] = participantIds;
+    if (casey === undefined) throw new Error("Seed data is missing.");
+    const guardianCookie = await joinAsSecondAdult(app, cookie, teamId, casey);
 
     for (const item of lesson.quiz) {
       expect(
         (
-          await answer(app, cookie, teamId, {
+          await answer(app, guardianCookie, teamId, {
             participantId: casey,
             quizId: item.id,
             answer: item.answer,
@@ -457,13 +494,6 @@ describe("lesson completion records", () => {
         ).status,
       ).toBe(200);
     }
-    const [first] = lesson.quiz;
-    if (first === undefined) throw new Error("Lesson has no quiz.");
-    await answer(app, cookie, teamId, {
-      participantId: rowan,
-      quizId: first.id,
-      answer: first.answer,
-    });
 
     const read = await app.handle("GET", `/api/teams/${teamId}/lessons/current`, {
       headers: { cookie },

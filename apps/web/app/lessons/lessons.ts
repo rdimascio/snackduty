@@ -25,7 +25,7 @@ import type { AgeBand, Lesson, LessonAnswerInput, LessonAnswerRecord } from "@sn
 import type { Clock, SessionService as Sessions } from "../lib/server/application-contracts";
 import { authorizeTeamOperation } from "../lib/server/authorization";
 import { authenticatedAdult, people } from "../lib/server/identity";
-import { memberships, participants } from "../lib/server/roster";
+import { guardianRelationships, memberships, participants } from "../lib/server/roster";
 import { seasons, teamAccess } from "../lib/server/teams";
 import type { LessonCatalog } from "./catalog";
 
@@ -149,12 +149,28 @@ async function rosteredSeasonIds(tx: Db, teamId: string, participantId: string) 
   return [...new Set(rows.map((row) => row.seasonId))];
 }
 
+async function isActiveGuardian(tx: Db, personId: string, participantId: string) {
+  const rows = await tx
+    .select()
+    .from(guardianRelationships)
+    .where(
+      and(
+        eq(guardianRelationships.guardianPersonId, personId),
+        eq(guardianRelationships.participantId, participantId),
+        eq(guardianRelationships.status, "active"),
+      ),
+    )
+    .all();
+  return rows.length > 0;
+}
+
 async function mayManageParticipant(
   tx: Db,
   personId: string,
   teamId: string,
   participantId: string,
 ): Promise<boolean> {
+  if (!(await isActiveGuardian(tx, personId, participantId))) return false;
   for (const seasonId of await rosteredSeasonIds(tx, teamId, participantId)) {
     if (
       await authorizeTeamOperation(tx, personId, "participant.manage", {
