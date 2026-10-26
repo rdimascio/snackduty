@@ -157,7 +157,7 @@ export function LessonAnswers({
         setFailed(true);
       } else {
         setAnswers((current) => mergeLessonAnswer(current, result));
-        void refreshCard(teamId, participantId).catch(() => null);
+        if (result.outcome === "correct") void refreshCard(teamId, participantId).catch(() => null);
       }
     } catch {
       setFailed(true);

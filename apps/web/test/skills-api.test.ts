@@ -7,6 +7,8 @@ import { openSqlite } from "@lesto/runtime";
 import { PILOT_AGE_BAND, selectLessonOfTheWeek } from "@snackday/domain";
 import type { Lesson } from "@snackday/domain";
 import { parseSkillEvents, rate, rulesV0, taxonomyV0 } from "@snackday/skill-engine";
+import { act, createElement } from "react";
+import type { Root } from "react-dom/client";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { staticLessonCatalog } from "../app/lessons/catalog";
@@ -17,7 +19,9 @@ import { identityServices } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
 import { reelSkillMap, taxonomySkillForReelSkill } from "../app/skills/reel-skill-map";
-import { submitLessonAnswer } from "../app/lessons/lesson-answers";
+import { LessonAnswers, submitLessonAnswer } from "../app/lessons/lesson-answers";
+import type { AnswerPoster, LessonAnswerPrompt } from "../app/lessons/lesson-answers";
+import { areaLabel, LivePlayerCards } from "../app/skills/player-card";
 import type { PlayerCardEntry } from "../app/skills/player-card";
 import {
   applyPlayerCardUpdate,
@@ -870,6 +874,35 @@ describe("player card refresh after an answer", () => {
     expect(updates).toEqual([]);
   });
 
+  it("shows the newer card when two refreshes for one child resolve in reverse order", async () => {
+    const target = new EventTarget();
+    const participantId = "participant_reverse_order";
+    let players: PlayerCardEntry[] = [{ participantId, label: "Casey Kid", overall: 0, areas: [] }];
+    const unsubscribe = subscribePlayerCardUpdates((update) => {
+      players = applyPlayerCardUpdate(players, update);
+    }, target);
+    const responses: ((response: { ok: boolean; json: unknown }) => void)[] = [];
+    const get = () =>
+      new Promise<{ ok: boolean; json: unknown }>((resolve) => {
+        responses.push(resolve);
+      });
+
+    const older = refreshPlayerCard("team_x", participantId, { target, get });
+    const newer = refreshPlayerCard("team_x", participantId, { target, get });
+    const [resolveOlder, resolveNewer] = responses;
+    if (resolveOlder === undefined || resolveNewer === undefined) {
+      throw new Error("Both refreshes must request the card.");
+    }
+    const newerCard = { overall: 2, areas: [{ area: "hitting", rating: 2 }] };
+    resolveNewer({ ok: true, json: newerCard });
+    await newer;
+    resolveOlder({ ok: true, json: { overall: 1, areas: [{ area: "hitting", rating: 1 }] } });
+    expect(await older).toBeUndefined();
+    unsubscribe();
+
+    expect(players).toEqual([{ participantId, label: "Casey Kid", ...newerCard }]);
+  });
+
   it("stops listening after unsubscribe", async () => {
     const target = new EventTarget();
     const updates: PlayerCardUpdate[] = [];
@@ -880,5 +913,177 @@ describe("player card refresh after an answer", () => {
       get: () => Promise.resolve({ ok: true, json: { overall: 3, areas: [] } }),
     });
     expect(updates).toEqual([]);
+  });
+});
+
+describe("lesson answer island mounted with the live player cards", () => {
+  let createRoot: typeof import("react-dom/client").createRoot;
+  const savedGlobals = new Map<string, PropertyDescriptor | undefined>();
+  const roots: Root[] = [];
+  let closeWindow: () => Promise<void> = () => Promise.resolve();
+
+  beforeAll(async () => {
+    const { Window } = await import("happy-dom");
+    const dom = new Window({ url: "https://snackday.test/" });
+    closeWindow = () => dom.happyDOM.close();
+    const globals = { window: dom, document: dom.document, IS_REACT_ACT_ENVIRONMENT: true };
+    for (const [key, value] of Object.entries(globals)) {
+      savedGlobals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    }
+    ({ createRoot } = await import("react-dom/client"));
+  });
+
+  afterEach(async () => {
+    for (const root of roots.splice(0)) await act(() => root.unmount());
+    document.body.innerHTML = "";
+  });
+
+  afterAll(async () => {
+    await closeWindow();
+    for (const [key, descriptor] of savedGlobals) {
+      if (descriptor === undefined) Reflect.deleteProperty(globalThis, key);
+      else Object.defineProperty(globalThis, key, descriptor);
+    }
+  });
+
+  async function mount(element: ReturnType<typeof createElement>): Promise<HTMLElement> {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    await act(() => root.render(element));
+    return container;
+  }
+
+  async function settle(done: () => boolean): Promise<void> {
+    for (let attempt = 0; attempt < 100 && !done(); attempt += 1) {
+      await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    }
+  }
+
+  async function click(button: HTMLElement | undefined | null): Promise<void> {
+    if (button === undefined || button === null) throw new Error("Button is missing.");
+    await act(async () => {
+      button.click();
+    });
+  }
+
+  function cardText(container: HTMLElement, label: string): string | undefined {
+    return [...container.querySelectorAll("li")].find(
+      (item) => item.querySelector("p")?.textContent === label,
+    )?.textContent;
+  }
+
+  function expectedCardText(player: PlayerCardEntry): string {
+    return `${player.label}Overall ${player.overall}${player.areas
+      .map((entry) => `${areaLabel(entry.area)}${entry.rating}`)
+      .join("")}`;
+  }
+
+  it("refreshes the card after a correct answer and not after a wrong one", async () => {
+    const quiz: LessonAnswerPrompt[] = [
+      { id: "where-to-run", prompt: "Where do you run?", choices: ["First base", "Third base"] },
+    ];
+    const post: AnswerPoster = (_url, body) => {
+      const { answer } = body as { answer: number };
+      const outcome = answer === 0 ? "correct" : "try_again";
+      return Promise.resolve({
+        ok: true,
+        json: {
+          answer: { participantId: "participant_casey", quizId: "where-to-run", answer, outcome },
+          feedback: outcome === "correct" ? "Yes!" : "Not quite.",
+        },
+      });
+    };
+    const refreshed: string[] = [];
+    const refreshCard = (_teamId: string, participantId: string) => {
+      refreshed.push(participantId);
+      return Promise.resolve(undefined);
+    };
+    const answers = await mount(
+      createElement(LessonAnswers, {
+        teamId: "team_comets",
+        quiz,
+        players: [{ participantId: "participant_casey", label: "Casey Kid" }],
+        answers: [],
+        post,
+        refreshCard,
+      }),
+    );
+    const [right, wrong] = answers.querySelectorAll("button");
+
+    await click(wrong);
+    await settle(() => answers.textContent?.includes("Not quite.") ?? false);
+    expect(answers.textContent).toContain("Not quite.");
+    expect(refreshed).toEqual([]);
+
+    await click(right);
+    await settle(() => refreshed.length > 0);
+    expect(answers.textContent).toContain("Yes!");
+    expect(refreshed).toEqual(["participant_casey"]);
+  });
+
+  it("updates the answering child's rendered card and leaves another child's card alone", async () => {
+    const { app, guardianCookie, teamId, casey, lesson } = await guardianFixture(
+      flagOn,
+      runToFirst.lesson,
+    );
+    const rowan = "participant_rowan_static";
+    const target = new EventTarget();
+    const before = json(await readCard(app, guardianCookie, teamId, casey)) as PlayerCardUpdate;
+    const rowanCard: PlayerCardEntry = {
+      participantId: rowan,
+      label: "Rowan Kid",
+      overall: 7,
+      areas: [{ area: "hitting", rating: 7 }],
+    };
+    const caseyBefore: PlayerCardEntry = {
+      participantId: casey,
+      label: "Casey Kid",
+      overall: before.overall,
+      areas: before.areas,
+    };
+    const post: AnswerPoster = async (url, body) => {
+      const response = await app.handle("POST", url, {
+        headers: { ...sameOrigin, cookie: guardianCookie },
+        body,
+      });
+      return { ok: response.status === 200, json: json(response) };
+    };
+    const get = async (url: string) => {
+      const response = await app.handle("GET", url, { headers: { cookie: guardianCookie } });
+      return { ok: response.status === 200, json: json(response) };
+    };
+    const refreshCard = (cardTeamId: string, participantId: string) =>
+      refreshPlayerCard(cardTeamId, participantId, { target, get });
+
+    const cards = await mount(
+      createElement(LivePlayerCards, { players: [caseyBefore, rowanCard], target }),
+    );
+    const answers = await mount(
+      createElement(LessonAnswers, {
+        teamId,
+        quiz: lesson.quiz.map(({ id, prompt, choices }) => ({ id, prompt, choices })),
+        players: [{ participantId: casey, label: "Casey Kid" }],
+        answers: [],
+        post,
+        refreshCard,
+      }),
+    );
+    expect(cardText(cards, "Casey Kid")).toBe(expectedCardText(caseyBefore));
+
+    const questions = [...answers.querySelectorAll("ol > li")];
+    for (const [index, item] of lesson.quiz.entries()) {
+      await click(questions[index]?.querySelectorAll("button")[item.answer]);
+      await settle(() => questions[index]?.querySelector('[role="status"]') !== null);
+    }
+    const after = json(await readCard(app, guardianCookie, teamId, casey)) as PlayerCardUpdate;
+    const caseyAfter = { ...caseyBefore, overall: after.overall, areas: after.areas };
+    expect(expectedCardText(caseyAfter)).not.toBe(expectedCardText(caseyBefore));
+    await settle(() => cardText(cards, "Casey Kid") === expectedCardText(caseyAfter));
+
+    expect(cardText(cards, "Casey Kid")).toBe(expectedCardText(caseyAfter));
+    expect(cardText(cards, "Rowan Kid")).toBe(expectedCardText(rowanCard));
   });
 });

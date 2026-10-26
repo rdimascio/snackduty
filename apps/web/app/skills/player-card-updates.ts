@@ -92,16 +92,26 @@ export function applyPlayerCardUpdate(
   );
 }
 
-export async function refreshPlayerCard(
+export type PlayerCardRefresh = (
   teamId: string,
   participantId: string,
-  options: PlayerCardRefreshOptions = {},
-): Promise<PlayerCardUpdate | undefined> {
-  try {
-    const update = await fetchPlayerCardUpdate(teamId, participantId, options.get);
-    if (update !== undefined) publishPlayerCardUpdate(update, options.target ?? windowTarget());
-    return update;
-  } catch {
-    return undefined;
-  }
+  options?: PlayerCardRefreshOptions,
+) => Promise<PlayerCardUpdate | undefined>;
+
+export function createPlayerCardRefresher(): PlayerCardRefresh {
+  const generations = new Map<string, number>();
+  return async (teamId, participantId, options = {}) => {
+    const generation = (generations.get(participantId) ?? 0) + 1;
+    generations.set(participantId, generation);
+    try {
+      const update = await fetchPlayerCardUpdate(teamId, participantId, options.get);
+      if (generations.get(participantId) !== generation) return undefined;
+      if (update !== undefined) publishPlayerCardUpdate(update, options.target ?? windowTarget());
+      return update;
+    } catch {
+      return undefined;
+    }
+  };
 }
+
+export const refreshPlayerCard: PlayerCardRefresh = createPlayerCardRefresher();
