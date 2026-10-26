@@ -6,19 +6,50 @@
   "ageMin": 10,
   "lessons": [
     {
-      "id": "who-is-the-cutoff",
-      "title": "Who is the cutoff?",
+      "id": "relay-or-cutoff",
+      "title": "Two jobs: relay and cutoff",
       "script": [
-        "When the ball goes to the outfield, one infielder goes out to be the cutoff. The outfielder throws to that player, not all the way to the base.",
-        "On a single, the cutoff is the lead player for the throw to second base.",
-        "Single to left field: the shortstop goes out. The second baseman covers second base.",
-        "Single to right field: the second baseman goes out. The shortstop covers second base.",
-        "Single to center field: the middle infielder on the side the ball is hit goes out. On a ball right up the middle, most teams send the shortstop.",
-        "On a double in the gap or down the line, two infielders go out. This is called a double cut.",
+        "When the ball goes to the outfield, infielders go out to help get it back in. They do one of two jobs: relay or cutoff.",
+        "A relay is for a deep ball, like a double in the gap or down the line. The throw is too long for one player to make.",
+        "On a relay, the outfielder throws to the lead relay. The lead relay always catches the ball and throws it on.",
+        "A cutoff is for a throw home or to third base on a single.",
+        "On a cutoff, the outfielder throws through the cutoff's head, on a line toward the base.",
+        "The cutoff lets a good throw go through to the base. The cutoff catches a throw that is off line or dying.",
+        "Relay: always catch it. Cutoff: let a good throw go, and cut a bad one.",
+        "Every team sets its own plan for some plays, so learn your coach's plan too."
+      ]
+    },
+    {
+      "id": "relay-on-a-deep-ball",
+      "title": "The relay on a deep ball",
+      "script": [
+        "On a double in the gap or down the line, two infielders go out. One is the lead relay. One is the trail.",
+        "The lead relay goes out on the side of the field where the ball is.",
         "Ball to the left-center gap or down the left-field line: the shortstop is the lead. The second baseman is the trail.",
         "Ball to the right-center gap or down the right-field line: the second baseman is the lead. The shortstop is the trail.",
-        "The trail stands 15 to 20 feet behind the lead, on the same line. If the throw is short, high or gets past the lead, the trail catches it.",
-        "Every team sets its own plan for some plays, so learn your coach's plan too."
+        "The lead lines up between the outfielder and the base, gets hands up and yells for the ball.",
+        "The outfielder throws to the lead on a line, chest-high.",
+        "The lead always catches the throw. A relay throw never goes through.",
+        "The trail sets up 15 to 20 feet behind the lead, on the same line.",
+        "The trail calls the base so the lead knows where to throw: \"Two!\", \"Three!\" or \"Home!\"",
+        "If the throw is short, high or gets past the lead, the trail catches it and makes the throw.",
+        "The lead catches on the glove side, turns to the glove side and throws to the base the trail called."
+      ]
+    },
+    {
+      "id": "cutoff-depends-on-runners",
+      "title": "Who takes the throw on a single?",
+      "script": [
+        "On a single, who takes the throw depends on the runners.",
+        "Bases empty: the throw goes to second base. This keeps the batter at first.",
+        "The middle infielder on the side the ball is hit goes out and takes the throw. The other middle infielder covers second base.",
+        "Single to left field: the shortstop takes the throw and the second baseman covers second. Single to right field: they switch.",
+        "Single right up the middle: most teams send the shortstop out and the second baseman covers second.",
+        "Runner on second, or any runner trying to score: the play is at home, so the cutoff lines up for a throw home.",
+        "Ball to center or right field: most teams use the first baseman as the cutoff.",
+        "Ball to left field: most teams use the third baseman as the cutoff. Some teams use the shortstop. Learn your team's rule.",
+        "Runner on first going to third: the throw goes to third base. Most teams use the shortstop as the cutoff.",
+        "The pitcher backs up the base the throw is going to: home plate or third base."
       ]
     },
     {
@@ -26,24 +57,25 @@
       "title": "Where the cutoff lines up",
       "script": [
         "Stand on a straight line from the outfielder to the base the ball is going to.",
-        "Go out far enough that the outfielder can reach you on the fly with a strong throw.",
+        "The outfielder throws on a line through your head, toward the base. A good throw goes past you and carries on to the base.",
         "Open your chest to the outfielder so you can see the ball and the field.",
         "Get both hands up high, above your head, so the outfielder has a big target.",
         "Yell for the ball so the outfielder can find you fast. Most teams yell \"Hit me! Hit me!\"",
-        "Catch the ball on your glove side. Then turn to your glove side and throw to the base.",
+        "If you catch the ball, catch it on your glove side. Then turn to your glove side to throw.",
         "If the player at the base tells you to move left or right, move quickly and get your hands back up."
       ]
     },
     {
-      "id": "the-call-at-the-base",
-      "title": "Listen for the call",
+      "id": "calls-and-when-to-cut",
+      "title": "Listen for the call, and cut a bad throw",
       "script": [
-        "The player at the target base makes the call. On a throw home, that is the catcher. On a throw to third, that is the third baseman.",
+        "On a cutoff, the player at the target base makes the call. On a throw home, that is the catcher. On a throw to third, that is the third baseman.",
         "They make the call because they can see the runner and the ball at the same time. The cutoff cannot.",
-        "\"Cut!\" means catch the ball and hold it.",
-        "\"Cut two!\" means catch the ball and throw it to second base. The number tells you which base to throw to.",
-        "\"Relay!\" means catch the ball and throw it on to the target base. You hear this when the throw is off line or will not make it all the way.",
-        "No call means let the ball go through to the base. Do not touch it.",
+        "\"Cut!\" means catch the ball. Then hold it, or throw it if you see a play.",
+        "\"Cut two!\" means catch the ball and throw it to second base. \"Cut three!\" means catch it and throw it to third base. The number tells you the base.",
+        "\"Relay!\" means catch the ball and throw it on to the target base.",
+        "No call means let a good throw go through to the base. A good throw is on line and still carrying.",
+        "Always cut a throw that is off line or dying, even when there is no call.",
         "Call loud and call early. Say it more than once so the cutoff hears it over the crowd."
       ]
     }
@@ -51,7 +83,7 @@
   "checks": [
     {
       "id": "check-trail-in-the-gap",
-      "prompt": "A ball rolls to the right-center gap for a double. The second baseman goes out as the lead. What does the shortstop do?",
+      "prompt": "A ball rolls to the right-center gap for a double. The second baseman goes out as the lead relay. What does the shortstop do?",
       "choices": [
         "Stays at shortstop",
         "Trails 15 to 20 feet behind the second baseman, on the same line",
@@ -60,8 +92,8 @@
       ],
       "answer": 1,
       "feedback": {
-        "correct": "Yes. The shortstop is the trail. The trail backs up the lead in case the throw is short or gets past.",
-        "wrong": "Not quite. On a ball to the right side, the second baseman is the lead and the shortstop trails 15 to 20 feet behind."
+        "correct": "Yes. The shortstop is the trail. The trail calls the base and catches the throw if it gets past the lead.",
+        "wrong": "Not quite. On a ball to the right side, the second baseman is the lead relay. The shortstop trails 15 to 20 feet behind, on the same line."
       }
     },
     {
@@ -75,13 +107,13 @@
       ],
       "answer": 2,
       "feedback": {
-        "correct": "Right. On the straight line, a good throw is easy to catch or let go through.",
+        "correct": "Right. On the straight line, a good throw goes through to the base and a bad one is easy to cut.",
         "wrong": "Try again. The cutoff stands on a straight line from the outfielder to the base the ball is going to."
       }
     },
     {
       "id": "check-cut-two",
-      "prompt": "You are the cutoff. The catcher yells \"Cut two!\" What do you do?",
+      "prompt": "You are the cutoff on a throw home. The catcher yells \"Cut two!\" What do you do?",
       "choices": [
         "Let the ball go through",
         "Catch the ball and hold it",
@@ -92,6 +124,21 @@
       "feedback": {
         "correct": "Yes. \"Cut two\" means catch it and throw to second base.",
         "wrong": "Not quite. The number tells you the base. \"Cut two\" means catch it and throw to second base."
+      }
+    },
+    {
+      "id": "check-relay-no-call",
+      "prompt": "On a double to the gap, the outfielder throws to the lead relay. The lead relay hears no call. What does the lead relay do?",
+      "choices": [
+        "Lets the ball go through to the base",
+        "Catches it and relays it to the base",
+        "Steps aside so the trail can catch it",
+        "Catches it and runs it back to the infield"
+      ],
+      "answer": 1,
+      "feedback": {
+        "correct": "Yes. The lead relay always catches the throw and relays it. Letting a good throw go on no call is a cutoff rule, not a relay rule.",
+        "wrong": "Not quite. On a relay, the lead always catches the throw and relays it. Only a cutoff lets a good throw go through."
       }
     }
   ],
@@ -104,6 +151,7 @@
       "steps": [
         "On \"Go\", the first player throws to the next player in the line.",
         "Each player opens up, gets hands up and yells for the ball.",
+        "Every player catches the ball. In a relay, nobody lets it go through.",
         "Catch on your glove side, turn to your glove side and throw to the next player.",
         "When the ball reaches the end, send it back down the line.",
         "The first line to get the ball back to the start wins."
@@ -112,66 +160,71 @@
       "coachingPoints": [
         "Hands up and loud before the ball is thrown.",
         "Turn to the glove side. Do not spin the long way.",
-        "A good, chest-high throw beats a fast, wild throw.",
+        "A chest-high throw on a line beats a fast, wild throw.",
         "If the ball is dropped, the player who dropped it chases it and goes on from there."
       ]
     },
     {
       "id": "cutoff-alignment-coach-call",
-      "title": "Cutoff alignment with a coach call",
+      "title": "Cutoff alignment with the catcher's call",
       "skill": "infield.cutoff-lead",
-      "setup": "Put outfielders in left, center and right. Put a cutoff player in the infield and a catcher or coach at home plate. A coach hits or rolls balls to the outfield.",
+      "setup": "Put outfielders in left, center and right. Put a first baseman and a third baseman in the infield as cutoffs, a pitcher on the mound, a catcher at home plate, and a player or coach at second base. A coach hits or rolls balls to the outfield. Tell the players there is a runner on second, so the play is at home.",
       "steps": [
         "The coach sends a ball to one outfielder.",
-        "The cutoff runs to the line between that outfielder and home plate and gets hands up.",
+        "On a ball to center or right field, the first baseman is the cutoff. On a ball to left field, the third baseman is the cutoff.",
+        "The cutoff runs to the line between the outfielder and home plate and gets hands up. The pitcher runs to back up home plate.",
+        "The outfielder throws on a line through the cutoff's head, chest-high, toward home plate.",
         "The catcher calls \"Cut\", \"Cut two\", \"Relay\" or nothing at all.",
-        "The cutoff does what the call says: hold it, throw to second, throw it home, or let it go through.",
-        "Rotate the outfielders and cutoff players every few balls."
+        "The cutoff does what the call says. \"Cut\": catch it and hold it. \"Cut two\": catch it and throw to second base. \"Relay\": catch it and throw home. No call: let a good throw go through to the catcher.",
+        "If the throw is off line or dying, the cutoff cuts it even with no call."
       ],
-      "reps": "12 balls, 4 to each outfield spot.",
+      "reps": "12 balls, 4 to each outfield spot. After every 4 balls, rotate the outfielders, the two cutoffs, the pitcher, the catcher and the player at second base.",
       "coachingPoints": [
         "Get on the line first, then get your hands up.",
         "The catcher calls early and loud, more than once.",
         "Move left or right when the catcher says so.",
-        "No call means do not touch the ball."
+        "No call and a good throw: let it go. Off line or dying: always cut it."
       ]
     },
     {
       "id": "double-cut-in-the-gap",
       "title": "Double cut on a ball in the gap",
       "skill": "infield.cutoff-trail",
-      "setup": "Put players at shortstop, second base, third base and catcher, with two outfielders in the gaps. A coach hits or rolls balls into the left-center and right-center gaps.",
+      "setup": "Put players at shortstop and second base, a third baseman at third base and a catcher at home plate, with two outfielders in the gaps. A coach hits or rolls balls into the left-center and right-center gaps.",
       "steps": [
         "The coach sends a ball into one gap.",
-        "On a ball to the left side, the shortstop goes out as the lead and the second baseman trails. On a ball to the right side, they switch.",
+        "On a ball to the left-center gap, the shortstop goes out as the lead relay and the second baseman trails. On a ball to the right-center gap, they switch.",
         "The trail lines up 15 to 20 feet behind the lead, on the same line.",
-        "The outfielder throws to the lead. The lead catches, turns and throws to third base or home.",
+        "The trail calls the base: \"Three!\" or \"Home!\"",
+        "The outfielder throws to the lead on a line, chest-high.",
+        "The lead always catches the throw, turns to the glove side and throws to third base or home, where the trail called.",
         "If the throw is short or gets past the lead, the trail catches it and makes the throw."
       ],
-      "reps": "10 balls, 5 to each gap.",
+      "reps": "10 balls, 5 to each gap. After every 5 balls, rotate the lead, the trail, the third baseman, the catcher and the outfielders.",
       "coachingPoints": [
-        "The trail is not a spectator. Be ready for every throw.",
+        "The lead always catches the throw. A relay never goes through.",
+        "The trail is not a spectator. Call the base early and be ready for a bad throw.",
         "The trail stays on the same line as the lead.",
-        "The lead goes out far enough to make the outfielder's throw short and strong.",
-        "The player at the target base makes the call."
+        "The lead goes out far enough to make the outfielder's throw short and strong."
       ]
     },
     {
       "id": "trail-backup-down-the-line",
       "title": "Trail backup on a double down the line",
       "skill": "infield.cutoff-trail",
-      "setup": "Put a lead and a trail out near the foul line in left field, and a third baseman at third. A coach stands in the outfield corner with a bucket of balls.",
+      "setup": "Put a shortstop as the lead and a second baseman as the trail out near the foul line in left field, and a third baseman at third base. A coach stands in the outfield corner with a bucket of balls.",
       "steps": [
-        "The lead lines up between the coach and third base. The trail lines up 15 to 20 feet behind the lead.",
+        "The lead lines up between the coach and third base. The trail lines up 15 to 20 feet behind the lead, on the same line.",
+        "The trail calls \"Three!\" before every throw.",
         "The coach throws to the lead. Some throws are good. Some are short, high or wide on purpose.",
-        "On a good throw, the lead catches it, turns and throws to third.",
-        "On a bad throw, the trail catches it and throws to third.",
-        "Do the same drill down the right-field line with the second baseman as the lead."
+        "The lead goes for every throw. When the lead catches it, the lead turns to the glove side and throws to third base.",
+        "When a throw gets past the lead, the trail catches it and throws to third base.",
+        "Do the same drill down the right-field line, with the second baseman as the lead and the shortstop as the trail."
       ],
-      "reps": "8 throws per pair down each line, then switch lead and trail.",
+      "reps": "8 throws per pair down each line. Then switch lead and trail, and rotate a new player in at third base.",
       "coachingPoints": [
         "The trail watches the ball, not the lead.",
-        "The trail can call out the base so the lead knows where to throw.",
+        "The trail calls the base early and loud.",
         "Stay in a ready stance. A bad throw comes fast.",
         "Knock down a ball in the dirt. Keep it in front of you."
       ]
@@ -183,37 +236,37 @@
       "setup": "Pair each outfielder with a partner who plays the cutoff, about 90 to 120 feet apart. The cutoff stands with hands up high.",
       "steps": [
         "The cutoff gets hands up and yells for the ball.",
-        "The outfielder takes a crow hop and throws at the cutoff's head.",
-        "Score 2 points for a throw that reaches the cutoff on the fly between the shoulders and the top of the hands.",
-        "Score 1 point for a throw the cutoff can catch without moving their feet.",
+        "The outfielder takes a crow hop and throws on a line through the cutoff's head, chest-high.",
+        "Score 2 points for a throw on a line that reaches the cutoff on the fly between the chest and the top of the head.",
+        "Score 1 point for any other throw the cutoff can catch without moving their feet.",
         "Switch jobs after each round."
       ],
       "reps": "3 rounds of 10 throws each.",
       "coachingPoints": [
         "Find the cutoff before you throw. Look for the hands.",
-        "Aim at the head. A throw that sails a little high is easier to handle than one in the dirt.",
+        "Throw on a line through the cutoff's head, chest-high, so the cutoff can catch it or let it go.",
         "Throw over the top so the ball goes straight.",
-        "A low, strong throw to the cutoff beats a high, looping throw to the base."
+        "A strong throw on a line to the cutoff beats a high, looping throw all the way in."
       ]
     },
     {
       "id": "field-and-throw-to-the-cutoff",
       "title": "Field it and hit the cutoff",
       "skill": "outfield.hit-the-cutoff",
-      "setup": "Put outfielders in a line in center field. Put a cutoff player between them and second base. A coach rolls or hits ground balls to the outfielders.",
+      "setup": "Put outfielders in a line in center field. The bases are empty. Put a shortstop out between the outfielders and second base to take the throw, and a second baseman at second base. A coach rolls or hits ground balls to the outfielders.",
       "steps": [
         "The coach sends a ground ball to the first outfielder.",
         "The outfielder charges the ball and fields it on the glove side.",
-        "The outfielder finds the cutoff, takes a crow hop and throws at the cutoff's head.",
-        "The cutoff catches it, turns to the glove side and throws to second base.",
+        "The outfielder finds the shortstop, takes a crow hop and throws on a line through the shortstop's head, chest-high.",
+        "The shortstop catches it, turns to the glove side and throws to the second baseman at second base.",
         "The outfielder goes to the back of the line."
       ],
-      "reps": "2 rounds of 5 balls for each outfielder.",
+      "reps": "2 rounds of 5 balls for each outfielder. After each round, rotate new players in at shortstop and at second base.",
       "coachingPoints": [
         "Charge the ball. Every step you take saves time.",
-        "Get your feet moving toward the cutoff before you throw.",
-        "Look for the cutoff's hands, then throw.",
-        "Keep the throw low and on line so the cutoff can catch it or let it go."
+        "Get your feet moving toward the shortstop before you throw.",
+        "Look for the hands, then throw.",
+        "Bases empty means the throw goes to second base. On a ball to center, most teams send the shortstop out to take it."
       ]
     }
   ]

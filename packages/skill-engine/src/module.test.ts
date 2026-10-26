@@ -1,12 +1,50 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { SKILL_MODULE_CONTRACT, skillModuleSchema } from "./index";
+import { SKILL_MODULE_CONTRACT, type ModuleDrill, skillModuleSchema } from "./index";
 
 const modulePath = fileURLToPath(new URL("../modules/cutoffs-and-relays.v1.json", import.meta.url));
 const cutoffsJson: unknown = JSON.parse(readFileSync(modulePath, "utf8"));
 
 const cutoffSkills = ["infield.cutoff-lead", "infield.cutoff-trail", "outfield.hit-the-cutoff"];
+
+const baseReceivers = {
+  first: /\bat first base\b/iu,
+  second: /\bat second base\b/iu,
+  third: /\bat third base\b/iu,
+  home: /\bat home plate\b/iu,
+} as const;
+type Base = keyof typeof baseReceivers;
+
+const throwPattern = /\bthrow/iu;
+const throwTargetPattern =
+  /\b(?:to|at|toward)\s+(first|second|third)\b(?!\s+baseman)|\b(home)\b/giu;
+
+function isBase(value: string): value is Base {
+  return Object.hasOwn(baseReceivers, value);
+}
+
+function throwTargets(drill: Pick<ModuleDrill, "steps" | "coachingPoints">): Set<Base> {
+  const targets = new Set<Base>();
+  const sentences = [...drill.steps, ...drill.coachingPoints].flatMap((line) =>
+    line.split(/[.!?]/u),
+  );
+  for (const sentence of sentences.filter((line) => throwPattern.test(line))) {
+    for (const match of sentence.matchAll(throwTargetPattern)) {
+      const base = (match[1] ?? match[2] ?? "").toLowerCase();
+      if (isBase(base)) {
+        targets.add(base);
+      }
+    }
+  }
+  return targets;
+}
+
+function basesWithoutReceiver(
+  drill: Pick<ModuleDrill, "setup" | "steps" | "coachingPoints">,
+): Base[] {
+  return [...throwTargets(drill)].filter((base) => !baseReceivers[base].test(drill.setup));
+}
 
 function validModule() {
   return {
@@ -58,8 +96,8 @@ describe("cutoffs and relays module v1", () => {
   it("parses the cutoffs and relays module", () => {
     const parsed = skillModuleSchema.parse(cutoffsJson);
     expect(parsed.id).toBe("cutoffs-and-relays");
-    expect(parsed.lessons).toHaveLength(3);
-    expect(parsed.checks).toHaveLength(3);
+    expect(parsed.lessons).toHaveLength(5);
+    expect(parsed.checks).toHaveLength(4);
     expect(parsed.drills).toHaveLength(6);
   });
 
@@ -70,6 +108,35 @@ describe("cutoffs and relays module v1", () => {
       expect(cutoffSkills).toContain(drill.skill);
     }
     expect(new Set(parsed.drills.map((drill) => drill.skill))).toEqual(new Set(cutoffSkills));
+  });
+
+  it("puts a receiver in the setup at every base a drill throws to", () => {
+    const parsed = skillModuleSchema.parse(cutoffsJson);
+    for (const drill of parsed.drills) {
+      expect({ drill: drill.id, missing: basesWithoutReceiver(drill) }).toEqual({
+        drill: drill.id,
+        missing: [],
+      });
+    }
+    const allTargets = new Set(parsed.drills.flatMap((drill) => [...throwTargets(drill)]));
+    expect(allTargets).toEqual(new Set(["second", "third", "home"]));
+  });
+
+  it("flags a drill that throws to a base with no receiver in its setup", () => {
+    const drill = {
+      setup: "Put a cutoff between the outfielder and second base.",
+      steps: ["The cutoff catches it and throws to second base.", "Throw it home on a relay call."],
+      coachingPoints: ["Throw to the second baseman."],
+    };
+    expect(basesWithoutReceiver(drill)).toEqual(["second", "home"]);
+  });
+
+  it("does not teach the retired rules", () => {
+    const text = JSON.stringify(cutoffsJson).toLowerCase();
+    expect(text).not.toContain("a little high");
+    expect(text).not.toContain("keep the throw low");
+    expect(text).not.toContain("the cutoff is the lead player");
+    expect(text).not.toContain("do not touch it");
   });
 });
 
