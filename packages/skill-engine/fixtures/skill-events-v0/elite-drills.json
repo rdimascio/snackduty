@@ -1,0 +1,144 @@
+{
+  "player": {
+    "ageYears": 11
+  },
+  "events": [
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_001",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "pitching.pickoffs",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:00:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_002",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "pitching.pickoffs",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:10:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_003",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "pitching.pickoffs",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:20:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_004",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "hitting.approach-by-count",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:30:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    }
+  ],
+  "expected": {
+    "skills": [
+      {
+        "skill": "hitting.approach-by-count",
+        "rating": 0,
+        "points": 5,
+        "drills": 1,
+        "lastTrainedAt": "2026-10-01T15:30:00Z",
+        "streakAtLast": 1
+      },
+      {
+        "skill": "pitching.pickoffs",
+        "rating": 2,
+        "points": 15,
+        "drills": 3,
+        "lastTrainedAt": "2026-10-01T15:20:00Z",
+        "streakAtLast": 1
+      }
+    ],
+    "areas": [
+      {
+        "area": "hitting",
+        "rating": 0
+      },
+      {
+        "area": "bunting",
+        "rating": 0
+      },
+      {
+        "area": "baserunning",
+        "rating": 0
+      },
+      {
+        "area": "infield",
+        "rating": 0
+      },
+      {
+        "area": "outfield",
+        "rating": 0
+      },
+      {
+        "area": "first-base",
+        "rating": 0
+      },
+      {
+        "area": "pitching",
+        "rating": 2
+      },
+      {
+        "area": "baseball-iq",
+        "rating": 0
+      }
+    ],
+    "overall": 0,
+    "explain": [
+      {
+        "event": "evt_001",
+        "points": 5
+      },
+      {
+        "event": "evt_002",
+        "points": 5
+      },
+      {
+        "event": "evt_003",
+        "points": 5
+      },
+      {
+        "event": "evt_004",
+        "points": 5
+      }
+    ]
+  }
+}

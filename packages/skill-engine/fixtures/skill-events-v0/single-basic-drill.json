@@ -1,0 +1,56 @@
+{
+  "player": {
+    "ageYears": 6
+  },
+  "events": [
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_001",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:00:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    }
+  ],
+  "expected": {
+    "skills": [
+      {
+        "skill": "infield.ready-position",
+        "rating": 1,
+        "points": 1,
+        "drills": 1,
+        "lastTrainedAt": "2026-10-01T15:00:00Z",
+        "streakAtLast": 1
+      }
+    ],
+    "areas": [
+      {
+        "area": "baserunning",
+        "rating": 0
+      },
+      {
+        "area": "infield",
+        "rating": 1
+      },
+      {
+        "area": "baseball-iq",
+        "rating": 0
+      }
+    ],
+    "overall": 0,
+    "explain": [
+      {
+        "event": "evt_001",
+        "points": 1
+      }
+    ]
+  }
+}

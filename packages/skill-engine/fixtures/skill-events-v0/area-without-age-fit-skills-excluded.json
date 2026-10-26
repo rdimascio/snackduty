@@ -1,0 +1,292 @@
+{
+  "player": {
+    "ageYears": 7
+  },
+  "events": [
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_001",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:00:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_002",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:01:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_003",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:02:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_004",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:03:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_005",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:04:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_006",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:05:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_007",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:06:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_008",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:07:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_009",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:08:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_010",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:09:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_011",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "pitching.pickoffs",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:10:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_012",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "pitching.pickoffs",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:11:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    }
+  ],
+  "expected": {
+    "skills": [
+      {
+        "skill": "infield.ready-position",
+        "rating": 15,
+        "points": 10,
+        "drills": 10,
+        "lastTrainedAt": "2026-10-01T15:09:00Z",
+        "streakAtLast": 1
+      },
+      {
+        "skill": "pitching.pickoffs",
+        "rating": 1,
+        "points": 10,
+        "drills": 2,
+        "lastTrainedAt": "2026-10-01T15:11:00Z",
+        "streakAtLast": 1
+      }
+    ],
+    "areas": [
+      {
+        "area": "bunting",
+        "rating": 0
+      },
+      {
+        "area": "baserunning",
+        "rating": 0
+      },
+      {
+        "area": "infield",
+        "rating": 15
+      },
+      {
+        "area": "outfield",
+        "rating": 0
+      },
+      {
+        "area": "baseball-iq",
+        "rating": 0
+      }
+    ],
+    "overall": 3,
+    "explain": [
+      {
+        "event": "evt_001",
+        "points": 1
+      },
+      {
+        "event": "evt_002",
+        "points": 1
+      },
+      {
+        "event": "evt_003",
+        "points": 1
+      },
+      {
+        "event": "evt_004",
+        "points": 1
+      },
+      {
+        "event": "evt_005",
+        "points": 1
+      },
+      {
+        "event": "evt_006",
+        "points": 1
+      },
+      {
+        "event": "evt_007",
+        "points": 1
+      },
+      {
+        "event": "evt_008",
+        "points": 1
+      },
+      {
+        "event": "evt_009",
+        "points": 1
+      },
+      {
+        "event": "evt_010",
+        "points": 1
+      },
+      {
+        "event": "evt_011",
+        "points": 5
+      },
+      {
+        "event": "evt_012",
+        "points": 5
+      }
+    ]
+  }
+}

@@ -1,0 +1,2726 @@
+{
+  "player": {
+    "ageYears": 5
+  },
+  "events": [
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_001",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:00:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_002",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-02T15:00:00Z",
+      "localDate": "2026-10-02",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_003",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-03T15:00:00Z",
+      "localDate": "2026-10-03",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_004",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-04T15:00:00Z",
+      "localDate": "2026-10-04",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_005",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-05T15:00:00Z",
+      "localDate": "2026-10-05",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_006",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-06T15:00:00Z",
+      "localDate": "2026-10-06",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_007",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-07T15:00:00Z",
+      "localDate": "2026-10-07",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_008",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-08T15:00:00Z",
+      "localDate": "2026-10-08",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_009",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-09T15:00:00Z",
+      "localDate": "2026-10-09",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_010",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-10T15:00:00Z",
+      "localDate": "2026-10-10",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_011",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-11T15:00:00Z",
+      "localDate": "2026-10-11",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_012",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-12T15:00:00Z",
+      "localDate": "2026-10-12",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_013",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-13T15:00:00Z",
+      "localDate": "2026-10-13",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_014",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-14T15:00:00Z",
+      "localDate": "2026-10-14",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_015",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-15T15:00:00Z",
+      "localDate": "2026-10-15",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_016",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-16T15:00:00Z",
+      "localDate": "2026-10-16",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_017",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-17T15:00:00Z",
+      "localDate": "2026-10-17",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_018",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-18T15:00:00Z",
+      "localDate": "2026-10-18",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_019",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-19T15:00:00Z",
+      "localDate": "2026-10-19",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_020",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-20T15:00:00Z",
+      "localDate": "2026-10-20",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_021",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-21T15:00:00Z",
+      "localDate": "2026-10-21",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_022",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-22T15:00:00Z",
+      "localDate": "2026-10-22",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_023",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-23T15:00:00Z",
+      "localDate": "2026-10-23",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_024",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-24T15:00:00Z",
+      "localDate": "2026-10-24",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_025",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-25T15:00:00Z",
+      "localDate": "2026-10-25",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_026",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-26T15:00:00Z",
+      "localDate": "2026-10-26",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_027",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-27T15:00:00Z",
+      "localDate": "2026-10-27",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_028",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-28T15:00:00Z",
+      "localDate": "2026-10-28",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_029",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-29T15:00:00Z",
+      "localDate": "2026-10-29",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_030",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-30T15:00:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_031",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 1
+      },
+      "occurredAt": "2026-10-30T15:01:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_032",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 2
+      },
+      "occurredAt": "2026-10-30T15:02:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_033",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 3
+      },
+      "occurredAt": "2026-10-30T15:03:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_034",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 4
+      },
+      "occurredAt": "2026-10-30T15:04:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_035",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 5
+      },
+      "occurredAt": "2026-10-30T15:05:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_036",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 6
+      },
+      "occurredAt": "2026-10-30T15:06:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_037",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 7
+      },
+      "occurredAt": "2026-10-30T15:07:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_038",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 8
+      },
+      "occurredAt": "2026-10-30T15:08:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_039",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 9
+      },
+      "occurredAt": "2026-10-30T15:09:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_040",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 10
+      },
+      "occurredAt": "2026-10-30T15:10:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_041",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 11
+      },
+      "occurredAt": "2026-10-30T15:11:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_042",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 12
+      },
+      "occurredAt": "2026-10-30T15:12:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_043",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 13
+      },
+      "occurredAt": "2026-10-30T15:13:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_044",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 14
+      },
+      "occurredAt": "2026-10-30T15:14:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_045",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 15
+      },
+      "occurredAt": "2026-10-30T15:15:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_046",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 16
+      },
+      "occurredAt": "2026-10-30T15:16:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_047",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 17
+      },
+      "occurredAt": "2026-10-30T15:17:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_048",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 18
+      },
+      "occurredAt": "2026-10-30T15:18:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_049",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 19
+      },
+      "occurredAt": "2026-10-30T15:19:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_050",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 20
+      },
+      "occurredAt": "2026-10-30T15:20:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_051",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 21
+      },
+      "occurredAt": "2026-10-30T15:21:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_052",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 22
+      },
+      "occurredAt": "2026-10-30T15:22:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_053",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 23
+      },
+      "occurredAt": "2026-10-30T15:23:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_054",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 24
+      },
+      "occurredAt": "2026-10-30T15:24:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_055",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 25
+      },
+      "occurredAt": "2026-10-30T15:25:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_056",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 26
+      },
+      "occurredAt": "2026-10-30T15:26:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_057",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 27
+      },
+      "occurredAt": "2026-10-30T15:27:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_058",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 28
+      },
+      "occurredAt": "2026-10-30T15:28:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_059",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 29
+      },
+      "occurredAt": "2026-10-30T15:29:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_060",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 30
+      },
+      "occurredAt": "2026-10-30T15:30:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_061",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 31
+      },
+      "occurredAt": "2026-10-30T15:31:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_062",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 32
+      },
+      "occurredAt": "2026-10-30T15:32:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_063",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 33
+      },
+      "occurredAt": "2026-10-30T15:33:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_064",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 34
+      },
+      "occurredAt": "2026-10-30T15:34:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_065",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 35
+      },
+      "occurredAt": "2026-10-30T15:35:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_066",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 36
+      },
+      "occurredAt": "2026-10-30T15:36:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_067",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 37
+      },
+      "occurredAt": "2026-10-30T15:37:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_068",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 38
+      },
+      "occurredAt": "2026-10-30T15:38:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_069",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 39
+      },
+      "occurredAt": "2026-10-30T15:39:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_070",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 40
+      },
+      "occurredAt": "2026-10-30T15:40:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_071",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 41
+      },
+      "occurredAt": "2026-10-30T15:41:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_072",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 42
+      },
+      "occurredAt": "2026-10-30T15:42:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_073",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 43
+      },
+      "occurredAt": "2026-10-30T15:43:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_074",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 44
+      },
+      "occurredAt": "2026-10-30T15:44:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_075",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 45
+      },
+      "occurredAt": "2026-10-30T15:45:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_076",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 46
+      },
+      "occurredAt": "2026-10-30T15:46:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_077",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 47
+      },
+      "occurredAt": "2026-10-30T15:47:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_078",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 48
+      },
+      "occurredAt": "2026-10-30T15:48:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_079",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 49
+      },
+      "occurredAt": "2026-10-30T15:49:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_080",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 50
+      },
+      "occurredAt": "2026-10-30T15:50:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_081",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 51
+      },
+      "occurredAt": "2026-10-30T15:51:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_082",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 52
+      },
+      "occurredAt": "2026-10-30T15:52:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_083",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 53
+      },
+      "occurredAt": "2026-10-30T15:53:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_084",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 54
+      },
+      "occurredAt": "2026-10-30T15:54:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_085",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 55
+      },
+      "occurredAt": "2026-10-30T15:55:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_086",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 56
+      },
+      "occurredAt": "2026-10-30T15:56:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_087",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 57
+      },
+      "occurredAt": "2026-10-30T15:57:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_088",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 58
+      },
+      "occurredAt": "2026-10-30T15:58:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_089",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 59
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_090",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 60
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_091",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 61
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_092",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 62
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_093",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 63
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_094",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 64
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_095",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 65
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_096",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 66
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_097",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 67
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_098",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 68
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_099",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 69
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_100",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 70
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_101",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 71
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_102",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 72
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_103",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 73
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_104",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 74
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_105",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 75
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_106",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 76
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_107",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 77
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_108",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 78
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_109",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 79
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_110",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 80
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_111",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 81
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_112",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 82
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_113",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 83
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_114",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 84
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_115",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 85
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_116",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 86
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_117",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 87
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_118",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 88
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_119",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 89
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_120",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 90
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_121",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 91
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_122",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 92
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_123",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 93
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_124",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 94
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_125",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 95
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_126",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 96
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_127",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 97
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_128",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 98
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_129",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 99
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_130",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 100
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_131",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 101
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_132",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 102
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_133",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 103
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_134",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 104
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_135",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 105
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_136",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 106
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_137",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 107
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_138",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 108
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_139",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 109
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_140",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "infield.ready-position",
+      "source": {
+        "kind": "module",
+        "id": "ready-position-basics",
+        "version": 110
+      },
+      "occurredAt": "2026-10-30T15:59:00Z",
+      "localDate": "2026-10-30",
+      "app": "ballplayer"
+    }
+  ],
+  "expected": {
+    "skills": [
+      {
+        "skill": "infield.ready-position",
+        "rating": 99,
+        "points": 2247.5,
+        "drills": 30,
+        "lastTrainedAt": "2026-10-30T15:59:00Z",
+        "streakAtLast": 30
+      }
+    ],
+    "areas": [
+      {
+        "area": "baserunning",
+        "rating": 0
+      },
+      {
+        "area": "infield",
+        "rating": 99
+      },
+      {
+        "area": "baseball-iq",
+        "rating": 0
+      }
+    ],
+    "overall": 33,
+    "explain": [
+      {
+        "event": "evt_001",
+        "points": 1
+      },
+      {
+        "event": "evt_002",
+        "points": 1
+      },
+      {
+        "event": "evt_003",
+        "points": 1.25
+      },
+      {
+        "event": "evt_004",
+        "points": 1.25
+      },
+      {
+        "event": "evt_005",
+        "points": 1.25
+      },
+      {
+        "event": "evt_006",
+        "points": 1.25
+      },
+      {
+        "event": "evt_007",
+        "points": 1.5
+      },
+      {
+        "event": "evt_008",
+        "points": 1.5
+      },
+      {
+        "event": "evt_009",
+        "points": 1.5
+      },
+      {
+        "event": "evt_010",
+        "points": 1.5
+      },
+      {
+        "event": "evt_011",
+        "points": 1.5
+      },
+      {
+        "event": "evt_012",
+        "points": 1.5
+      },
+      {
+        "event": "evt_013",
+        "points": 1.5
+      },
+      {
+        "event": "evt_014",
+        "points": 1.75
+      },
+      {
+        "event": "evt_015",
+        "points": 1.75
+      },
+      {
+        "event": "evt_016",
+        "points": 1.75
+      },
+      {
+        "event": "evt_017",
+        "points": 1.75
+      },
+      {
+        "event": "evt_018",
+        "points": 1.75
+      },
+      {
+        "event": "evt_019",
+        "points": 1.75
+      },
+      {
+        "event": "evt_020",
+        "points": 1.75
+      },
+      {
+        "event": "evt_021",
+        "points": 1.75
+      },
+      {
+        "event": "evt_022",
+        "points": 1.75
+      },
+      {
+        "event": "evt_023",
+        "points": 1.75
+      },
+      {
+        "event": "evt_024",
+        "points": 1.75
+      },
+      {
+        "event": "evt_025",
+        "points": 1.75
+      },
+      {
+        "event": "evt_026",
+        "points": 1.75
+      },
+      {
+        "event": "evt_027",
+        "points": 1.75
+      },
+      {
+        "event": "evt_028",
+        "points": 1.75
+      },
+      {
+        "event": "evt_029",
+        "points": 1.75
+      },
+      {
+        "event": "evt_030",
+        "points": 2
+      },
+      {
+        "event": "evt_031",
+        "points": 20
+      },
+      {
+        "event": "evt_032",
+        "points": 20
+      },
+      {
+        "event": "evt_033",
+        "points": 20
+      },
+      {
+        "event": "evt_034",
+        "points": 20
+      },
+      {
+        "event": "evt_035",
+        "points": 20
+      },
+      {
+        "event": "evt_036",
+        "points": 20
+      },
+      {
+        "event": "evt_037",
+        "points": 20
+      },
+      {
+        "event": "evt_038",
+        "points": 20
+      },
+      {
+        "event": "evt_039",
+        "points": 20
+      },
+      {
+        "event": "evt_040",
+        "points": 20
+      },
+      {
+        "event": "evt_041",
+        "points": 20
+      },
+      {
+        "event": "evt_042",
+        "points": 20
+      },
+      {
+        "event": "evt_043",
+        "points": 20
+      },
+      {
+        "event": "evt_044",
+        "points": 20
+      },
+      {
+        "event": "evt_045",
+        "points": 20
+      },
+      {
+        "event": "evt_046",
+        "points": 20
+      },
+      {
+        "event": "evt_047",
+        "points": 20
+      },
+      {
+        "event": "evt_048",
+        "points": 20
+      },
+      {
+        "event": "evt_049",
+        "points": 20
+      },
+      {
+        "event": "evt_050",
+        "points": 20
+      },
+      {
+        "event": "evt_051",
+        "points": 20
+      },
+      {
+        "event": "evt_052",
+        "points": 20
+      },
+      {
+        "event": "evt_053",
+        "points": 20
+      },
+      {
+        "event": "evt_054",
+        "points": 20
+      },
+      {
+        "event": "evt_055",
+        "points": 20
+      },
+      {
+        "event": "evt_056",
+        "points": 20
+      },
+      {
+        "event": "evt_057",
+        "points": 20
+      },
+      {
+        "event": "evt_058",
+        "points": 20
+      },
+      {
+        "event": "evt_059",
+        "points": 20
+      },
+      {
+        "event": "evt_060",
+        "points": 20
+      },
+      {
+        "event": "evt_061",
+        "points": 20
+      },
+      {
+        "event": "evt_062",
+        "points": 20
+      },
+      {
+        "event": "evt_063",
+        "points": 20
+      },
+      {
+        "event": "evt_064",
+        "points": 20
+      },
+      {
+        "event": "evt_065",
+        "points": 20
+      },
+      {
+        "event": "evt_066",
+        "points": 20
+      },
+      {
+        "event": "evt_067",
+        "points": 20
+      },
+      {
+        "event": "evt_068",
+        "points": 20
+      },
+      {
+        "event": "evt_069",
+        "points": 20
+      },
+      {
+        "event": "evt_070",
+        "points": 20
+      },
+      {
+        "event": "evt_071",
+        "points": 20
+      },
+      {
+        "event": "evt_072",
+        "points": 20
+      },
+      {
+        "event": "evt_073",
+        "points": 20
+      },
+      {
+        "event": "evt_074",
+        "points": 20
+      },
+      {
+        "event": "evt_075",
+        "points": 20
+      },
+      {
+        "event": "evt_076",
+        "points": 20
+      },
+      {
+        "event": "evt_077",
+        "points": 20
+      },
+      {
+        "event": "evt_078",
+        "points": 20
+      },
+      {
+        "event": "evt_079",
+        "points": 20
+      },
+      {
+        "event": "evt_080",
+        "points": 20
+      },
+      {
+        "event": "evt_081",
+        "points": 20
+      },
+      {
+        "event": "evt_082",
+        "points": 20
+      },
+      {
+        "event": "evt_083",
+        "points": 20
+      },
+      {
+        "event": "evt_084",
+        "points": 20
+      },
+      {
+        "event": "evt_085",
+        "points": 20
+      },
+      {
+        "event": "evt_086",
+        "points": 20
+      },
+      {
+        "event": "evt_087",
+        "points": 20
+      },
+      {
+        "event": "evt_088",
+        "points": 20
+      },
+      {
+        "event": "evt_089",
+        "points": 20
+      },
+      {
+        "event": "evt_090",
+        "points": 20
+      },
+      {
+        "event": "evt_091",
+        "points": 20
+      },
+      {
+        "event": "evt_092",
+        "points": 20
+      },
+      {
+        "event": "evt_093",
+        "points": 20
+      },
+      {
+        "event": "evt_094",
+        "points": 20
+      },
+      {
+        "event": "evt_095",
+        "points": 20
+      },
+      {
+        "event": "evt_096",
+        "points": 20
+      },
+      {
+        "event": "evt_097",
+        "points": 20
+      },
+      {
+        "event": "evt_098",
+        "points": 20
+      },
+      {
+        "event": "evt_099",
+        "points": 20
+      },
+      {
+        "event": "evt_100",
+        "points": 20
+      },
+      {
+        "event": "evt_101",
+        "points": 20
+      },
+      {
+        "event": "evt_102",
+        "points": 20
+      },
+      {
+        "event": "evt_103",
+        "points": 20
+      },
+      {
+        "event": "evt_104",
+        "points": 20
+      },
+      {
+        "event": "evt_105",
+        "points": 20
+      },
+      {
+        "event": "evt_106",
+        "points": 20
+      },
+      {
+        "event": "evt_107",
+        "points": 20
+      },
+      {
+        "event": "evt_108",
+        "points": 20
+      },
+      {
+        "event": "evt_109",
+        "points": 20
+      },
+      {
+        "event": "evt_110",
+        "points": 20
+      },
+      {
+        "event": "evt_111",
+        "points": 20
+      },
+      {
+        "event": "evt_112",
+        "points": 20
+      },
+      {
+        "event": "evt_113",
+        "points": 20
+      },
+      {
+        "event": "evt_114",
+        "points": 20
+      },
+      {
+        "event": "evt_115",
+        "points": 20
+      },
+      {
+        "event": "evt_116",
+        "points": 20
+      },
+      {
+        "event": "evt_117",
+        "points": 20
+      },
+      {
+        "event": "evt_118",
+        "points": 20
+      },
+      {
+        "event": "evt_119",
+        "points": 20
+      },
+      {
+        "event": "evt_120",
+        "points": 20
+      },
+      {
+        "event": "evt_121",
+        "points": 20
+      },
+      {
+        "event": "evt_122",
+        "points": 20
+      },
+      {
+        "event": "evt_123",
+        "points": 20
+      },
+      {
+        "event": "evt_124",
+        "points": 20
+      },
+      {
+        "event": "evt_125",
+        "points": 20
+      },
+      {
+        "event": "evt_126",
+        "points": 20
+      },
+      {
+        "event": "evt_127",
+        "points": 20
+      },
+      {
+        "event": "evt_128",
+        "points": 20
+      },
+      {
+        "event": "evt_129",
+        "points": 20
+      },
+      {
+        "event": "evt_130",
+        "points": 20
+      },
+      {
+        "event": "evt_131",
+        "points": 20
+      },
+      {
+        "event": "evt_132",
+        "points": 20
+      },
+      {
+        "event": "evt_133",
+        "points": 20
+      },
+      {
+        "event": "evt_134",
+        "points": 20
+      },
+      {
+        "event": "evt_135",
+        "points": 20
+      },
+      {
+        "event": "evt_136",
+        "points": 20
+      },
+      {
+        "event": "evt_137",
+        "points": 20
+      },
+      {
+        "event": "evt_138",
+        "points": 20
+      },
+      {
+        "event": "evt_139",
+        "points": 20
+      },
+      {
+        "event": "evt_140",
+        "points": 20
+      }
+    ]
+  }
+}
