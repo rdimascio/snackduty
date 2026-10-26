@@ -17,7 +17,7 @@ import { identityServices } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
 import { reelSkillMap, taxonomySkillForReelSkill } from "../app/skills/reel-skill-map";
-import { playerIdFor, wholeYearsBetween } from "../app/skills/skill-events";
+import { appendCheckPassed, playerIdFor, wholeYearsBetween } from "../app/skills/skill-events";
 import { registerRuntimePages } from "../runtime/web-surface";
 
 process.env.LESTO_DB = ":memory:";
@@ -25,14 +25,38 @@ process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
 const contractDirectory = join(import.meta.dirname, "../../../contracts/reel-episode-v0");
 
-function vendoredEpisode(name: string): CatalogEpisode {
-  const result = parseReelEpisode(JSON.parse(readFileSync(join(contractDirectory, name), "utf8")));
-  if (!result.ok) throw new Error(`Vendored manifest ${name} must parse.`);
+interface VendoredManifest {
+  readonly quiz: { id: string; skill?: string }[];
+}
+
+function readManifest(name: string): VendoredManifest {
+  return JSON.parse(readFileSync(join(contractDirectory, name), "utf8")) as VendoredManifest;
+}
+
+function episodeFrom(manifest: VendoredManifest): CatalogEpisode {
+  const result = parseReelEpisode(manifest);
+  if (!result.ok) throw new Error("Manifest must parse.");
   return { lesson: result.value, quizSkills: result.quizSkills };
+}
+
+function vendoredEpisode(name: string): CatalogEpisode {
+  return episodeFrom(readManifest(name));
 }
 
 const runToFirst = vendoredEpisode("run-to-first.v1.episode.json");
 const strikeOut = vendoredEpisode("its-ok-to-strike-out.v1.episode.json");
+const TRAILING_HYPHEN_QUIZ_ID = "where-to-run-";
+const runToFirstTrailingHyphen = episodeFrom(
+  (() => {
+    const manifest = readManifest("run-to-first.v1.episode.json");
+    const [first, ...rest] = manifest.quiz;
+    if (first === undefined) throw new Error("Vendored manifest has no quiz.");
+    return {
+      ...manifest,
+      quiz: [{ ...first, id: TRAILING_HYPHEN_QUIZ_ID }, ...rest],
+    };
+  })(),
+);
 const vendoredLessons = [runToFirst.lesson, strikeOut.lesson];
 
 const MONDAY_2026_10_26_NOON_UTC = Date.UTC(2026, 9, 26, 12);
@@ -46,11 +70,18 @@ const clock = () => now;
 interface SkillTestApplication {
   readonly app: App;
   readonly sql: Awaited<ReturnType<typeof openSqlite>>["db"];
+  readonly db: Awaited<ReturnType<typeof identityServices>>["db"];
 }
 
-async function skillTestApplication(enabled: boolean): Promise<SkillTestApplication> {
+async function skillTestApplication(
+  enabled: boolean,
+  episodes: readonly CatalogEpisode[] = [runToFirst, strikeOut],
+): Promise<SkillTestApplication> {
   const { db: sql } = await openSqlite(":memory:");
-  const { db, sessions } = await identityServices(sql, { mode: "development", clock });
+  const { db, sessions } = await identityServices(sql, {
+    mode: "development",
+    clock,
+  });
   const { config } = createApplication({
     sql,
     db,
@@ -60,18 +91,20 @@ async function skillTestApplication(enabled: boolean): Promise<SkillTestApplicat
     developmentSignIn: true,
     inviteDelivery: devInviteDeliverer(),
     invitationCipher: aesGcmInvitationPayloadCipher(new Uint8Array(32).fill(7)),
-    lessons: { enabled, catalog: staticLessonCatalog([runToFirst, strikeOut]) },
+    lessons: { enabled, catalog: staticLessonCatalog(episodes) },
   });
   await registerRuntimePages(config.app);
-  return { app: await createApp(config), sql };
+  return { app: await createApp(config), sql, db };
 }
 
 let flagOn: SkillTestApplication;
 let flagOff: SkillTestApplication;
+let trailingHyphen: SkillTestApplication;
 
 beforeAll(async () => {
   flagOn = await skillTestApplication(true);
   flagOff = await skillTestApplication(false);
+  trailingHyphen = await skillTestApplication(true, [runToFirstTrailingHyphen, strikeOut]);
 });
 
 async function clearState(target: SkillTestApplication) {
@@ -84,6 +117,7 @@ beforeEach(async () => {
   now = MONDAY_2026_10_26_NOON_UTC;
   await clearState(flagOn);
   await clearState(flagOff);
+  await clearState(trailingHyphen);
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -91,6 +125,7 @@ afterEach(() => {
 afterAll(async () => {
   await clearState(flagOn);
   await clearState(flagOff);
+  await clearState(trailingHyphen);
 });
 
 const sameOrigin = { "sec-fetch-site": "same-origin" };
@@ -122,7 +157,9 @@ async function signIn(app: App, persona?: "second-adult"): Promise<string> {
 }
 
 async function personIdOf(app: App, cookie: string): Promise<string> {
-  const session = await app.handle("GET", "/api/session", { headers: { cookie } });
+  const session = await app.handle("GET", "/api/session", {
+    headers: { cookie },
+  });
   return (json(session) as { person: { id: string } }).person.id;
 }
 
@@ -279,11 +316,17 @@ describe("skill events from lesson answers", () => {
       id: row.id,
       playerId: playerIdFor(casey),
       occurredAt,
-      localDate: new Intl.DateTimeFormat("en-CA", { timeZone: TEAM_TIME_ZONE }).format(now),
+      localDate: new Intl.DateTimeFormat("en-CA", {
+        timeZone: TEAM_TIME_ZONE,
+      }).format(now),
       app: "snackday",
       type: "check_passed",
       skill: reelSkillMap[runToFirst.quizSkills?.[first.id] ?? ""],
-      source: { kind: "reel-episode", id: `blooper/${lesson.slug}`, itemId: first.id },
+      source: {
+        kind: "reel-episode",
+        id: `blooper/${lesson.slug}`,
+        itemId: first.id,
+      },
     });
     expect(row.event).not.toContain("Casey");
     expect(row.event).not.toContain(CASEY_BIRTH_DATE);
@@ -298,7 +341,9 @@ describe("skill events from lesson answers", () => {
     if (first === undefined) throw new Error("Lesson has no quiz.");
     now += 15 * 60 * 60 * 1_000;
     const utcDate = new Date(now).toISOString().slice(0, 10);
-    const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: TEAM_TIME_ZONE }).format(now);
+    const localDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: TEAM_TIME_ZONE,
+    }).format(now);
     expect(localDate).not.toBe(utcDate);
 
     await answer(app, guardianCookie, teamId, {
@@ -317,7 +362,11 @@ describe("skill events from lesson answers", () => {
     );
     const [first] = lesson.quiz;
     if (first === undefined) throw new Error("Lesson has no quiz.");
-    const body = { participantId: casey, quizId: first.id, answer: first.answer };
+    const body = {
+      participantId: casey,
+      quizId: first.id,
+      answer: first.answer,
+    };
 
     expect((await answer(app, guardianCookie, teamId, body)).status).toBe(200);
     now += 60_000;
@@ -385,6 +434,67 @@ describe("skill events from lesson answers", () => {
     expect(JSON.stringify(logged)).not.toContain(casey);
   });
 
+  it("commits the answer and writes no event when the Reel quiz id breaks the event schema", async () => {
+    const lesson = runToFirstTrailingHyphen.lesson;
+    const { app, guardianCookie, teamId, casey } = await guardianFixture(trailingHyphen, lesson);
+    const [first] = lesson.quiz;
+    if (first === undefined) throw new Error("Lesson has no quiz.");
+    expect(first.id).toBe(TRAILING_HYPHEN_QUIZ_ID);
+    expect(
+      taxonomySkillForReelSkill(runToFirstTrailingHyphen.quizSkills?.[first.id] ?? ""),
+    ).toBeDefined();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const response = await answer(app, guardianCookie, teamId, {
+      participantId: casey,
+      quizId: first.id,
+      answer: first.answer,
+    });
+    expect(response.status).toBe(200);
+
+    const answers = await trailingHyphen.sql
+      .prepare("SELECT quiz_id, outcome FROM lesson_answers WHERE participant_id = ?")
+      .all([casey]);
+    expect(answers).toEqual([{ quiz_id: TRAILING_HYPHEN_QUIZ_ID, outcome: "correct" }]);
+    expect(await storedEvents(trailingHyphen)).toEqual([]);
+    const invalid = warn.mock.calls.filter(([line]) =>
+      String(line).includes("skills.event_invalid"),
+    );
+    expect(invalid).toHaveLength(1);
+    const logged = JSON.parse(String(invalid[0]?.[0])) as Record<string, unknown>;
+    expect(logged).toEqual({
+      level: "warn",
+      event: "skills.event_invalid",
+      source: `blooper/${lesson.slug}`,
+      itemId: TRAILING_HYPHEN_QUIZ_ID,
+    });
+    expect(JSON.stringify(logged)).not.toContain(casey);
+  });
+
+  it("stores exactly one check_passed per participant, source and quiz id when appended twice", async () => {
+    const { casey, lesson } = await guardianFixture(flagOn, runToFirst.lesson);
+    const [first] = lesson.quiz;
+    if (first === undefined) throw new Error("Lesson has no quiz.");
+    const check = {
+      participantId: casey,
+      seriesId: lesson.seriesId,
+      episodeSlug: lesson.slug,
+      quizId: first.id,
+      reelSkill: runToFirst.quizSkills?.[first.id],
+      occurredAtMs: now,
+      timeZone: TEAM_TIME_ZONE,
+    };
+
+    await flagOn.db.transaction(async (tx) => {
+      await appendCheckPassed(tx, check);
+      await appendCheckPassed(tx, { ...check, occurredAtMs: now + 1_000 });
+    });
+
+    const rows = await storedEvents(flagOn);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.occurred_at).toBe(new Date(now).toISOString());
+  });
+
   it("writes no event when the answer write is refused", async () => {
     const { app, ownerCookie, teamId, casey, lesson } = await guardianFixture(
       flagOn,
@@ -422,7 +532,9 @@ describe("skill card API", () => {
 
     const response = await readCard(app, guardianCookie, teamId, casey);
     expect(response.status).toBe(200);
-    const localToday = new Intl.DateTimeFormat("en-CA", { timeZone: TEAM_TIME_ZONE }).format(now);
+    const localToday = new Intl.DateTimeFormat("en-CA", {
+      timeZone: TEAM_TIME_ZONE,
+    }).format(now);
     const ageYears = wholeYearsBetween(CASEY_BIRTH_DATE, localToday);
     expect(ageYears).toBe(6);
     const expected = rate(
@@ -553,7 +665,9 @@ describe("player card on /app", () => {
     expect(route.status).toBe(404);
     expect(await pageText(route)).not.toContain("overall");
 
-    const page = await app.handle("GET", "/app", { headers: { cookie: guardianCookie } });
+    const page = await app.handle("GET", "/app", {
+      headers: { cookie: guardianCookie },
+    });
     expect(page.status).toBe(200);
     const html = await pageText(page);
     expect(html).toContain("Coach Pitch Comets");

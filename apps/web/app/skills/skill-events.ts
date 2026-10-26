@@ -105,7 +105,7 @@ export async function appendCheckPassed(tx: Db, check: PassedCheck): Promise<voi
   }
   const sourceId = `${check.seriesId}/${check.episodeSlug}`;
   const occurredAt = new Date(check.occurredAtMs).toISOString();
-  const event = checkPassedEventSchema.parse({
+  const parsed = checkPassedEventSchema.safeParse({
     contract: SKILL_EVENTS_CONTRACT,
     id: await checkPassedEventId(check.participantId, sourceId, check.quizId),
     playerId: playerIdFor(check.participantId),
@@ -116,6 +116,18 @@ export async function appendCheckPassed(tx: Db, check: PassedCheck): Promise<voi
     skill,
     source: { kind: "reel-episode", id: sourceId, itemId: check.quizId },
   });
+  if (!parsed.success) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        event: "skills.event_invalid",
+        source: sourceId,
+        itemId: check.quizId,
+      }),
+    );
+    return;
+  }
+  const event = parsed.data;
   await tx.raw(insertSkillEventSql, [
     event.id,
     check.participantId,
