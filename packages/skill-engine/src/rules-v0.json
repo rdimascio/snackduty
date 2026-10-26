@@ -1,0 +1,17 @@
+{
+  "contract": "skill.rules/v0",
+  "tierPoints": { "1": 1, "2": 2, "3": 3, "4": 5 },
+  "moduleMultiplier": 10,
+  "eventPoints": { "check_passed": 1, "history_learned": 1, "high_five": 1, "card_collected": 0 },
+  "streakMultiplied": ["drill_completed", "module_completed", "check_passed"],
+  "streak": [
+    { "minDays": 1, "multiplier": 1 },
+    { "minDays": 3, "multiplier": 1.25 },
+    { "minDays": 7, "multiplier": 1.5 },
+    { "minDays": 14, "multiplier": 1.75 },
+    { "minDays": 30, "multiplier": 2 }
+  ],
+  "k": { "1": 60, "2": 150, "3": 300, "4": 600 },
+  "restDay": { "windowDays": 6 },
+  "maxRating": 99
+}

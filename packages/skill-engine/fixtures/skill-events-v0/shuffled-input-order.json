@@ -1,0 +1,123 @@
+{
+  "events": [
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_005",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "outfield.hit-the-cutoff",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1
+      },
+      "occurredAt": "2026-10-03T15:10:00Z",
+      "localDate": "2026-10-03",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_003",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "outfield.hit-the-cutoff",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-02T15:00:00Z",
+      "localDate": "2026-10-02",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_001",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "outfield.hit-the-cutoff",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-01T15:00:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_004",
+      "playerId": "plr_fixture",
+      "type": "drill_completed",
+      "skill": "outfield.hit-the-cutoff",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1,
+        "itemId": "lead-relay-double-down-the-line"
+      },
+      "occurredAt": "2026-10-03T15:00:00Z",
+      "localDate": "2026-10-03",
+      "app": "ballplayer"
+    },
+    {
+      "contract": "skill.events/v0",
+      "id": "evt_002",
+      "playerId": "plr_fixture",
+      "type": "module_completed",
+      "skill": "outfield.hit-the-cutoff",
+      "source": {
+        "kind": "module",
+        "id": "cutoffs-and-relays",
+        "version": 1
+      },
+      "occurredAt": "2026-10-01T15:10:00Z",
+      "localDate": "2026-10-01",
+      "app": "ballplayer"
+    }
+  ],
+  "expected": {
+    "skills": [
+      {
+        "skill": "outfield.hit-the-cutoff",
+        "rating": 16,
+        "points": 26.5,
+        "drills": 3,
+        "lastTrainedAt": "2026-10-03T15:00:00Z",
+        "streakAtLast": 3
+      }
+    ],
+    "areas": [
+      {
+        "area": "outfield",
+        "rating": 16
+      }
+    ],
+    "overall": 16,
+    "explain": [
+      {
+        "event": "evt_001",
+        "points": 2
+      },
+      {
+        "event": "evt_002",
+        "points": 20
+      },
+      {
+        "event": "evt_003",
+        "points": 2
+      },
+      {
+        "event": "evt_004",
+        "points": 2.5
+      },
+      {
+        "event": "evt_005",
+        "points": 0
+      }
+    ]
+  }
+}

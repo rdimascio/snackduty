@@ -13,7 +13,7 @@
     "scripts:typecheck": "tsc --noEmit -p scripts/tsconfig.json",
     "infra:typecheck": "tsc --noEmit -p infra/alchemy/tsconfig.json",
     "scripts:test": "bun test scripts/lib scripts/runtime/aws-staging-preflight.test.ts",
-    "check:fast": "bun run format:check && bun run lint && bun run --filter web typecheck && bun run --filter '@snackday/domain' typecheck && bun run --filter '@snackday/platform-manifest' typecheck && bun run scripts:typecheck && bun run --filter web test && bun run --filter '@snackday/domain' test && bun run --filter '@snackday/platform-manifest' test && bun run scripts:test",
+    "check:fast": "bun run format:check && bun run lint && bun run --filter web typecheck && bun run --filter '@snackday/domain' typecheck && bun run --filter '@snackday/skill-engine' typecheck && bun run --filter '@snackday/platform-manifest' typecheck && bun run scripts:typecheck && bun run --filter web test && bun run --filter '@snackday/domain' test && bun run --filter '@snackday/skill-engine' test && bun run --filter '@snackday/platform-manifest' test && bun run scripts:test",
     "dev:scenario": "bun scripts/dev-scenario.ts",
     "check:scenario": "bun scripts/dev-scenario.ts --check",
     "runtime:serve": "bun apps/web/runtime/server.ts",
