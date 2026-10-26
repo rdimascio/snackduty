@@ -149,7 +149,7 @@ async function rosteredSeasonIds(tx: Db, teamId: string, participantId: string) 
   return [...new Set(rows.map((row) => row.seasonId))];
 }
 
-async function isActiveGuardian(tx: Db, personId: string, participantId: string) {
+async function isManagingGuardian(tx: Db, personId: string, participantId: string) {
   const rows = await tx
     .select()
     .from(guardianRelationships)
@@ -161,7 +161,9 @@ async function isActiveGuardian(tx: Db, personId: string, participantId: string)
       ),
     )
     .all();
-  return rows.length > 0;
+  return rows.some((row) =>
+    (JSON.parse(row.permissions) as string[]).includes("participant.manage"),
+  );
 }
 
 async function mayManageParticipant(
@@ -170,7 +172,7 @@ async function mayManageParticipant(
   teamId: string,
   participantId: string,
 ): Promise<boolean> {
-  if (!(await isActiveGuardian(tx, personId, participantId))) return false;
+  if (!(await isManagingGuardian(tx, personId, participantId))) return false;
   for (const seasonId of await rosteredSeasonIds(tx, teamId, participantId)) {
     if (
       await authorizeTeamOperation(tx, personId, "participant.manage", {

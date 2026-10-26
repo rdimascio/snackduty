@@ -474,6 +474,40 @@ describe("lesson completion records", () => {
     expect((json(coachRead) as { progress: unknown[] }).progress).toEqual([]);
   });
 
+  it("refuses a coach whose guardian relationship only grants participant.read", async () => {
+    const { app, sql } = flagOn;
+    const coachCookie = await signIn(app);
+    const { teamId, participantIds } = await seedTeam(app, coachCookie);
+    const [casey] = participantIds;
+    const [first] = currentLesson().quiz;
+    if (casey === undefined || first === undefined) throw new Error("Seed data is missing.");
+    const session = await app.handle("GET", "/api/session", { headers: { cookie: coachCookie } });
+    const coachPersonId = (json(session) as { person: { id: string } }).person.id;
+    const stamp = new Date(now).toISOString();
+    await sql
+      .prepare(
+        "INSERT INTO guardian_relationships (id, guardian_person_id, participant_id, relationship, status, permissions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run([
+        "read-only-edge",
+        coachPersonId,
+        casey,
+        "parent",
+        "active",
+        JSON.stringify(["participant.read"]),
+        stamp,
+        stamp,
+      ]);
+
+    const write = await answer(app, coachCookie, teamId, {
+      participantId: casey,
+      quizId: first.id,
+      answer: first.answer,
+    });
+    expect(write.status).toBe(404);
+    expect(json(write)).toEqual({ error: "participant not found" });
+  });
+
   it("gives a coach the completed-participant count for the current lesson", async () => {
     const { app } = flagOn;
     const cookie = await signIn(app);
