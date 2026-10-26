@@ -1,20 +1,23 @@
 import type { Clock } from "./application-contracts";
 import type { SessionService as Sessions } from "./application-contracts";
 import { and, createTableSql, defineTable, dropTableSql, eq, inList, text } from "@lesto/db";
-import type { Db } from "@lesto/db";
+import type { Db, InferRow } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
 import {
+  ageBandSchema,
   evaluatePolicy,
   strongestTeamRole,
   teamRoleCapabilities,
+  seasonLessonAgeBandInputSchema,
   seasonSchema,
   teamSchema,
 } from "@snackday/domain";
+import type { AgeBand, Season } from "@snackday/domain";
 import { z } from "zod";
 
 import { accounts, authenticatedAdult, people } from "./identity";
-import { authorizationContext } from "./authorization";
+import { authorizationContext, authorizeTeamOperation } from "./authorization";
 
 export const teams = defineTable("teams", {
   id: text("id").primaryKey(),
@@ -27,7 +30,7 @@ export const teams = defineTable("teams", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const seasons = defineTable("seasons", {
+const seasonsV004 = defineTable("seasons", {
   id: text("id").primaryKey(),
   teamId: text("team_id")
     .notNull()
@@ -41,12 +44,27 @@ export const seasons = defineTable("seasons", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const seasons = defineTable("seasons", {
+  id: text("id").primaryKey(),
+  teamId: text("team_id")
+    .notNull()
+    .references(() => teams.id),
+  label: text("label").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  timeZone: text("time_zone").notNull(),
+  lessonAgeBand: text("lesson_age_band"),
+  status: text("status").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const createTeamsAndSeasons: MigrationEntry = {
   version: "004_create_teams_and_seasons",
   migration: {
     up: async (schema) => {
       await schema.execute(createTableSql(teams, schema.dialect));
-      await schema.execute(createTableSql(seasons, schema.dialect));
+      await schema.execute(createTableSql(seasonsV004, schema.dialect));
       await schema.execute(
         "CREATE INDEX teams_created_by_person_id_idx ON teams (created_by_person_id)",
       );
@@ -58,6 +76,58 @@ export const createTeamsAndSeasons: MigrationEntry = {
     },
   },
 };
+
+export const addSeasonLessonAgeBand: MigrationEntry = {
+  version: "015_add_season_lesson_age_band",
+  migration: {
+    up: async (schema) => {
+      await schema.execute("ALTER TABLE seasons ADD COLUMN lesson_age_band TEXT");
+    },
+    down: async (schema) => {
+      await schema.execute("ALTER TABLE seasons DROP COLUMN lesson_age_band");
+    },
+  },
+};
+
+type SeasonRow = InferRow<typeof seasons>;
+
+export function seasonLessonAgeBand(row: Pick<SeasonRow, "lessonAgeBand">): AgeBand | undefined {
+  if (row.lessonAgeBand === null) return undefined;
+  try {
+    const parsed = ageBandSchema.safeParse(JSON.parse(row.lessonAgeBand));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function projectSeason(row: SeasonRow): Season {
+  const { lessonAgeBand: _stored, ...season } = row;
+  const band = seasonLessonAgeBand(row);
+  return seasonSchema.parse(band === undefined ? season : { ...season, lessonAgeBand: band });
+}
+
+export async function writeSeasonLessonAgeBand(
+  tx: Db,
+  seasonId: string,
+  band: AgeBand | null,
+  clock: Clock,
+): Promise<Season | undefined> {
+  await tx
+    .update(seasons)
+    .set({
+      lessonAgeBand: band === null ? null : JSON.stringify({ min: band.min, max: band.max }),
+      updatedAt: new Date(clock()).toISOString(),
+    })
+    .where(and(eq(seasons.id, seasonId), eq(seasons.status, "active")))
+    .run();
+  const row = await tx
+    .select()
+    .from(seasons)
+    .where(and(eq(seasons.id, seasonId), eq(seasons.status, "active")))
+    .get();
+  return row === undefined ? undefined : projectSeason(row);
+}
 
 // Adult team membership is TEAM-scoped, mirroring how team ownership itself is
 // scoped (`teams.created_by_person_id`): the season-scoped roster table
@@ -237,7 +307,7 @@ async function createSeason(
       .returning()
       .get();
 
-    return seasonSchema.parse(row);
+    return projectSeason(row);
   });
 
   return season === null ? c.json(notFound, 404) : c.json({ season }, 201);
@@ -263,8 +333,57 @@ async function readTeam(c: Context<"/api/teams/:teamId">, db: Db, sessions: Sess
 
   return c.json({
     team: projectTeam(team),
-    seasons: seasonRows.map((season) => seasonSchema.parse(season)),
+    seasons: seasonRows.map((season) => projectSeason(season)),
   });
+}
+
+const seasonNotFound = { error: "season not found" } as const;
+const leagueManagerRequired = { error: "league manager permission required" } as const;
+
+async function setSeasonLessonAgeBand(
+  c: Context<"/api/teams/:teamId/seasons/:seasonId/lesson-age-band">,
+  db: Db,
+  sessions: Sessions,
+  clock: Clock,
+) {
+  const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
+  if (identity === undefined) return c.json(unauthorized, 401);
+
+  const input = c.valid(seasonLessonAgeBandInputSchema);
+  const outcome = await db.transaction(async (tx) => {
+    const team = await readableActiveTeam(tx, c.param("teamId"), identity.person.id);
+    if (team === undefined) return "no-team" as const;
+    const season = await tx
+      .select()
+      .from(seasons)
+      .where(
+        and(
+          eq(seasons.id, c.param("seasonId")),
+          eq(seasons.teamId, team.id),
+          eq(seasons.status, "active"),
+        ),
+      )
+      .get();
+    if (season === undefined) return "no-season" as const;
+    const permitted = await authorizeTeamOperation(
+      tx,
+      identity.person.id,
+      "season.lessons.manage",
+      {
+        teamId: team.id,
+        seasonId: season.id,
+      },
+    );
+    if (!permitted) return "forbidden" as const;
+    return (
+      (await writeSeasonLessonAgeBand(tx, season.id, input.lessonAgeBand, clock)) ?? "no-season"
+    );
+  });
+
+  if (outcome === "no-team") return c.json(notFound, 404);
+  if (outcome === "no-season") return c.json(seasonNotFound, 404);
+  if (outcome === "forbidden") return c.json(leagueManagerRequired, 403);
+  return c.json({ season: outcome });
 }
 
 async function setCoCoachRole(
@@ -346,6 +465,9 @@ export function registerTeamRoutes(
   return app
     .post("/api/teams", (c) => createTeam(c, db, sessions, clock))
     .post("/api/teams/:teamId/seasons", (c) => createSeason(c, db, sessions, clock))
+    .put("/api/teams/:teamId/seasons/:seasonId/lesson-age-band", (c) =>
+      setSeasonLessonAgeBand(c, db, sessions, clock),
+    )
     .post("/api/teams/:teamId/adult-members/:personId/co-coach/grant", (c) =>
       setCoCoachRole(c, db, sessions, "coach", clock),
     )

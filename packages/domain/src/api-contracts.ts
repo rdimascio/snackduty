@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ageBandSchema } from "./lessons";
 
 // Wire contracts shared by HTTP boundaries and the canonical Swift fixtures.
 // Capabilities describe a current response, never authority for a later request.
@@ -41,6 +42,7 @@ const season = z.object({
   startDate: z.string(),
   endDate: z.string(),
   timeZone: z.string().min(1),
+  lessonAgeBand: ageBandSchema.optional(),
   status: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

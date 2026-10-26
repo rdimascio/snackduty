@@ -8,7 +8,7 @@ import { authenticatedAdult } from "../../lib/server/identity";
 import { listAccessibleTeams, loadRoster } from "../../lib/server/team-reads";
 import type { RosterEntry } from "../../lib/server/team-reads";
 import { LessonOfTheWeekCard } from "../../lessons/lesson-card";
-import type { LessonCardData } from "../../lessons/lessons";
+import type { LessonCardProps } from "../../lessons/lesson-card";
 import { lessonServicesFrom, loadLessonCard } from "../../lessons/lessons";
 
 type OverviewData =
@@ -19,7 +19,7 @@ type OverviewData =
       readonly teamName: string;
       readonly seasonLabel: string | undefined;
       readonly roster: readonly RosterEntry[];
-      readonly lesson?: LessonCardData;
+      readonly lesson?: LessonCardProps;
     };
 
 /**
@@ -43,31 +43,46 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
   if (first === undefined) return { state: "no-team" };
 
   const season = first.seasons[0];
+  const roster =
+    season === undefined
+      ? []
+      : await loadRoster(
+          services.db,
+          first.team.id,
+          season.id,
+          {
+            personId: identity.person.id,
+            access: first.access,
+          },
+          services.clock,
+        );
   const lessons = lessonServicesFrom(c);
-  const lesson =
+  const card =
     lessons === undefined
       ? undefined
       : await loadLessonCard(lessons, identity.person.id, first.team.id);
+  const lesson =
+    card === undefined ? undefined : { ...card, players: answerPlayers(card.progress, roster) };
   return {
     state: "team",
     ...(lesson === undefined ? {} : { lesson }),
     teamName: first.team.name,
     seasonLabel: season?.label,
-    roster:
-      season === undefined
-        ? []
-        : await loadRoster(
-            services.db,
-            first.team.id,
-            season.id,
-            {
-              personId: identity.person.id,
-              access: first.access,
-            },
-            services.clock,
-          ),
+    roster,
   };
 };
+
+function answerPlayers(
+  progress: readonly { readonly participantId: string }[],
+  roster: readonly RosterEntry[],
+) {
+  return progress.map((entry, index) => ({
+    participantId: entry.participantId,
+    label:
+      roster.find((candidate) => candidate.participantId === entry.participantId)?.displayName ??
+      `Player ${index + 1}`,
+  }));
+}
 
 function OverviewIntro({ lede }: { lede: string }): ReactNode {
   return (
@@ -187,7 +202,7 @@ function TeamOverview({
   seasonLabel,
   teamName,
 }: {
-  lesson: LessonCardData | undefined;
+  lesson: LessonCardProps | undefined;
   roster: readonly RosterEntry[];
   seasonLabel: string | undefined;
   teamName: string;

@@ -5,6 +5,7 @@ import { parseReelCatalog, parseReelEpisode } from "./reel-contract";
 
 export const REEL_CATALOG_URL = "https://learn.dimasciobaseball.com/episodes.json";
 const CATALOG_TTL_MS = 5 * 60 * 1_000;
+export const CATALOG_FAILURE_TTL_MS = 60 * 1_000;
 const FETCH_TIMEOUT_MS = 5_000;
 
 export interface LessonCatalog {
@@ -57,25 +58,37 @@ export function reelLessonCatalog(options: {
     }
   }
 
+  let inFlight: Promise<readonly Lesson[]> | undefined;
+
+  function failed(event: string, now: number): readonly Lesson[] {
+    logCatalogIssue(event, catalogUrl);
+    const lessons = cached?.lessons ?? [];
+    cached = { lessons, expiresAt: now + CATALOG_FAILURE_TTL_MS };
+    return lessons;
+  }
+
+  async function refresh(now: number): Promise<readonly Lesson[]> {
+    let catalog;
+    try {
+      catalog = parseReelCatalog(await fetcher(catalogUrl));
+    } catch {
+      return failed("lessons.catalog_unavailable", now);
+    }
+    if (!catalog.ok) return failed(`lessons.catalog_${catalog.reason}`, now);
+    const loaded = await Promise.all(catalog.value.map((url) => manifest(url)));
+    const lessons = loaded.filter((lesson): lesson is Lesson => lesson !== undefined);
+    cached = { lessons, expiresAt: now + CATALOG_TTL_MS };
+    return lessons;
+  }
+
   return {
-    async load() {
+    load() {
       const now = options.clock();
-      if (cached !== undefined && cached.expiresAt > now) return cached.lessons;
-      let catalog;
-      try {
-        catalog = parseReelCatalog(await fetcher(catalogUrl));
-      } catch {
-        logCatalogIssue("lessons.catalog_unavailable", catalogUrl);
-        return cached?.lessons ?? [];
-      }
-      if (!catalog.ok) {
-        logCatalogIssue(`lessons.catalog_${catalog.reason}`, catalogUrl);
-        return cached?.lessons ?? [];
-      }
-      const loaded = await Promise.all(catalog.value.map((url) => manifest(url)));
-      const lessons = loaded.filter((lesson): lesson is Lesson => lesson !== undefined);
-      cached = { lessons, expiresAt: now + CATALOG_TTL_MS };
-      return lessons;
+      if (cached !== undefined && cached.expiresAt > now) return Promise.resolve(cached.lessons);
+      inFlight ??= refresh(now).finally(() => {
+        inFlight = undefined;
+      });
+      return inFlight;
     },
   };
 }

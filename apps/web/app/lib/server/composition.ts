@@ -40,7 +40,7 @@ import type { InvitationPayloadCipher } from "./invitation-outbox";
 import { registerRosterImportRoutes } from "./roster-import";
 import { createRoster, registerRosterRoutes } from "./roster";
 import { registerTeamReadRoutes } from "./team-reads";
-import { createTeamsAndSeasons, registerTeamRoutes } from "./teams";
+import { addSeasonLessonAgeBand, createTeamsAndSeasons, registerTeamRoutes } from "./teams";
 import { createLessonAnswers, lessonServices, registerLessonRoutes } from "../../lessons/lessons";
 import type { LessonOptions } from "../../lessons/lessons";
 
@@ -149,6 +149,7 @@ export const applicationMigrations = [
   createInvitationOutbox,
   createEventCreationReceipts,
   createLessonAnswers,
+  addSeasonLessonAgeBand,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 export function createApplication(options: ApplicationOptions) {

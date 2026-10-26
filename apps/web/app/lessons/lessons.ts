@@ -17,20 +17,40 @@ import {
   lessonCompleted,
   lessonOutcomeFor,
   lessonOutcomeSchema,
-  PILOT_AGE_BAND,
+  publicLesson,
+  resolveLessonAgeBand,
   selectLessonOfTheWeek,
 } from "@snackday/domain";
-import type { AgeBand, Lesson, LessonAnswerInput, LessonAnswerRecord } from "@snackday/domain";
+import type {
+  Lesson,
+  LessonAnswerInput,
+  LessonAnswerRecord,
+  LessonOutcome,
+  LessonQuizItem,
+  PublicLesson,
+} from "@snackday/domain";
 
 import type { Clock, SessionService as Sessions } from "../lib/server/application-contracts";
 import { authorizeTeamOperation } from "../lib/server/authorization";
+import { isValidTimeZone } from "../lib/server/event-time";
 import { authenticatedAdult, people } from "../lib/server/identity";
 import { guardianRelationships, memberships, participants } from "../lib/server/roster";
-import { seasons, teamAccess } from "../lib/server/teams";
+import { seasonLessonAgeBand, seasons, teamAccess } from "../lib/server/teams";
 import type { LessonCatalog } from "./catalog";
 
+export interface LessonProgressAnswer extends LessonAnswerRecord {
+  readonly feedback: string;
+}
+
+export interface LessonProgress {
+  readonly participantId: string;
+  readonly answers: readonly LessonProgressAnswer[];
+}
+
 export interface LessonCardData {
-  readonly lesson: Lesson;
+  readonly teamId: string;
+  readonly lesson: PublicLesson;
+  readonly progress: readonly LessonProgress[];
   readonly completedParticipants?: number;
 }
 
@@ -73,13 +93,11 @@ export interface LessonServices {
   readonly db: Db;
   readonly clock: Clock;
   readonly catalog: LessonCatalog;
-  readonly ageBand: AgeBand;
 }
 
 export interface LessonOptions {
   readonly enabled: boolean;
   readonly catalog: LessonCatalog;
-  readonly ageBand?: AgeBand;
 }
 
 const lessonServicesKey = "snackday.lessons";
@@ -95,12 +113,12 @@ export function lessonServicesFrom(context: Context): LessonServices | undefined
 export function lessonServices(
   db: Db,
   clock: Clock,
-  options: Pick<LessonOptions, "catalog" | "ageBand">,
+  options: Pick<LessonOptions, "catalog">,
 ): LessonServices {
-  return { db, clock, catalog: options.catalog, ageBand: options.ageBand ?? PILOT_AGE_BAND };
+  return { db, clock, catalog: options.catalog };
 }
 
-async function teamTimeZone(tx: Db, teamId: string): Promise<string> {
+async function currentSeason(tx: Db, teamId: string) {
   const rows = await tx
     .select()
     .from(seasons)
@@ -110,7 +128,7 @@ async function teamTimeZone(tx: Db, teamId: string): Promise<string> {
     (left, right) =>
       left.startDate.localeCompare(right.startDate) || left.id.localeCompare(right.id),
   );
-  return rows[0]?.timeZone ?? "UTC";
+  return rows[0];
 }
 
 async function currentTeamLesson(
@@ -119,11 +137,14 @@ async function currentTeamLesson(
   tx: Db,
   teamId: string,
 ): Promise<Lesson | undefined> {
+  const season = await currentSeason(tx, teamId);
+  const timeZone =
+    season !== undefined && isValidTimeZone(season.timeZone) ? season.timeZone : "UTC";
   return selectLessonOfTheWeek(
     lessons,
-    services.ageBand,
+    resolveLessonAgeBand(season === undefined ? undefined : seasonLessonAgeBand(season)),
     services.clock(),
-    await teamTimeZone(tx, teamId),
+    timeZone,
   );
 }
 
@@ -267,12 +288,18 @@ export function countCompletedParticipants(
   return [...byParticipant.values()].filter((entries) => lessonCompleted(lesson, entries)).length;
 }
 
+function feedbackFor(item: LessonQuizItem, outcome: LessonOutcome): string {
+  return outcome === "correct" ? item.feedback.correct : item.feedback.wrong;
+}
+
+function withFeedback(lesson: Lesson, answer: LessonAnswerRecord): LessonProgressAnswer[] {
+  const item = lesson.quiz.find((candidate) => candidate.id === answer.quizId);
+  return item === undefined ? [] : [{ ...answer, feedback: feedbackFor(item, answer.outcome) }];
+}
+
 export interface TeamLessonView {
-  readonly lesson: Lesson;
-  readonly progress: readonly {
-    readonly participantId: string;
-    readonly answers: readonly LessonAnswerRecord[];
-  }[];
+  readonly lesson: PublicLesson;
+  readonly progress: readonly LessonProgress[];
   readonly completedParticipants?: number;
 }
 
@@ -306,14 +333,16 @@ export async function readTeamLesson(
       if (await mayManageParticipant(tx, personId, access.team.id, participantId)) {
         progress.push({
           participantId,
-          answers: answers.filter((answer) => answer.participantId === participantId),
+          answers: answers
+            .filter((answer) => answer.participantId === participantId)
+            .flatMap((answer) => withFeedback(lesson, answer)),
         });
       }
     }
     return {
       ok: true,
       value: {
-        lesson,
+        lesson: publicLesson(lesson),
         progress,
         ...(access.capabilities.manage
           ? { completedParticipants: countCompletedParticipants(lesson, answers) }
@@ -322,6 +351,16 @@ export async function readTeamLesson(
     };
   });
 }
+
+const upsertLessonAnswerSql = `INSERT INTO lesson_answers (id, participant_id, series_id, episode_slug, quiz_id, answer_index, outcome, recorded_by_person_id, answered_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (participant_id, series_id, episode_slug, quiz_id) DO UPDATE SET
+  answer_index = excluded.answer_index,
+  outcome = excluded.outcome,
+  recorded_by_person_id = excluded.recorded_by_person_id,
+  answered_at = excluded.answered_at
+WHERE NOT (lesson_answers.outcome = 'correct' AND excluded.outcome = 'try_again')
+RETURNING id`;
 
 export async function recordLessonAnswer(
   services: LessonServices,
@@ -346,45 +385,33 @@ export async function recordLessonAnswer(
 
     const outcome = lessonOutcomeFor(item, input.answer);
     const now = new Date(services.clock()).toISOString();
-    const key = and(
-      eq(lessonAnswers.participantId, input.participantId),
-      eq(lessonAnswers.seriesId, lesson.seriesId),
-      eq(lessonAnswers.episodeSlug, lesson.slug),
-      eq(lessonAnswers.quizId, item.id),
-    );
-    const existing = await tx.select().from(lessonAnswers).where(key).get();
-    if (existing === undefined) {
-      await tx
-        .insert(lessonAnswers)
-        .values({
-          id: `lesson_answer_${crypto.randomUUID()}`,
-          participantId: input.participantId,
-          seriesId: lesson.seriesId,
-          episodeSlug: lesson.slug,
-          quizId: item.id,
-          answerIndex: input.answer,
-          outcome,
-          recordedByPersonId: personId,
-          answeredAt: now,
-          createdAt: now,
-        })
-        .run();
-    } else if (!(existing.outcome === "correct" && outcome === "try_again")) {
-      await tx
-        .update(lessonAnswers)
-        .set({ answerIndex: input.answer, outcome, recordedByPersonId: personId, answeredAt: now })
-        .where(eq(lessonAnswers.id, existing.id))
-        .run();
-    }
-    const stored = await tx.select().from(lessonAnswers).where(key).get();
+    await tx.raw(upsertLessonAnswerSql, [
+      `lesson_answer_${crypto.randomUUID()}`,
+      input.participantId,
+      lesson.seriesId,
+      lesson.slug,
+      item.id,
+      input.answer,
+      outcome,
+      personId,
+      now,
+      now,
+    ]);
+    const stored = await tx
+      .select()
+      .from(lessonAnswers)
+      .where(
+        and(
+          eq(lessonAnswers.participantId, input.participantId),
+          eq(lessonAnswers.seriesId, lesson.seriesId),
+          eq(lessonAnswers.episodeSlug, lesson.slug),
+          eq(lessonAnswers.quizId, item.id),
+        ),
+      )
+      .get();
     if (stored === undefined) throw new Error("Lesson answer disappeared during write.");
-    return {
-      ok: true,
-      value: {
-        answer: projectAnswer(stored),
-        feedback: outcome === "correct" ? item.feedback.correct : item.feedback.wrong,
-      },
-    };
+    const answer = projectAnswer(stored);
+    return { ok: true, value: { answer, feedback: feedbackFor(item, answer.outcome) } };
   });
 }
 
@@ -421,8 +448,10 @@ export async function loadLessonCard(
   try {
     const outcome = await readTeamLesson(services, personId, teamId);
     if (!outcome.ok) return undefined;
-    const { lesson, completedParticipants } = outcome.value;
-    return completedParticipants === undefined ? { lesson } : { lesson, completedParticipants };
+    const { lesson, progress, completedParticipants } = outcome.value;
+    return completedParticipants === undefined
+      ? { teamId, lesson, progress }
+      : { teamId, lesson, progress, completedParticipants };
   } catch {
     console.warn(JSON.stringify({ level: "warn", event: "lessons.card_unavailable" }));
     return undefined;

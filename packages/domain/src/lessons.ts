@@ -15,6 +15,15 @@ export type AgeBand = z.infer<typeof ageBandSchema>;
 
 export const PILOT_AGE_BAND: AgeBand = { min: 5, max: 7 };
 
+export function resolveLessonAgeBand(seasonBand: AgeBand | undefined): AgeBand {
+  return seasonBand ?? PILOT_AGE_BAND;
+}
+
+export const seasonLessonAgeBandInputSchema = z.strictObject({
+  lessonAgeBand: ageBandSchema.nullable(),
+});
+export type SeasonLessonAgeBandInput = z.infer<typeof seasonLessonAgeBandInputSchema>;
+
 export const lessonQuizItemSchema = z.strictObject({
   id: kebabIdSchema,
   prompt: z.string().min(1),
@@ -37,6 +46,18 @@ export const lessonSchema = z.strictObject({
   quiz: z.array(lessonQuizItemSchema).min(1).max(3),
 });
 export type Lesson = z.infer<typeof lessonSchema>;
+
+export type PublicLessonQuizItem = Omit<LessonQuizItem, "answer">;
+export type PublicLesson = Omit<Lesson, "quiz"> & {
+  readonly quiz: readonly PublicLessonQuizItem[];
+};
+
+export function publicLesson(lesson: Lesson): PublicLesson {
+  return {
+    ...lesson,
+    quiz: lesson.quiz.map(({ answer: _answer, ...item }) => item),
+  };
+}
 
 export const lessonOutcomeSchema = z.enum(["correct", "try_again"]);
 export type LessonOutcome = z.infer<typeof lessonOutcomeSchema>;
