@@ -2,20 +2,54 @@ import type { Lesson } from "@snackday/domain";
 
 import type { Clock } from "../lib/server/application-contracts";
 import { parseReelCatalog, parseReelEpisode } from "./reel-contract";
+import type { ReelQuizSkills } from "./reel-contract";
 
 export const REEL_CATALOG_URL = "https://learn.dimasciobaseball.com/episodes.json";
 const CATALOG_TTL_MS = 5 * 60 * 1_000;
 export const CATALOG_FAILURE_TTL_MS = 60 * 1_000;
 const FETCH_TIMEOUT_MS = 5_000;
 
+type LessonKey = Pick<Lesson, "seriesId" | "slug">;
+
 export interface LessonCatalog {
   load(): Promise<readonly Lesson[]>;
+  reelSkill(lesson: LessonKey, quizId: string): string | undefined;
+}
+
+export interface CatalogEpisode {
+  readonly lesson: Lesson;
+  readonly quizSkills?: ReelQuizSkills;
 }
 
 export type JsonFetcher = (url: string) => Promise<unknown>;
 
-export function staticLessonCatalog(lessons: readonly Lesson[]): LessonCatalog {
-  return { load: () => Promise.resolve(lessons) };
+function episodeKey(lesson: LessonKey): string {
+  return `${lesson.seriesId}/${lesson.slug}`;
+}
+
+function quizSkillLookup() {
+  const byEpisode = new Map<string, ReelQuizSkills>();
+  return {
+    remember(lesson: LessonKey, quizSkills: ReelQuizSkills) {
+      byEpisode.set(episodeKey(lesson), quizSkills);
+    },
+    reelSkill(lesson: LessonKey, quizId: string): string | undefined {
+      const quizSkills = byEpisode.get(episodeKey(lesson));
+      return quizSkills !== undefined && Object.hasOwn(quizSkills, quizId)
+        ? quizSkills[quizId]
+        : undefined;
+    },
+  };
+}
+
+export function staticLessonCatalog(entries: readonly (Lesson | CatalogEpisode)[]): LessonCatalog {
+  const skills = quizSkillLookup();
+  const lessons = entries.map((entry) => {
+    if (!("lesson" in entry)) return entry;
+    if (entry.quizSkills !== undefined) skills.remember(entry.lesson, entry.quizSkills);
+    return entry.lesson;
+  });
+  return { load: () => Promise.resolve(lessons), reelSkill: skills.reelSkill };
 }
 
 async function fetchJson(url: string): Promise<unknown> {
@@ -39,6 +73,7 @@ export function reelLessonCatalog(options: {
   const catalogUrl = options.catalogUrl ?? REEL_CATALOG_URL;
   const fetcher = options.fetchJson ?? fetchJson;
   const manifests = new Map<string, Lesson>();
+  const skills = quizSkillLookup();
   let cached: { readonly lessons: readonly Lesson[]; readonly expiresAt: number } | undefined;
 
   async function manifest(url: string): Promise<Lesson | undefined> {
@@ -51,6 +86,7 @@ export function reelLessonCatalog(options: {
         return undefined;
       }
       manifests.set(url, parsed.value);
+      skills.remember(parsed.value, parsed.quizSkills);
       return parsed.value;
     } catch {
       logCatalogIssue("lessons.manifest_unavailable", url);
@@ -82,6 +118,7 @@ export function reelLessonCatalog(options: {
   }
 
   return {
+    reelSkill: skills.reelSkill,
     load() {
       const now = options.clock();
       if (cached !== undefined && cached.expiresAt > now) return Promise.resolve(cached.lessons);

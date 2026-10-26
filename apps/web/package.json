@@ -29,6 +29,7 @@
     "@lesto/ui": "^0.2.0",
     "@lesto/web": "^0.2.0",
     "@snackday/domain": "workspace:*",
+    "@snackday/skill-engine": "workspace:*",
     "better-sqlite3": "^11.10.0",
     "clsx": "^2.1.1",
     "jose": "^6.2.12",

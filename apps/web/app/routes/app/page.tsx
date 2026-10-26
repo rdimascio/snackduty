@@ -10,6 +10,10 @@ import type { RosterEntry } from "../../lib/server/team-reads";
 import { LessonOfTheWeekCard } from "../../lessons/lesson-card";
 import type { LessonCardProps } from "../../lessons/lesson-card";
 import { lessonServicesFrom, loadLessonCard } from "../../lessons/lessons";
+import { PlayerCardSection } from "../../skills/player-card";
+import type { PlayerCardEntry } from "../../skills/player-card";
+import { loadPlayerCards } from "../../skills/skill-card";
+import type { PlayerCard } from "../../skills/skill-card";
 
 type OverviewData =
   | { readonly state: "signed-out" }
@@ -20,6 +24,7 @@ type OverviewData =
       readonly seasonLabel: string | undefined;
       readonly roster: readonly RosterEntry[];
       readonly lesson?: LessonCardProps;
+      readonly playerCards?: readonly PlayerCardEntry[];
     };
 
 /**
@@ -63,9 +68,14 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
       : await loadLessonCard(lessons, identity.person.id, first.team.id);
   const lesson =
     card === undefined ? undefined : { ...card, players: answerPlayers(card.progress, roster) };
+  const playerCards =
+    lessons === undefined
+      ? []
+      : cardEntries(await loadPlayerCards(lessons, identity.person.id, first.team.id), roster);
   return {
     state: "team",
     ...(lesson === undefined ? {} : { lesson }),
+    ...(playerCards.length === 0 ? {} : { playerCards }),
     teamName: first.team.name,
     seasonLabel: season?.label,
     roster,
@@ -81,6 +91,19 @@ function answerPlayers(
     label:
       roster.find((candidate) => candidate.participantId === entry.participantId)?.displayName ??
       `Player ${index + 1}`,
+  }));
+}
+
+function cardEntries(
+  cards: readonly PlayerCard[],
+  roster: readonly RosterEntry[],
+): PlayerCardEntry[] {
+  const labels = answerPlayers(cards, roster);
+  return cards.map(({ participantId, card }, index) => ({
+    participantId,
+    label: labels[index]?.label ?? `Player ${index + 1}`,
+    overall: card.overall,
+    areas: card.areas.map(({ area, rating }) => ({ area, rating })),
   }));
 }
 
@@ -198,11 +221,13 @@ function RosterSection({ roster }: { roster: readonly RosterEntry[] }): ReactNod
 
 function TeamOverview({
   lesson,
+  playerCards,
   roster,
   seasonLabel,
   teamName,
 }: {
   lesson: LessonCardProps | undefined;
+  playerCards: readonly PlayerCardEntry[] | undefined;
   roster: readonly RosterEntry[];
   seasonLabel: string | undefined;
   teamName: string;
@@ -219,6 +244,11 @@ function TeamOverview({
       {lesson === undefined ? null : (
         <div className="mt-8">
           <LessonOfTheWeekCard {...lesson} />
+        </div>
+      )}
+      {playerCards === undefined ? null : (
+        <div className="mt-8">
+          <PlayerCardSection players={playerCards} />
         </div>
       )}
       <section aria-label="Roster" className="mt-8">
@@ -238,6 +268,7 @@ function Overview(data: PageProps<typeof load>): ReactNode {
   return (
     <TeamOverview
       lesson={data.lesson}
+      playerCards={data.playerCards}
       roster={data.roster}
       seasonLabel={data.seasonLabel}
       teamName={data.teamName}
