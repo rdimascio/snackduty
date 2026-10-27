@@ -323,6 +323,18 @@ describe("/app/schedule role matrix", () => {
     const team = await seedTeam(owner);
     const { upcoming } = await seedSchedule(owner, team);
     const parent = await joinAsSecondAdult(owner, team.teamId, team.caseyId);
+    const otherFamily = await recordAttendance(
+      team.teamId,
+      upcoming,
+      team.rowanId,
+      "no",
+      sender(owner),
+    );
+    expect(otherFamily.ok).toBe(true);
+    const ownerDetail = await page(`/app/schedule/events/${upcoming}`, owner, {
+      team: team.teamId,
+    });
+    expect(ownerDetail.html).toContain("Rowan Kid");
 
     const list = await page("/app/schedule", parent);
     expect(list.status).toBe(200);
@@ -468,7 +480,21 @@ describe("/app/schedule role matrix", () => {
     expect(edit.html).toContain('value="18:00"');
     expect(edit.html).toContain('value="2026-11-12"');
     expect(edit.html).toContain("Changes apply to every date in this series.");
-    expect(edit.html).not.toContain("Add a snack duty");
+    expect(create.html).toContain(">Snack duty</legend>");
+
+    const { upcoming } = await seedSchedule(owner, team);
+    const snackSeriesId = (
+      (await sql
+        .prepare("SELECT series_id AS id FROM event_occurrences WHERE id = ?")
+        .get([upcoming])) as { id: string }
+    ).id;
+    const oneTimeEdit = await page(`/app/schedule/series/${snackSeriesId}/edit`, owner, {
+      team: team.teamId,
+    });
+    expect(oneTimeEdit.status).toBe(200);
+    expect(oneTimeEdit.html).toContain('aria-label="Edit event series"');
+    expect(oneTimeEdit.html).not.toContain(">Snack duty</legend>");
+    expect(oneTimeEdit.html).not.toContain("Add a snack duty");
   });
 });
 
@@ -611,6 +637,7 @@ describe("schedule island actions against the real API", () => {
         repeat: "weekly",
         weekdays: ["tuesday", "thursday"],
         untilDate: "2026-11-12",
+        snackDuty: true,
       },
       TIME_ZONE,
       "create",
@@ -667,7 +694,8 @@ describe("schedule island actions against the real API", () => {
     const detail = await page(`/app/schedule/events/${firstId}`, owner, { team: team.teamId });
     expect(detail.html).toContain("This date is cancelled.");
     expect(detail.html).toContain("Repeats weekly on Tuesday until November 12, 2026");
-    expect(detail.html).not.toContain("Confirm cancellation");
+    expect(detail.html).not.toContain("Cancel this date");
+    expect(detail.html).not.toContain('"component":"ScheduleCancel"');
   });
 
   it("records a parent's RSVP for their own child and refuses the other child", async () => {
