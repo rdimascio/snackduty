@@ -8,7 +8,7 @@ import { unavailableInviteDeliverer } from "./runtime/delivery";
 import { runtimeConfiguration } from "./runtime/config";
 import { aesGcmInvitationPayloadCipher } from "./app/lib/server/invitation-outbox";
 import { reelLessonCatalog } from "./app/lessons/catalog";
-import { routeBrands } from "./app/server/brand-routing";
+import { routeBrands, secureBrands } from "./app/server/brand-routing";
 import { ballplayerHome } from "./app/ballplayer/home-page";
 
 // Lesto invokes this factory per boot; importing it opens no database.
@@ -44,5 +44,5 @@ export default async function applicationConfig() {
       : {}),
     ...(audience ? { appleVerifier: createAppleIdentityVerifier({ audience }) } : {}),
   });
-  return { ...config, app: routeBrands(config.app, { home: ballplayerHome }) };
+  return { ...config, app: secureBrands(routeBrands(config.app, { home: ballplayerHome })) };
 }

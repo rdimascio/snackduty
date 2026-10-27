@@ -42,7 +42,7 @@ export function withRuntimeAssets(app: App, outputRoot = join(webRoot, "out")): 
   const read = nodeStaticReader(outputRoot);
   return {
     ...app,
-    handle: withBrandSecurity(async (method, path, options) => {
+    async handle(method, path, options) {
       if (
         (method === "GET" || method === "HEAD") &&
         (path === "/client.js" || path === "/styles.css")
@@ -61,6 +61,10 @@ export function withRuntimeAssets(app: App, outputRoot = join(webRoot, "out")): 
         };
       }
       return app.handle(method, path, options);
-    }),
+    },
   };
+}
+
+export function withBrandPolicy(app: App): App {
+  return { ...app, handle: withBrandSecurity(app.handle.bind(app)) };
 }

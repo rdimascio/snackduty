@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CONTENT_SECURITY_POLICY } from "../app/server/content-security-policy";
 import { openRuntimeApplication } from "../runtime";
 import type { RuntimeApplication } from "../runtime";
-import { registerRuntimePages, withRuntimeAssets } from "../runtime/web-surface";
+import { registerRuntimePages, withBrandPolicy, withRuntimeAssets } from "../runtime/web-surface";
 import { findThirdPartyRisks, hasInlineScript, hasInlineStyle } from "./support/third-party";
 
 const EXPECTED_POLICY =
@@ -41,6 +41,14 @@ const fontBytes = new Uint8Array(
 );
 
 const BALLPLAYER_HOSTS = ["ballplayer.co", "www.ballplayer.co", "ballplayer.localhost:3000"];
+
+const SNACKDAY_PAGES: readonly [string, number][] = [
+  ["/features", 200],
+  ["/app", 200],
+  ["/invite/x", 404],
+];
+
+const SNACKDAY_PAGE_PATHS = SNACKDAY_PAGES.map(([path]) => path);
 
 const SNACKDAY_HOSTS = [
   "staging.snackduty.test",
@@ -114,6 +122,19 @@ async function expectBallplayerHome(response: AnyLestoResponse): Promise<string>
   expect(html).not.toContain("snack day");
   expect(html).not.toContain("/client.js");
   return html;
+}
+
+async function expectBallplayerNotFound(response: AnyLestoResponse): Promise<void> {
+  expect(response.status).toBe(404);
+  expectStrictPolicy(policyOf(response));
+  expect(await textOf(response)).toBe("Not Found");
+}
+
+async function expectSnackdayPage(response: AnyLestoResponse, status: number): Promise<void> {
+  const html = await textOf(response);
+  expect(response.status).toBe(status);
+  expect(policyOf(response)).toBeUndefined();
+  expect(html).not.toContain('data-brand="ballplayer"');
 }
 
 async function expectSnackdayHome(response: AnyLestoResponse): Promise<void> {
@@ -240,6 +261,35 @@ describe("brands in production (runtime/web-surface.ts)", () => {
     expectStrictPolicy(policyOf(api));
   });
 
+  it.each(SNACKDAY_PAGE_PATHS)(
+    "answers %s on the Ballplayer host with a 404 and the policy",
+    async (path) => {
+      await expectBallplayerNotFound(await get(app(), path, "ballplayer.co"));
+    },
+  );
+
+  it.each(SNACKDAY_PAGES)("renders %s unchanged on a Snackday host", async (path, status) => {
+    await expectSnackdayPage(await get(app(), path, "staging.snackduty.test"), status);
+  });
+
+  it("puts the policy on runtime wrapper responses for the Ballplayer host only", async () => {
+    const requests: readonly [string, string, number][] = [
+      ["GET", "/__snackday/release", 404],
+      ["GET", "/api/dev/session", 404],
+      ["GET", "/calendar/feed/token", 404],
+      ["POST", "/api/teams/team/invitations", 503],
+    ];
+    for (const [method, path, status] of requests) {
+      const ballplayer = await app().handle(method, path, withHost("ballplayer.co"));
+      const snackday = await app().handle(method, path, withHost("staging.snackduty.test"));
+
+      expect({ path, status: ballplayer.status }).toEqual({ path, status });
+      expect({ path, policy: policyOf(ballplayer) }).toEqual({ path, policy: EXPECTED_POLICY });
+      expect({ path, status: snackday.status }).toEqual({ path, status });
+      expect({ path, policy: policyOf(snackday) }).toEqual({ path, policy: undefined });
+    }
+  });
+
   it("leaves Snackday responses without the policy and without Ballplayer fonts", async () => {
     const font = await get(app(), `/fonts/${FONT_FILE}`, "staging.snackduty.test");
     const api = await get(app(), "/api/teams", "staging.snackduty.test");
@@ -268,16 +318,31 @@ describe("brands on runtime static assets", () => {
     handle: () => Promise.resolve({ status: 404, headers: {}, body: "" }),
   };
 
-  it("puts the policy on the stylesheet for the Ballplayer host", async () => {
-    const response = await get(withRuntimeAssets(fallthrough, out), "/styles.css", "ballplayer.co");
+  it("puts the policy on the stylesheet for the Ballplayer host at the outer boundary", async () => {
+    const response = await get(
+      withBrandPolicy(withRuntimeAssets(fallthrough, out)),
+      "/styles.css",
+      "ballplayer.co",
+    );
 
     expect(response.status).toBe(200);
     expect(response.body).toBe("body{color:red}");
     expectStrictPolicy(policyOf(response));
   });
 
+  it("adds no policy inside the asset wrapper", async () => {
+    const response = await get(withRuntimeAssets(fallthrough, out), "/styles.css", "ballplayer.co");
+
+    expect(response.status).toBe(200);
+    expect(policyOf(response)).toBeUndefined();
+  });
+
   it("leaves the stylesheet for a Snackday host unchanged", async () => {
-    const response = await get(withRuntimeAssets(fallthrough, out), "/styles.css", "snackday.app");
+    const response = await get(
+      withBrandPolicy(withRuntimeAssets(fallthrough, out)),
+      "/styles.css",
+      "snackday.app",
+    );
 
     expect(response.status).toBe(200);
     expect(policyOf(response)).toBeUndefined();
@@ -314,6 +379,17 @@ describe("brands in dev (lesto.app.ts)", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(fontBytes);
     expectStrictPolicy(policyOf(response));
+  });
+
+  it.each(SNACKDAY_PAGE_PATHS)(
+    "answers %s on the Ballplayer host with a 404 and the policy",
+    async (path) => {
+      await expectBallplayerNotFound(await get(devApp(), path, "ballplayer.localhost:3000"));
+    },
+  );
+
+  it.each(SNACKDAY_PAGES)("renders %s unchanged on a Snackday host", async (path, status) => {
+    await expectSnackdayPage(await get(devApp(), path, "localhost:3000"), status);
   });
 
   it("puts the policy on a Ballplayer-host API response only", async () => {
