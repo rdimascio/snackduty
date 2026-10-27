@@ -1,8 +1,8 @@
 import { KERNEL_DEFAULT_RATE_LIMIT, secureStack } from "@lesto/kernel";
 import type { LestoAppConfig } from "@lesto/kernel";
 import { openSqlite } from "@lesto/runtime";
-import { runPipeline } from "@lesto/web";
-import type { HandleOptions, LestoRequest, LestoResponse } from "@lesto/web";
+import { BROWSER_SPANS_ROUTE, runPipeline } from "@lesto/web";
+import type { LestoRequest, LestoResponse } from "@lesto/web";
 import { env } from "./env";
 import { createApplication } from "./app/lib/server/composition";
 import { identityServices } from "./app/lib/server/identity";
@@ -16,31 +16,11 @@ import { routeBrands, secureBrands } from "./app/server/brand-routing";
 import { ballplayerHome } from "./app/ballplayer/home-page";
 import { registerDevSkillEventRoutes } from "./app/dev/skill-events";
 
-const DEV_ASSET_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
-
-const DEV_ASSET_PATHS: ReadonlySet<string> = new Set(["/client.js", "/styles.css"]);
-
-const DEV_ASSET_PREFIXES: readonly string[] = ["/@lesto-dev/", "/@fs/", "/@vite/"];
-
-function isDevAssetRequest(method: string, path: string): boolean {
-  return (
-    DEV_ASSET_METHODS.has(method.toUpperCase()) &&
-    (DEV_ASSET_PATHS.has(path) || DEV_ASSET_PREFIXES.some((prefix) => path.startsWith(prefix)))
-  );
+function isBrowserSpanPost(request: LestoRequest): boolean {
+  return request.method.toUpperCase() === "POST" && request.path === BROWSER_SPANS_ROUTE;
 }
 
-function pipelineRequest(method: string, path: string, options?: HandleOptions): LestoRequest {
-  return {
-    method,
-    path,
-    params: {},
-    query: options?.query ?? {},
-    headers: options?.headers ?? {},
-    body: options?.body,
-  };
-}
-
-function exemptDevAssetsFromRateLimit(config: LestoAppConfig): LestoAppConfig {
+function withUnlimitedBrowserSpans(config: LestoAppConfig): LestoAppConfig {
   if (config.secure === false) return config;
   const { rateLimit, ...unlimited } = config.secure ?? {};
   const durable =
@@ -50,12 +30,20 @@ function exemptDevAssetsFromRateLimit(config: LestoAppConfig): LestoAppConfig {
     ...durable,
     ...unlimited,
   });
-  const assets = secureStack(unlimited);
+  const browserSpans = secureStack(unlimited);
   const handle = config.app.handle.bind(config.app);
   config.app.handle = async (method, path, options) => {
+    const request: LestoRequest = {
+      method,
+      path,
+      params: {},
+      query: options?.query ?? {},
+      headers: options?.headers ?? {},
+      body: options?.body,
+    };
     const response = await runPipeline(
-      isDevAssetRequest(method, path) ? assets : limited,
-      pipelineRequest(method, path, options),
+      isBrowserSpanPost(request) ? browserSpans : limited,
+      request,
       () => handle(method, path, options),
     );
     return response as LestoResponse;
@@ -103,5 +91,5 @@ export default async function applicationConfig() {
     clock: Date.now,
   });
   const branded = { ...config, app: secureBrands(routeBrands(app, { home: ballplayerHome })) };
-  return mode === "development" ? exemptDevAssetsFromRateLimit(branded) : branded;
+  return mode === "development" ? withUnlimitedBrowserSpans(branded) : branded;
 }
