@@ -2,8 +2,9 @@ import { lesto } from "@lesto/web";
 import type { HandleOptions, Lesto, LestoResponse, PageDef } from "@lesto/web";
 
 import { brandOfRequest } from "../brand/brand";
-import { withContentSecurityPolicy } from "./content-security-policy";
+import { contentSecurityPolicyFor, withContentSecurityPolicy } from "./content-security-policy";
 import { FONT_ROUTE, fontResponse } from "./fonts";
+import { withoutLayoutInlineStyle } from "./layout-style";
 
 export type RequestHandle = (
   method: string,
@@ -55,9 +56,10 @@ function ballplayerSite(pages: BallplayerPages): Lesto {
 export function withBrandSecurity(handle: RequestHandle): RequestHandle {
   return async (method, path, options) => {
     const response = await handle(method, path, options);
-    return brandOfRequest(options?.headers) === "ballplayer"
-      ? withContentSecurityPolicy(response)
-      : response;
+    return withContentSecurityPolicy(
+      withoutLayoutInlineStyle(response),
+      contentSecurityPolicyFor(brandOfRequest(options?.headers)),
+    );
   };
 }
 

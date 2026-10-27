@@ -16,6 +16,7 @@
     "check:fast": "bun run format:check && bun run lint && bun run --filter web typecheck && bun run --filter '@snackday/domain' typecheck && bun run --filter '@snackday/skill-engine' typecheck && bun run --filter '@snackday/platform-manifest' typecheck && bun run scripts:typecheck && bun run --filter web test && bun run --filter '@snackday/domain' test && bun run --filter '@snackday/skill-engine' test && bun run --filter '@snackday/platform-manifest' test && bun run scripts:test",
     "dev:scenario": "bun scripts/dev-scenario.ts",
     "check:scenario": "bun scripts/dev-scenario.ts --check",
+    "check:csp-browser": "bun scripts/csp-browser-check.ts",
     "runtime:serve": "bun apps/web/runtime/server.ts",
     "runtime:verify": "bun scripts/runtime/verify-local.ts",
     "runtime:storage": "bun scripts/runtime/storage.ts",
@@ -38,6 +39,7 @@
     "alchemy": "0.93.12",
     "oxfmt": "^0.54.0",
     "oxlint": "1.73.0",
+    "playwright-core": "1.63.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.8"
   },
