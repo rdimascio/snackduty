@@ -1,0 +1,136 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Database } from "bun:sqlite";
+import { afterAll, beforeAll } from "bun:test";
+import { chromium } from "playwright-core";
+import type { Browser } from "playwright-core";
+
+import { seedDatabase } from "../../apps/web/app/dev/seed-database";
+
+const WEB_ROOT = fileURLToPath(new URL("../../apps/web/", import.meta.url));
+const SERVER_ENTRY = join(WEB_ROOT, "test", "support", "csp-scenario-server.ts");
+const SERVER_READY_TIMEOUT_MS = 30_000;
+
+export const BALLPLAYER_HOST = "ballplayer.localhost";
+
+export type Brand = "snackday" | "ballplayer";
+
+export interface ScenarioOptions {
+  readonly extraSql?: string;
+}
+
+export interface Scenario {
+  readonly port: number;
+  readonly databasePath: string;
+  readonly browser: Browser;
+  origin(brand?: Brand): string;
+  query<T>(sql: string, ...params: (string | number | null)[]): T[];
+  execute(sql: string): void;
+  stop(): Promise<void>;
+}
+
+async function firstLine(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text;
+    text += decoder.decode(value, { stream: true });
+    const newline = text.indexOf("\n");
+    if (newline !== -1) {
+      reader.releaseLock();
+      return text.slice(0, newline);
+    }
+  }
+}
+
+async function bootServer(databasePath: string) {
+  const child = Bun.spawn({
+    cmd: ["bun", SERVER_ENTRY],
+    cwd: WEB_ROOT,
+    env: {
+      ...process.env,
+      LESTO_DB: databasePath,
+      SNACKDAY_DEV_SIGN_IN: "true",
+      SNACKDAY_LESSON_OF_THE_WEEK: "true",
+      SNACKDAY_RUNTIME_MODE: "development",
+    },
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  const stop = async () => {
+    if (child.exitCode !== null) return;
+    child.kill();
+    await child.exited;
+  };
+  const line = await Promise.race([
+    firstLine(child.stdout),
+    Bun.sleep(SERVER_READY_TIMEOUT_MS).then(() => "timeout"),
+  ]);
+  const port = (JSON.parse(line.startsWith("{") ? line : "{}") as { port?: unknown }).port;
+  if (typeof port !== "number") {
+    await stop();
+    throw new Error(`the scenario server did not report a port (${line})`);
+  }
+  return { port, stop };
+}
+
+export async function startScenario(options: ScenarioOptions = {}): Promise<Scenario> {
+  const scratch = await mkdtemp(join(tmpdir(), "snackday-e2e-"));
+  const databasePath = join(scratch, "scenario.db");
+  await seedDatabase(databasePath);
+  if (options.extraSql !== undefined) {
+    const database = new Database(databasePath);
+    try {
+      database.exec(options.extraSql);
+    } finally {
+      database.close();
+    }
+  }
+  const server = await bootServer(databasePath);
+  const browser = await chromium.launch({ headless: true });
+  const withDatabase = <T>(use: (database: Database) => T): T => {
+    const database = new Database(databasePath);
+    try {
+      return use(database);
+    } finally {
+      database.close();
+    }
+  };
+  return {
+    port: server.port,
+    databasePath,
+    browser,
+    origin: (brand = "snackday") =>
+      brand === "ballplayer"
+        ? `http://${BALLPLAYER_HOST}:${server.port}`
+        : `http://127.0.0.1:${server.port}`,
+    query: <T>(sql: string, ...params: (string | number | null)[]) =>
+      withDatabase((database) => database.query(sql).all(...params) as T[]),
+    execute: (sql) => withDatabase((database) => database.exec(sql)),
+    stop: async () => {
+      await browser.close();
+      await server.stop();
+      await rm(scratch, { recursive: true, force: true });
+    },
+  };
+}
+
+export function useScenario(options: ScenarioOptions = {}): () => Scenario {
+  let scenario: Scenario | undefined;
+  beforeAll(async () => {
+    scenario = await startScenario(options);
+  });
+  afterAll(async () => {
+    await scenario?.stop();
+    scenario = undefined;
+  });
+  return () => {
+    if (scenario === undefined) throw new Error("the scenario is not running");
+    return scenario;
+  };
+}
