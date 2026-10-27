@@ -13,7 +13,9 @@ import {
   BALLPLAYER_CONTENT_SECURITY_POLICY,
   SNACKDAY_CONTENT_SECURITY_POLICY,
 } from "../apps/web/app/server/content-security-policy";
+import { DevScenarioApi } from "./lib/dev-scenario-api";
 import { seedDevScenario } from "./lib/dev-scenario-seed";
+import type { SeededDevScenario } from "./lib/dev-scenario-seed";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WEB_ROOT = join(ROOT, "apps", "web");
@@ -24,6 +26,9 @@ const LESTO_LAYOUT_STYLE_HASH = `'sha256-${createHash("sha256").update(LESTO_LAY
 const SETTLE_MS = 1_000;
 const POSTER_TIMEOUT_MS = 15_000;
 const POSTER_SELECTOR = 'section[aria-label="Lesson of the week"] img';
+const REACT_PROGRESSIVE_CHUNK_SIZE = 12_800;
+const LARGE_ROSTER_SIZE = 60;
+const LARGE_ROSTER_BIRTH_DATE = "2018-06-01";
 
 type Persona = "default" | "second-adult";
 
@@ -147,6 +152,51 @@ async function checkAppOverview(page: Page, persona: Persona): Promise<void> {
   if (persona === "second-adult") await expectAnswerHydrates(page);
 }
 
+function largeRosterPlayer(index: number): string {
+  return `Roster Load ${String(index + 1).padStart(3, "0")}`;
+}
+
+async function seedLargeRoster(baseUrl: string, seeded: SeededDevScenario): Promise<void> {
+  const api = new DevScenarioApi(baseUrl);
+  const owner = await api.signIn("default");
+  const { teamId, seasonId } = seeded.manifest.teams.coached;
+  for (let index = 0; index < LARGE_ROSTER_SIZE; index += 1) {
+    await api.addPlayer(owner.cookie, teamId, seasonId, {
+      displayName: largeRosterPlayer(index),
+      birthDate: LARGE_ROSTER_BIRTH_DATE,
+    });
+  }
+}
+
+async function checkLargeRoster(page: Page): Promise<void> {
+  await expectLayoutWrapper(page);
+  const skeletons = await page.locator('main [aria-busy="true"]').count();
+  if (skeletons > 0) fail("the page is stuck on its loading skeleton");
+  const routeBytes = await page.evaluate(
+    () => document.querySelector("main")?.innerHTML.length ?? 0,
+  );
+  if (routeBytes <= REACT_PROGRESSIVE_CHUNK_SIZE) {
+    fail(
+      `the route content is ${routeBytes} bytes; it must exceed ${REACT_PROGRESSIVE_CHUNK_SIZE}`,
+    );
+  }
+  const roster = page.locator('section[aria-label="Roster"]');
+  for (let index = 0; index < LARGE_ROSTER_SIZE; index += 1) {
+    const name = largeRosterPlayer(index);
+    if ((await roster.getByText(name, { exact: true }).count()) === 0) {
+      fail(`the roster is missing ${name}`);
+    }
+  }
+  if (
+    !(await roster
+      .getByText(largeRosterPlayer(LARGE_ROSTER_SIZE - 1))
+      .first()
+      .isVisible())
+  ) {
+    fail("the last roster entry is not visible");
+  }
+}
+
 const VISITS: readonly Visit[] = [
   { label: "Snackday home", origin: "snackday", path: "/", expectStatus: 200 },
   { label: "Snackday features", origin: "snackday", path: "/features", expectStatus: 200 },
@@ -165,6 +215,14 @@ const VISITS: readonly Visit[] = [
     persona: "default",
     expectStatus: 200,
     check: (page) => checkAppOverview(page, "default"),
+  },
+  {
+    label: `/app as owner coach with a ${LARGE_ROSTER_SIZE}-player roster`,
+    origin: "snackday",
+    path: "/app",
+    persona: "default",
+    expectStatus: 200,
+    check: checkLargeRoster,
   },
   { label: "invite landing", origin: "snackday", path: "/invite#not-a-token", expectStatus: 200 },
   { label: "Ballplayer home", origin: "ballplayer", path: "/", expectStatus: 200 },
@@ -261,8 +319,10 @@ async function main(): Promise<void> {
   let browser: Browser | undefined;
   try {
     server = await startServer(scratch);
-    const seeded = await seedDevScenario(`http://127.0.0.1:${server.port}`);
+    const baseUrl = `http://127.0.0.1:${server.port}`;
+    const seeded = await seedDevScenario(baseUrl);
     await seeded.verify();
+    await seedLargeRoster(baseUrl, seeded);
     browser = await chromium.launch({ headless: true });
     let failures = 0;
     for (const target of VISITS) {
