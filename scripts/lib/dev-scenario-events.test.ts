@@ -10,8 +10,10 @@ import {
   PRACTICE_SNACK_SLOTS,
   PRACTICE_TITLE,
   RSVP_EVENTS,
+  SEEDED_DUTY_WINDOW_MS,
   SCENARIO_GAMES,
   countScenarioEvents,
+  dutyWindow,
   scenarioEventPlan,
   upcomingScheduled,
   upcomingWeekdays,
@@ -99,8 +101,18 @@ async function totals(
   return {
     teams: teams.length,
     coachedRoster: (await api.readSeasonRoster(cookie, coached.teamId, coached.seasonId)).length,
-    coached: await countScenarioEvents(api, cookie, coached, seededAtMs),
-    family: await countScenarioEvents(api, cookie, family, seededAtMs),
+    coached: await countScenarioEvents(
+      api,
+      cookie,
+      coached,
+      dutyWindow(seededAtMs, SEEDED_DUTY_WINDOW_MS),
+    ),
+    family: await countScenarioEvents(
+      api,
+      cookie,
+      family,
+      dutyWindow(seededAtMs, SEEDED_DUTY_WINDOW_MS),
+    ),
   };
 }
 

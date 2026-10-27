@@ -12,7 +12,8 @@ type Weekday = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "sat
 
 export const PRACTICE_TITLE = "Practice";
 export const PRACTICE_LOCATION = "Riverside Park, Field 2";
-export const GAME_DUTIES = ["Snacks", "Scorebook", "Field setup"] as const;
+export const GAME_SNACK_DUTY = "Snacks";
+export const GAME_DUTIES = [GAME_SNACK_DUTY, "Scorebook", "Field setup"] as const;
 export const PRACTICE_DUTIES = ["Snacks"] as const;
 export const FAMILY_EVENT_TITLE = "Sunday skills clinic";
 export const FAMILY_EVENT_DUTY = "Snacks";
@@ -50,7 +51,8 @@ export const SCENARIO_GAMES: readonly ScenarioGame[] = [
   },
 ];
 
-const DUTY_WINDOW_MS = (SCENARIO_GAMES.length + 1) * WEEK_MS;
+export const SEEDED_DUTY_WINDOW_MS = (SCENARIO_GAMES.length + 1) * WEEK_MS;
+const VERIFY_DUTY_WINDOW_MS = WEEK_MS + DAY_MS;
 export const PRACTICE_SNACK_SLOTS = 3;
 export const PRACTICE_SNACK_CLAIMS: readonly ScenarioPersona[] = ["parent", "owner"];
 export const RSVP_EVENTS = 2;
@@ -144,6 +146,7 @@ export function scenarioEventPlan(nowMs: number, season: ScenarioSeasonWindow): 
           frequency: "once",
           startDate: saturdays[index] ?? addDays(today, 7 * (index + 1)),
         },
+        ...(game.cancelledReason === undefined ? { snackDuty: { label: GAME_SNACK_DUTY } } : {}),
       },
     })),
     familyEvent: {
@@ -171,6 +174,8 @@ export interface ScenarioOccurrence {
   readonly attendance: { readonly yes: number; readonly no: number; readonly maybe: number };
 }
 
+type ScenarioOccurrenceTiming = Pick<ScenarioOccurrence, "id" | "startsAt" | "status">;
+
 export interface ScenarioSeries {
   readonly series: { readonly id: string; readonly title: string; readonly kind: string };
   readonly occurrences: readonly ScenarioOccurrence[];
@@ -180,6 +185,11 @@ export interface ScenarioDutySlot {
   readonly id: string;
   readonly label: string;
   readonly assignee?: { readonly personId: string; readonly displayName: string };
+}
+
+export interface ScenarioCreatedEvent {
+  readonly occurrences: readonly ScenarioOccurrenceTiming[];
+  readonly dutySlots: readonly ScenarioDutySlot[];
 }
 
 export interface ScenarioRosterEntry {
@@ -224,13 +234,19 @@ export class DevScenarioEventApi extends DevScenarioLessonApi {
     teamId: string,
     seasonId: string,
     input: ScenarioEventInput,
-  ): Promise<void> {
-    await this.json(
+  ): Promise<ScenarioCreatedEvent> {
+    const body = await this.json<Partial<ScenarioCreatedEvent>>(
       "create-event",
       `/api/teams/${teamId}/seasons/${seasonId}/events`,
       { method: "POST", headers: this.mutation(cookie), body: JSON.stringify(input) },
       201,
     );
+    ensure(
+      "create-event",
+      Array.isArray(body.occurrences) && Array.isArray(body.dutySlots),
+      "response carries no occurrences or duty slots",
+    );
+    return { occurrences: body.occurrences, dutySlots: body.dutySlots };
   }
 
   async listDutySlots(
@@ -336,44 +352,41 @@ export interface ScenarioEventSeed {
   readonly familyRsvp: { readonly participantId: string; readonly guardian: ScenarioPersona };
 }
 
-async function createSeries(
+function createSeries(
   seed: ScenarioEventSeed,
   target: ScenarioEventTarget,
   input: ScenarioEventInput,
-): Promise<ScenarioSeries> {
-  const owner = seed.adults.owner.cookie;
-  await seed.api.createEvent(owner, target.teamId, target.seasonId, input);
-  const created = (await seed.api.listSeasonEvents(owner, target.teamId, target.seasonId)).find(
-    (entry) => entry.series.title === input.title,
-  );
-  ensure("seed-events", created !== undefined, `${input.title} was not listed after creation`);
-  return created;
+): Promise<ScenarioCreatedEvent> {
+  return seed.api.createEvent(seed.adults.owner.cookie, target.teamId, target.seasonId, input);
 }
 
-function acceptsDuties(occurrence: ScenarioOccurrence, nowMs: number): boolean {
+function acceptsDuties(occurrence: ScenarioOccurrenceTiming, nowMs: number): boolean {
   return occurrence.status === "scheduled" && Date.parse(occurrence.startsAt) > nowMs;
 }
 
 async function createDuties(
   seed: ScenarioEventSeed,
   teamId: string,
-  occurrence: ScenarioOccurrence,
+  occurrence: ScenarioOccurrenceTiming,
   claims: Readonly<Partial<Record<string, ScenarioPersona>>>,
   labels: readonly string[],
+  createdWithEvent: readonly ScenarioDutySlot[] = [],
 ): Promise<void> {
   const owner = seed.adults.owner.cookie;
   for (const label of labels) {
-    const slot = await seed.api.createDutySlot(owner, teamId, occurrence.id, label);
+    const slot =
+      createdWithEvent.find((candidate) => candidate.label === label) ??
+      (await seed.api.createDutySlot(owner, teamId, occurrence.id, label));
     const claimant = claims[label];
     if (claimant === undefined) continue;
     await seed.api.claimDutySlot(seed.adults[claimant].cookie, teamId, occurrence.id, slot.id);
   }
 }
 
-export function upcomingScheduled(
-  occurrences: readonly ScenarioOccurrence[],
+export function upcomingScheduled<T extends ScenarioOccurrenceTiming>(
+  occurrences: readonly T[],
   nowMs: number,
-): readonly ScenarioOccurrence[] {
+): readonly T[] {
   return occurrences
     .filter((occurrence) => acceptsDuties(occurrence, nowMs))
     .toSorted((left, right) => left.startsAt.localeCompare(right.startsAt));
@@ -405,14 +418,19 @@ export async function seedScenarioEvents(seed: ScenarioEventSeed): Promise<Scena
     );
   }
 
-  const games: ScenarioSeries[] = [];
   for (const game of plan.games) {
-    const series = await createSeries(seed, coached, game.input);
-    games.push(series);
-    const [occurrence] = series.occurrences;
+    const created = await createSeries(seed, coached, game.input);
+    const [occurrence] = created.occurrences;
     ensure("seed-events", occurrence !== undefined, `${game.title} has no occurrence`);
     if (game.cancelledReason === undefined) {
-      await createDuties(seed, coached.teamId, occurrence, game.claims, GAME_DUTIES);
+      await createDuties(
+        seed,
+        coached.teamId,
+        occurrence,
+        game.claims,
+        GAME_DUTIES,
+        created.dutySlots,
+      );
     } else {
       await api.cancelOccurrence(
         adults.owner.cookie,
@@ -461,14 +479,23 @@ export async function seedScenarioEvents(seed: ScenarioEventSeed): Promise<Scena
 
   return {
     practices: practice.occurrences.length,
-    games: games.length,
+    games: plan.games.length,
     cancelledGames: plan.games.filter((game) => game.cancelledReason !== undefined).length,
   };
 }
 
-function inDutyWindow(occurrence: ScenarioOccurrence, seededAtMs: number): boolean {
+export interface ScenarioDutyWindow {
+  readonly fromMs: number;
+  readonly toMs: number;
+}
+
+export function dutyWindow(seededAtMs: number, lengthMs: number): ScenarioDutyWindow {
+  return { fromMs: seededAtMs, toMs: seededAtMs + lengthMs };
+}
+
+function inDutyWindow(occurrence: ScenarioOccurrence, window: ScenarioDutyWindow): boolean {
   const startsAtMs = Date.parse(occurrence.startsAt);
-  return startsAtMs > seededAtMs && startsAtMs <= seededAtMs + DUTY_WINDOW_MS;
+  return startsAtMs > window.fromMs && startsAtMs <= window.toMs;
 }
 
 function rsvpTotal(occurrence: ScenarioOccurrence): number {
@@ -489,12 +516,12 @@ export async function countScenarioEvents(
   api: DevScenarioEventApi,
   cookie: string,
   target: ScenarioEventTarget,
-  seededAtMs: number,
+  window: ScenarioDutyWindow,
 ): Promise<ScenarioEventCounts> {
   const events = await api.listSeasonEvents(cookie, target.teamId, target.seasonId);
   const occurrences = events.flatMap((entry) => entry.occurrences);
   const slots: ScenarioDutySlot[] = [];
-  for (const occurrence of occurrences.filter((candidate) => inDutyWindow(candidate, seededAtMs))) {
+  for (const occurrence of occurrences.filter((candidate) => inDutyWindow(candidate, window))) {
     slots.push(...(await api.listDutySlots(cookie, target.teamId, occurrence.id)));
   }
   const claimed = slots.flatMap((slot) => (slot.assignee === undefined ? [] : [slot.assignee]));
@@ -557,7 +584,12 @@ export async function verifyScenarioEvents(
       answered.every((id) => rsvpTargets.includes(id)),
     `RSVPs sit on ${answered.join(", ")}; expected the first upcoming ${rsvpTargets.join(", ")}`,
   );
-  const counts = await countScenarioEvents(api, adults.parent.cookie, coached, seededAtMs);
+  const counts = await countScenarioEvents(
+    api,
+    adults.parent.cookie,
+    coached,
+    dutyWindow(seededAtMs, VERIFY_DUTY_WINDOW_MS),
+  );
   ensure(step, counts.rsvps >= 4, `the next two events carry ${counts.rsvps} RSVPs`);
   ensure(
     step,
