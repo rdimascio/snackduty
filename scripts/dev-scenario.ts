@@ -12,6 +12,7 @@ function usage(): string {
     "Usage: bun scripts/dev-scenario.ts [--check] [--ios[=<simulator name or UDID>]]",
     "",
     "Without arguments, starts a long-lived isolated local scenario.",
+    "The scenario database is migrated and loaded from the SQL files in seed/ before the server boots.",
     "--check seeds and verifies the scenario, then removes it and exits.",
     "--ios also builds, installs, and launches the app in an iPhone simulator.",
   ].join("\n");
@@ -64,7 +65,7 @@ async function runLongLived(simulator?: string, launchIos = false): Promise<void
       );
       console.log(`Native app launched on ${device.name} (${device.udid}).`);
     }
-    console.log(formatDevScenarioInstructions(running.manifest));
+    console.log(formatDevScenarioInstructions(running.manifest, running.readyInMs));
     const exitCode = await running.waitForServerExit();
     if (!controller.signal.aborted) {
       throw new Error(`development scenario server exited unexpectedly with code ${exitCode}`);
@@ -100,3 +101,4 @@ try {
   console.error(error instanceof Error ? error.message : "development scenario failed");
   process.exitCode = 1;
 }
+process.exit();

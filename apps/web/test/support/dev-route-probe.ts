@@ -10,4 +10,16 @@ const seed = await app.handle(
   { headers: sameOrigin, body: [] },
 );
 const signIn = await app.handle("POST", "/api/dev/sign-in", { headers: sameOrigin });
-console.log(JSON.stringify({ seed: seed.status, signIn: signIn.status }));
+const roleSignIn = await app.handle("POST", "/api/dev/sign-in", {
+  headers: sameOrigin,
+  body: { persona: "head-coach" },
+});
+const rolesPage = await app.handle("GET", "/dev/sign-in", { headers: {} });
+console.log(
+  JSON.stringify({
+    seed: seed.status,
+    signIn: signIn.status,
+    roleSignIn: roleSignIn.status,
+    rolesPage: rolesPage.status,
+  }),
+);

@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { seedDatabase } from "../app/dev/seed-database";
 import { accounts, people, VERIFIED_SESSION_COOKIE } from "../app/lib/server/identity";
 import { openRuntimeApplication } from "../runtime";
 
@@ -16,13 +17,28 @@ afterEach(async () => {
   await Promise.all(scratchDirectories.splice(0).map((path) => rm(path, { recursive: true })));
 });
 
-function probeLestoEntry(devSignIn: "true" | "false"): { seed: number; signIn: number } {
+interface ProbeStatuses {
+  readonly seed: number;
+  readonly signIn: number;
+  readonly roleSignIn: number;
+  readonly rolesPage: number;
+}
+
+async function seededDatabase(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "snackday-dev-probe-"));
+  scratchDirectories.push(directory);
+  const path = join(directory, "probe.db");
+  await seedDatabase(path);
+  return path;
+}
+
+function probeLestoEntry(devSignIn: "true" | "false", databasePath: string): ProbeStatuses {
   const result = spawnSync(process.execPath, [join(webRoot, "test/support/dev-route-probe.ts")], {
     cwd: webRoot,
     encoding: "utf8",
     env: {
       ...process.env,
-      LESTO_DB: ":memory:",
+      LESTO_DB: databasePath,
       SNACKDAY_RUNTIME_MODE: "development",
       SNACKDAY_DEV_SIGN_IN: devSignIn,
       SNACKDAY_LESSON_OF_THE_WEEK: "true",
@@ -30,7 +46,7 @@ function probeLestoEntry(devSignIn: "true" | "false"): { seed: number; signIn: n
   });
   expect(result.status).toBe(0);
   const lastLine = result.stdout.trim().split("\n").at(-1) ?? "{}";
-  return JSON.parse(lastLine) as { seed: number; signIn: number };
+  return JSON.parse(lastLine) as ProbeStatuses;
 }
 
 async function sourceFiles(directory: string): Promise<string[]> {
@@ -40,17 +56,29 @@ async function sourceFiles(directory: string): Promise<string[]> {
     .map((entry) => join(entry.parentPath, entry.name));
 }
 
-describe("development skill event seed route registration", () => {
-  it("is registered by the Lesto entry only when development sign-in is on", () => {
-    expect(probeLestoEntry("true")).toEqual({ seed: 401, signIn: 200 });
-    expect(probeLestoEntry("false")).toEqual({ seed: 404, signIn: 404 });
-  }, 30_000);
+describe("development seed and sign-in route registration", () => {
+  it("is registered by the Lesto entry only when development sign-in is on", async () => {
+    expect(probeLestoEntry("true", await seededDatabase())).toEqual({
+      seed: 401,
+      signIn: 200,
+      roleSignIn: 200,
+      rolesPage: 200,
+    });
+    expect(probeLestoEntry("false", await seededDatabase())).toEqual({
+      seed: 404,
+      signIn: 404,
+      roleSignIn: 404,
+      rolesPage: 404,
+    });
+  }, 60_000);
 
   it("is never imported by the production Worker or runtime entry", async () => {
     const files = [join(webRoot, "worker.ts"), ...(await sourceFiles(join(webRoot, "runtime")))];
     expect(files.length).toBeGreaterThan(1);
     for (const file of files) {
-      expect(await readFile(file, "utf8")).not.toMatch(/app\/dev\b|registerDevSkillEventRoutes/u);
+      expect(await readFile(file, "utf8")).not.toMatch(
+        /app\/dev\b|registerDevSkillEventRoutes|registerDevSignIn/u,
+      );
     }
   });
 
@@ -97,6 +125,13 @@ describe("development skill event seed route registration", () => {
         body: [],
       });
       expect(response.status).toBe(404);
+      const roleSignIn = await runtime.app.handle("POST", "/api/dev/sign-in", {
+        headers: { "sec-fetch-site": "same-origin" },
+        body: { persona: "head-coach" },
+      });
+      expect(roleSignIn.status).toBe(404);
+      const rolesPage = await runtime.app.handle("GET", "/dev/sign-in", { headers: {} });
+      expect(rolesPage.status).toBe(404);
     } finally {
       await runtime.close();
     }
