@@ -223,8 +223,10 @@ describe("/app/team page", () => {
     const { second, teamId } = await scenario();
     const page = await teamPage(second, { team: teamId });
     expect(page.status).toBe(404);
+    expect(page.html).toContain("Team not found");
     expect(page.html).not.toContain("T-Ball Tigers");
     expect(page.html).not.toContain("Spring 2027");
+    expect(page.html).not.toContain(teamId);
   });
 
   it("never falls back to the stranger's own team when they ask for another", async () => {

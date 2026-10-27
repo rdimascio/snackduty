@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { notFound } from "@lesto/web";
 import type { Context, PageDef, PageProps } from "@lesto/web";
 
 import { EmptyState } from "../../../components/states/empty-state";
@@ -14,14 +13,12 @@ import { loadTeamPage } from "../../../team/team-page-data";
 import type { SeasonView, TeamPageData, TeamPageTeam } from "../../../team/team-page-data";
 import { formatDate, MemberList, roleLabel, SectionCard } from "../../../team/team-view";
 
-type LoadedTeamPage = Exclude<TeamPageData, { state: "not-found" }>;
-
 function queryValue(c: Context<"/app/team">, name: string): string | undefined {
   const value = c.query(name)?.trim();
   return value === undefined || value === "" ? undefined : value;
 }
 
-const load = async (c: Context<"/app/team">): Promise<LoadedTeamPage> => {
+const load = async (c: Context<"/app/team">): Promise<TeamPageData> => {
   const services = appServices(c);
   if (services === undefined) return { state: "signed-out" };
 
@@ -34,7 +31,7 @@ const load = async (c: Context<"/app/team">): Promise<LoadedTeamPage> => {
     { teamId: queryValue(c, "team"), seasonId: queryValue(c, "season") },
     services.clock,
   );
-  if (data.state === "not-found") notFound();
+  if (data.state === "not-found") c.status(404);
   return data;
 };
 
@@ -76,6 +73,28 @@ function NoTeam(): ReactNode {
         <EmptyState
           description="Create a team in the Snackday app, or open an invitation link from a coach to join one."
           title="No team yet"
+        />
+      </div>
+    </div>
+  );
+}
+
+function TeamNotFound(): ReactNode {
+  return (
+    <div>
+      <PageIntro lede="This team or season is not available to you." title="Team not found" />
+      <div className="mt-8">
+        <EmptyState
+          action={
+            <a
+              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
+              href="/app/team"
+            >
+              Go to your team
+            </a>
+          }
+          description="The link may be old, or you may not be on this team. Ask the team owner for an invitation."
+          title="Nothing to show here"
         />
       </div>
     </div>
@@ -274,10 +293,11 @@ function TeamDetails({ data }: { data: TeamPageTeam }): ReactNode {
 function TeamPage(data: PageProps<typeof load>): ReactNode {
   if (data.state === "signed-out") return <SignedOut />;
   if (data.state === "no-team") return <NoTeam />;
+  if (data.state === "not-found") return <TeamNotFound />;
   return <TeamDetails data={data} />;
 }
 
-const page: PageDef<"/app/team", LoadedTeamPage> = {
+const page: PageDef<"/app/team", TeamPageData> = {
   component: TeamPage,
   load,
   metadata: (data) => ({
