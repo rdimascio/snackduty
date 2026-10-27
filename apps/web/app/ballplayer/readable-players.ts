@@ -2,7 +2,7 @@ import type { Db } from "@lesto/db";
 
 import { mayManageParticipant } from "../lessons/lessons";
 import { listAccessibleTeams } from "../lib/server/team-reads";
-import { loadPlayerCards } from "../skills/skill-card";
+import { readPlayerCards } from "../skills/skill-card";
 import type { PlayerCard } from "../skills/skill-card";
 import type { CardViewer, ReadablePlayer } from "./real-player";
 
@@ -16,7 +16,7 @@ export async function loadReadablePlayers(
   db: Db,
   personId: string,
 ): Promise<readonly ReadablePlayer[]> {
-  const cards = await loadPlayerCards({ db }, personId);
+  const cards = await readPlayerCards({ db }, personId);
   if (cards.length === 0) return [];
   const teamNames = new Map<string, string>(
     (await listAccessibleTeams(db, personId)).map(({ team }) => [team.id, team.name]),

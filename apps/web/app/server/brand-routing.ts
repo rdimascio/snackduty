@@ -39,6 +39,19 @@ const notFound: LestoResponse = {
   body: "Not Found",
 };
 
+const CACHE_CONTROL_HEADER = "cache-control";
+
+const PRIVATE_NO_STORE = "private, no-store";
+
+function withPrivateNoStore(response: LestoResponse): LestoResponse {
+  const headers: LestoResponse["headers"] = {};
+  for (const [name, value] of Object.entries(response.headers)) {
+    if (name.toLowerCase() !== CACHE_CONTROL_HEADER) headers[name] = value;
+  }
+  headers[CACHE_CONTROL_HEADER] = PRIVATE_NO_STORE;
+  return { ...response, headers };
+}
+
 function isBallplayerRoute(method: string, path: string): boolean {
   return (
     READ_METHODS.has(method.toUpperCase()) &&
@@ -85,7 +98,7 @@ export function withBrandRoutes(handle: RequestHandle, pages: BallplayerPages): 
     if (brandOfRequest(options?.headers) !== "ballplayer") return handle(method, path, options);
     if (isBallplayerRoute(method, path)) return site.handle(method.toUpperCase(), path, options);
     if (isBallplayerAppRoute(method, path)) {
-      return handle(method, BALLPLAYER_APP_PAGE_PATH, options);
+      return withPrivateNoStore(await handle(method, BALLPLAYER_APP_PAGE_PATH, options));
     }
     if (isBallplayerPlatformPath(path)) return handle(method, path, options);
     return notFound;

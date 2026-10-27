@@ -192,7 +192,17 @@ async function ballplayerApp(cookie?: string): Promise<{ status: number; html: s
     headers: { host: BALLPLAYER_HOST, ...(cookie === undefined ? {} : { cookie }) },
   });
   expect(header(response, "content-security-policy")).toBe(BALLPLAYER_CONTENT_SECURITY_POLICY);
+  expect(header(response, "cache-control")).toBe("private, no-store");
   return { status: response.status, html: await textOf(response) };
+}
+
+async function withSkillEventsUnreadable<T>(read: () => Promise<T>): Promise<T> {
+  await sql.exec("ALTER TABLE skill_events RENAME TO skill_events_unreadable;");
+  try {
+    return await read();
+  } finally {
+    await sql.exec("ALTER TABLE skill_events_unreadable RENAME TO skill_events;");
+  }
 }
 
 function executableInlineScripts(html: string): string[] {
@@ -292,6 +302,29 @@ describe("Ballplayer /app for each role", () => {
     expect(cardLabels(html)).toEqual([]);
     expect(html).not.toContain("Casey");
     expect(html).not.toContain("Rowan");
+  });
+
+  it("shows a guardian the error state, not the empty state, when the card read fails", async () => {
+    const { parentCookie } = await parentWithSeededCasey();
+
+    const { status, html } = await withSkillEventsUnreadable(() => ballplayerApp(parentCookie));
+
+    expect(status).toBe(200);
+    expect(html).toContain("Cards did not load");
+    expect(html).not.toContain("No player cards yet");
+    expect(cardLabels(html)).toEqual([]);
+  });
+
+  it("marks every /app state private and unstorable", async () => {
+    const { parentCookie } = await parentWithSeededCasey();
+
+    for (const response of await Promise.all([
+      app.handle("GET", "/app", { headers: { host: BALLPLAYER_HOST } }),
+      app.handle("GET", "/app", { headers: { host: BALLPLAYER_HOST, cookie: parentCookie } }),
+      app.handle("HEAD", "/app", { headers: { host: BALLPLAYER_HOST, cookie: parentCookie } }),
+    ])) {
+      expect(header(response, "cache-control")).toBe("private, no-store");
+    }
   });
 
   it("renders the signed-in page with no inline style or script and no other origin", async () => {
