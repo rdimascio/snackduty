@@ -1,0 +1,13 @@
+diff --git a/dist/chunk-IMHCUU7B.js b/dist/chunk-IMHCUU7B.js
+index 849f8e69ce5ea60456caa52d0d35d770ceb194f5..b78ff5a3abd9b8af782f4451889d2bdf5db6daaf 100644
+--- a/dist/chunk-IMHCUU7B.js
++++ b/dist/chunk-IMHCUU7B.js
+@@ -106,7 +106,7 @@ var BrowserTracer = class {
+    */
+   resourceSpan(entry) {
+     const path = sameOriginPath(entry.name, this.origin);
+-    if (path === void 0) return void 0;
++    if (path === void 0 || path === BROWSER_SPANS_PATH) return void 0;
+     return this.span("browser.resource", entry.startTime, entry.startTime + entry.duration, {
+       "browser.resource_path": path,
+       "browser.initiator": entry.initiatorType,

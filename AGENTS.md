@@ -17,6 +17,7 @@ Snackday is a Bun monorepo for a Lesto web application and a native SwiftUI iOS 
 - Authorize every server-side operation; client visibility is not an authorization boundary.
 - Player cards: a coach (a role holding `roster.manage`) reads, read-only, the card of a child with an active membership in an active season of that team (`mayReadParticipantCard`). Every write (lesson answers, skill events, the seed route) stays guardian-only through `mayManageParticipant`.
 - `apps/web/app/dev/` holds development-only routes. `POST /api/dev/teams/:teamId/participants/:participantId/skill-events` is registered from `apps/web/lesto.app.ts` only when `SNACKDAY_DEV_SIGN_IN=true`; the production runtime and Worker never import `app/dev`. It is the only path that may backdate a skill event.
+- `patches/@lesto%2Fobservability@0.2.0.patch` stops the browser RUM client from recording a resource span for its own `POST /__lesto/browser-spans`; without it, every sampled tab posts in a loop in every mode. Keep `@lesto/observability` pinned to the patched version, and keep one rate limiter for every request in every mode. `apps/web/test/rum-beacon-loop.test.ts` guards it.
 - Queue side effects must be idempotent and persist their state before delivery.
 - Never include child-sensitive data in logs, analytics, or notification previews.
 - Use `apply_patch` for deliberate source edits and preserve unrelated work in the shared worktree.
