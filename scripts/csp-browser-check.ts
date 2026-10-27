@@ -13,7 +13,8 @@ import {
   BALLPLAYER_CONTENT_SECURITY_POLICY,
   SNACKDAY_CONTENT_SECURITY_POLICY,
 } from "../apps/web/app/server/content-security-policy";
-import { DevScenarioApi } from "./lib/dev-scenario-api";
+import { GAME_DUTIES, PRACTICE_TITLE, SCENARIO_GAMES } from "./lib/dev-scenario-events";
+import { DevScenarioRosterImportApi } from "./lib/dev-scenario-roster-import";
 import { seedDevScenario } from "./lib/dev-scenario-seed";
 import type { SeededDevScenario } from "./lib/dev-scenario-seed";
 
@@ -157,15 +158,14 @@ function largeRosterPlayer(index: number): string {
 }
 
 async function seedLargeRoster(baseUrl: string, seeded: SeededDevScenario): Promise<void> {
-  const api = new DevScenarioApi(baseUrl);
+  const api = new DevScenarioRosterImportApi(baseUrl);
   const owner = await api.signIn("default");
   const { teamId, seasonId } = seeded.manifest.teams.coached;
-  for (let index = 0; index < LARGE_ROSTER_SIZE; index += 1) {
-    await api.addPlayer(owner.cookie, teamId, seasonId, {
-      displayName: largeRosterPlayer(index),
-      birthDate: LARGE_ROSTER_BIRTH_DATE,
-    });
-  }
+  const players = Array.from({ length: LARGE_ROSTER_SIZE }, (_, index) => ({
+    displayName: largeRosterPlayer(index),
+    birthDate: LARGE_ROSTER_BIRTH_DATE,
+  }));
+  await api.importPlayers(owner.cookie, teamId, seasonId, players);
 }
 
 async function checkLargeRoster(page: Page): Promise<void> {
@@ -197,6 +197,43 @@ async function checkLargeRoster(page: Page): Promise<void> {
   }
 }
 
+async function expectText(page: Page, text: string, what: string): Promise<void> {
+  if ((await page.getByText(text, { exact: false }).count()) === 0) fail(`${what} is missing`);
+}
+
+async function checkSchedule(page: Page): Promise<void> {
+  await expectLayoutWrapper(page);
+  await expectText(page, SCENARIO_GAMES[0]?.title ?? "", "the first seeded game");
+  await expectText(page, PRACTICE_TITLE, "the practice series");
+}
+
+async function checkDuties(page: Page): Promise<void> {
+  await expectLayoutWrapper(page);
+  await expectVisible(page, "[data-lesto-island]", "the duties board island");
+  for (const label of GAME_DUTIES) await expectText(page, label, `the ${label} duty slot`);
+}
+
+function seededPageVisits(persona: Persona, name: string): Visit[] {
+  return [
+    {
+      label: `/app/schedule as ${name}`,
+      origin: "snackday",
+      path: "/app/schedule",
+      persona,
+      expectStatus: 200,
+      check: checkSchedule,
+    },
+    {
+      label: `/app/duties as ${name}`,
+      origin: "snackday",
+      path: "/app/duties",
+      persona,
+      expectStatus: 200,
+      check: checkDuties,
+    },
+  ];
+}
+
 const VISITS: readonly Visit[] = [
   { label: "Snackday home", origin: "snackday", path: "/", expectStatus: 200 },
   { label: "Snackday features", origin: "snackday", path: "/features", expectStatus: 200 },
@@ -216,6 +253,8 @@ const VISITS: readonly Visit[] = [
     expectStatus: 200,
     check: (page) => checkAppOverview(page, "default"),
   },
+  ...seededPageVisits("default", "owner coach"),
+  ...seededPageVisits("second-adult", "coach and parent"),
   {
     label: `/app as owner coach with a ${LARGE_ROSTER_SIZE}-player roster`,
     origin: "snackday",
