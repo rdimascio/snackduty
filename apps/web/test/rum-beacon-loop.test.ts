@@ -5,7 +5,11 @@ const PAGE_URL = "https://snackday.test/app";
 const PAGE_LOAD_BATCHES = 2;
 const FLUSH_SETTLE_MS = 250;
 const QUIET_WINDOW_MS = 5_000;
-const PAGE_RESOURCES = ["/client.js", "/styles.css", "/docs/__lesto/browser-spans"];
+const PAGE_RESOURCES = [
+  { path: "/client.js", initiator: "script" },
+  { path: "/styles.css", initiator: "link" },
+  { path: "/docs/__lesto/browser-spans", initiator: "fetch" },
+];
 
 interface TimingEntry {
   readonly entryType: string;
@@ -24,56 +28,54 @@ interface SpanBatch {
 
 type ObserverCallback = (list: { getEntries(): TimingEntry[] }) => void;
 
-class ResourceTimingBrowser {
-  readonly entries: TimingEntry[] = [];
-  readonly observers = new Set<{ types: Set<string>; callback: ObserverCallback }>();
-  clock = 0;
+interface Registration {
+  readonly types: Set<string>;
+  readonly callback: ObserverCallback;
+}
 
-  record(entry: TimingEntry): void {
-    this.entries.push(entry);
-    for (const observer of this.observers) {
-      if (observer.types.has(entry.entryType)) this.deliver(observer.callback, [entry]);
+function deliver(callback: ObserverCallback, entries: TimingEntry[]): void {
+  setTimeout(() => callback({ getEntries: () => entries }), 0);
+}
+
+function resourceTimingBrowser() {
+  const entries: TimingEntry[] = [];
+  const registrations = new Set<Registration>();
+  let clock = 0;
+
+  function record(entry: TimingEntry): void {
+    entries.push(entry);
+    for (const registration of registrations) {
+      if (registration.types.has(entry.entryType)) deliver(registration.callback, [entry]);
     }
   }
 
-  recordResource(url: string, initiatorType: string): void {
-    this.clock += 5;
-    this.record({
+  function recordResource(url: string, initiatorType: string): void {
+    clock += 5;
+    record({
       entryType: "resource",
       name: new URL(url, PAGE_URL).href,
       initiatorType,
-      startTime: this.clock,
+      startTime: clock,
       duration: 4,
     });
   }
 
-  deliver(callback: ObserverCallback, entries: TimingEntry[]): void {
-    setTimeout(() => callback({ getEntries: () => entries }), 0);
-  }
-
-  observerClass(): unknown {
-    const browser = this;
-    return class {
-      readonly registration: { types: Set<string>; callback: ObserverCallback };
-
-      constructor(callback: ObserverCallback) {
-        this.registration = { types: new Set(), callback };
-      }
-
+  function PerformanceObserver(callback: ObserverCallback) {
+    const registration: Registration = { types: new Set(), callback };
+    return {
       observe(options: { type: string; buffered?: boolean }): void {
-        this.registration.types.add(options.type);
-        browser.observers.add(this.registration);
-        const buffered = browser.entries.filter((entry) => entry.entryType === options.type);
-        if (options.buffered === true && buffered.length > 0) {
-          browser.deliver(this.registration.callback, buffered);
-        }
-      }
-
+        registration.types.add(options.type);
+        registrations.add(registration);
+        const buffered = entries.filter((entry) => entry.entryType === options.type);
+        if (options.buffered === true && buffered.length > 0) deliver(callback, buffered);
+      },
       disconnect(): void {
-        browser.observers.delete(this.registration);
-      }
+        registrations.delete(registration);
+      },
     };
   }
+
+  return { record, recordResource, PerformanceObserver };
 }
 
 function navigationEntry(): TimingEntry {
@@ -96,27 +98,30 @@ function navigationEntry(): TimingEntry {
 }
 
 function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isSpanPost(input: unknown, init: RequestInit | undefined): boolean {
+  const path = new URL(String(input), PAGE_URL).pathname;
+  return init?.method === "POST" && path === BROWSER_SPANS_PATH;
+}
+
+const browser = resourceTimingBrowser();
+const batches: SpanBatch[] = [];
+
+async function pageFetch(input: unknown, init?: RequestInit): Promise<Response> {
+  if (isSpanPost(input, init)) batches.push(JSON.parse(String(init?.body)) as SpanBatch);
+  await Promise.resolve();
+  browser.recordResource(String(input), "fetch");
+  return new Response(null, { status: 204 });
 }
 
 describe("browser RUM beacon in a sampled tab", () => {
-  const browser = new ResourceTimingBrowser();
-  const batches: SpanBatch[] = [];
   const savedGlobals = new Map<string, PropertyDescriptor | undefined>();
   let window: import("happy-dom").Window;
-  let stop: () => void = () => {};
-
-  function isSpanPost(input: unknown, init: RequestInit | undefined): boolean {
-    const path = new URL(String(input), PAGE_URL).pathname;
-    return init?.method === "POST" && path === BROWSER_SPANS_PATH;
-  }
-
-  async function pageFetch(input: unknown, init?: RequestInit): Promise<Response> {
-    if (isSpanPost(input, init)) batches.push(JSON.parse(String(init?.body)) as SpanBatch);
-    await Promise.resolve();
-    browser.recordResource(String(input), "fetch");
-    return new Response(null, { status: 204 });
-  }
+  let stopRum: (() => void) | undefined;
 
   beforeAll(async () => {
     const { Window } = await import("happy-dom");
@@ -125,7 +130,7 @@ describe("browser RUM beacon in a sampled tab", () => {
       window,
       document: window.document,
       location: window.location,
-      PerformanceObserver: browser.observerClass(),
+      PerformanceObserver: browser.PerformanceObserver,
       fetch: pageFetch,
     };
     for (const [key, value] of Object.entries(globals)) {
@@ -133,15 +138,14 @@ describe("browser RUM beacon in a sampled tab", () => {
       Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
     }
     browser.record(navigationEntry());
-    browser.recordResource("/client.js", "script");
-    browser.recordResource("/styles.css", "link");
-    browser.recordResource("/docs/__lesto/browser-spans", "fetch");
-    stop = startBrowserRum({ sampleRate: 1 });
+    for (const resource of PAGE_RESOURCES)
+      browser.recordResource(resource.path, resource.initiator);
+    stopRum = startBrowserRum({ sampleRate: 1 });
     await wait(FLUSH_SETTLE_MS);
   });
 
   afterAll(async () => {
-    stop();
+    stopRum?.();
     await window.happyDOM.close();
     for (const [key, descriptor] of savedGlobals) {
       if (descriptor === undefined) Reflect.deleteProperty(globalThis, key);
@@ -163,7 +167,7 @@ describe("browser RUM beacon in a sampled tab", () => {
       .filter((span) => span.name === "browser.resource")
       .map((span) => span.attributes["browser.resource_path"]);
     expect(spans.filter((span) => span.name === "browser.navigation")).toHaveLength(1);
-    expect(resourcePaths.toSorted()).toEqual(PAGE_RESOURCES.toSorted());
+    expect(resourcePaths.toSorted()).toEqual(PAGE_RESOURCES.map(({ path }) => path).toSorted());
     expect(resourcePaths).not.toContain(BROWSER_SPANS_PATH);
   });
 
