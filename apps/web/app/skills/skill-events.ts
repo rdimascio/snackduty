@@ -52,7 +52,7 @@ export function localDateIn(instantMs: number, timeZone: string): string {
   }).format(new Date(instantMs));
 }
 
-async function checkPassedEventId(
+export async function checkPassedEventId(
   participantId: string,
   sourceId: string,
   quizId: string,
@@ -130,25 +130,74 @@ export async function appendCheckPassed(tx: Db, check: PassedCheck): Promise<voi
   ]);
 }
 
+const CHECK_PASSED_ID_PATTERN = /^evt_[0-9a-f]{32}$/u;
+
+export type AppendSkillEventsOutcome =
+  | { readonly ok: true; readonly recorded: number; readonly duplicates: number }
+  | { readonly ok: false; readonly conflictIndex: number };
+
+async function claimsAnotherCheckPassedId(
+  participantId: string,
+  event: SkillEvent,
+): Promise<boolean> {
+  if (!CHECK_PASSED_ID_PATTERN.test(event.id)) return false;
+  if (event.type !== "check_passed" || event.source.itemId === undefined) return true;
+  return (
+    event.id !== (await checkPassedEventId(participantId, event.source.id, event.source.itemId))
+  );
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .toSorted(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function isIdempotentReplay(
+  tx: Db,
+  participantId: string,
+  event: SkillEvent,
+): Promise<boolean | undefined> {
+  const existing = await tx.select().from(skillEvents).where(eq(skillEvents.id, event.id)).get();
+  if (existing === undefined) return undefined;
+  return (
+    existing.participantId === participantId &&
+    canonicalJson(JSON.parse(existing.event)) === canonicalJson(event)
+  );
+}
+
 export async function appendSkillEvents(
   tx: Db,
   participantId: string,
   events: readonly SkillEvent[],
   recordedAtMs: number,
-): Promise<number> {
+): Promise<AppendSkillEventsOutcome> {
+  const fresh: SkillEvent[] = [];
+  for (const [index, event] of events.entries()) {
+    if (await claimsAnotherCheckPassedId(participantId, event)) {
+      return { ok: false, conflictIndex: index };
+    }
+    const replay = await isIdempotentReplay(tx, participantId, event);
+    if (replay === false) return { ok: false, conflictIndex: index };
+    if (replay === undefined) fresh.push(event);
+  }
   const recordedAt = new Date(recordedAtMs).toISOString();
-  let recorded = 0;
-  for (const event of events) {
-    const rows = await tx.raw(`${insertSkillEventSql} RETURNING id`, [
+  for (const event of fresh) {
+    await tx.raw(insertSkillEventSql, [
       event.id,
       participantId,
       JSON.stringify(event),
       event.occurredAt,
       recordedAt,
     ]);
-    recorded += rows.length;
   }
-  return recorded;
+  return { ok: true, recorded: fresh.length, duplicates: events.length - fresh.length };
 }
 
 export async function participantSkillEvents(tx: Db, participantId: string): Promise<SkillEvent[]> {

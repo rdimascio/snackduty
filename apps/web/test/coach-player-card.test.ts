@@ -15,7 +15,8 @@ import { createApplication } from "../app/lib/server/composition";
 import { identityServices } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
-import { PLAYER_CARD_RULESET, playerIdFor } from "../app/skills/skill-events";
+import { DEFAULT_GUARDIAN_PERMISSIONS, guardianRelationships } from "../app/lib/server/roster";
+import { checkPassedEventId, PLAYER_CARD_RULESET, playerIdFor } from "../app/skills/skill-events";
 
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
@@ -185,6 +186,13 @@ function week(participantId: string) {
       index % 2 === 0 ? "infield.ready-position" : "baserunning.out-of-the-box",
     ),
   );
+}
+
+async function storedEventRows(): Promise<{ id: string; participant_id: string }[]> {
+  return (await sql.prepare("SELECT id, participant_id FROM skill_events ORDER BY id").all([])) as {
+    id: string;
+    participant_id: string;
+  }[];
 }
 
 async function storedEventCount(): Promise<number> {
@@ -402,6 +410,141 @@ describe("development skill event seed route", () => {
     const stranger = await post(strangerCookie, seedPath(teamId, casey), week(casey));
     expect(stranger.status).toBe(404);
     expect(await storedEventCount()).toBe(0);
+  });
+
+  async function guardiansOfTwoChildren() {
+    const seeded = await guardianOfCasey();
+    const stamp = new Date(NOW).toISOString();
+    await services.db
+      .insert(guardianRelationships)
+      .values({
+        id: "guardian_owner_rowan",
+        guardianPersonId: await personIdOf(seeded.ownerCookie),
+        participantId: seeded.rowan,
+        relationship: "parent",
+        status: "active",
+        permissions: JSON.stringify(DEFAULT_GUARDIAN_PERMISSIONS),
+        createdAt: stamp,
+        updatedAt: stamp,
+      })
+      .run();
+    const [item] = episode.lesson.quiz;
+    if (item === undefined) throw new Error("Lesson has no quiz.");
+    const sourceId = `${episode.lesson.seriesId}/${episode.lesson.slug}`;
+    return {
+      ...seeded,
+      item,
+      sourceId,
+      rowanLessonEventId: await checkPassedEventId(seeded.rowan, sourceId, item.id),
+      caseyLessonEventId: await checkPassedEventId(seeded.casey, sourceId, item.id),
+    };
+  }
+
+  function answerLesson(
+    cookie: string,
+    teamId: string,
+    participantId: string,
+    quiz: { id: string; answer: number },
+  ) {
+    return post(cookie, `/api/teams/${teamId}/lessons/current/answers`, {
+      participantId,
+      quizId: quiz.id,
+      answer: quiz.answer,
+    });
+  }
+
+  function storedEvent(participantId: string, id: string) {
+    return { id, participant_id: participantId };
+  }
+
+  it.each([
+    ["before", "a drill"],
+    ["before", "a check"],
+    ["after", "a drill"],
+    ["after", "a check"],
+  ])(
+    "refuses another child's lesson event id posted %s that child answers, as %s",
+    async (order, form) => {
+      const {
+        ownerCookie,
+        guardianCookie,
+        teamId,
+        casey,
+        rowan,
+        item,
+        sourceId,
+        rowanLessonEventId,
+      } = await guardiansOfTwoChildren();
+      const [firstDrill] = week(casey);
+      const forged =
+        form === "a drill"
+          ? { ...firstDrill, id: rowanLessonEventId }
+          : {
+              ...firstDrill,
+              id: rowanLessonEventId,
+              type: "check_passed",
+              source: { kind: "reel-episode", id: sourceId, itemId: item.id },
+            };
+      if (order === "after") {
+        expect((await answerLesson(ownerCookie, teamId, rowan, item)).status).toBe(200);
+      }
+
+      const response = await post(guardianCookie, seedPath(teamId, casey), [forged]);
+      expect(response.status).toBe(409);
+      expect(json(response)).toEqual({
+        error: "event 0 conflicts with an existing or reserved event id",
+      });
+
+      if (order === "before") {
+        expect(await storedEventRows()).toEqual([]);
+        expect((await answerLesson(ownerCookie, teamId, rowan, item)).status).toBe(200);
+      }
+      expect(await storedEventRows()).toEqual([storedEvent(rowan, rowanLessonEventId)]);
+    },
+  );
+
+  it("refuses an id another child already holds and writes nothing from the batch", async () => {
+    const { ownerCookie, guardianCookie, teamId, casey, rowan } = await guardiansOfTwoChildren();
+    expect((await post(guardianCookie, seedPath(teamId, casey), week(casey))).status).toBe(200);
+    const rowanWeek = week(rowan);
+
+    const response = await post(ownerCookie, seedPath(teamId, rowan), [
+      { ...rowanWeek[0], id: "evt_fresh" },
+      rowanWeek[1],
+    ]);
+    expect(response.status).toBe(409);
+    expect(json(response)).toEqual({
+      error: "event 1 conflicts with an existing or reserved event id",
+    });
+    expect(await storedEventCount()).toBe(7);
+    expect((await storedEventRows()).every((row) => row.participant_id === casey)).toBe(true);
+  });
+
+  it("refuses a changed event under an id the same child already holds", async () => {
+    const { guardianCookie, teamId, casey } = await guardianOfCasey();
+    const events = week(casey);
+    await post(guardianCookie, seedPath(teamId, casey), events);
+
+    const response = await post(guardianCookie, seedPath(teamId, casey), [
+      { ...events[0], skill: "baserunning.out-of-the-box" },
+    ]);
+    expect(response.status).toBe(409);
+    expect(await storedEventCount()).toBe(7);
+  });
+
+  it("treats an identical replay of the child's own lesson event as a duplicate", async () => {
+    const { guardianCookie, teamId, casey, item, caseyLessonEventId } =
+      await guardiansOfTwoChildren();
+    expect((await answerLesson(guardianCookie, teamId, casey, item)).status).toBe(200);
+    const rows = (await sql
+      .prepare("SELECT event FROM skill_events WHERE id = ?")
+      .all([caseyLessonEventId])) as { event: string }[];
+    const stored: unknown = JSON.parse(rows[0]?.event ?? "null");
+
+    const replay = await post(guardianCookie, seedPath(teamId, casey), [stored]);
+    expect(replay.status).toBe(200);
+    expect(json(replay)).toEqual({ recorded: 0, duplicates: 1 });
+    expect(await storedEventRows()).toEqual([storedEvent(casey, caseyLessonEventId)]);
   });
 
   it("refuses to register against verified sessions", async () => {

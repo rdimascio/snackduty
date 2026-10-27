@@ -42,7 +42,17 @@ function reserveEphemeralPort(): Promise<number> {
   });
 }
 
-function bootWebServer(port: number, databasePath: string, scratchDir: string): WebServer {
+export interface DevScenarioOptions {
+  readonly signal?: AbortSignal;
+  readonly serverEnv?: Readonly<Record<string, string>>;
+}
+
+function bootWebServer(
+  port: number,
+  databasePath: string,
+  scratchDir: string,
+  serverEnv: Readonly<Record<string, string>> = {},
+): WebServer {
   const stdoutLog = join(scratchDir, "web.stdout.log");
   const stderrLog = join(scratchDir, "web.stderr.log");
   const child = Bun.spawn({
@@ -53,6 +63,7 @@ function bootWebServer(port: number, databasePath: string, scratchDir: string): 
       LESTO_DB: databasePath,
       SNACKDAY_DEV_SIGN_IN: "true",
       SNACKDAY_LESSON_OF_THE_WEEK: "true",
+      ...serverEnv,
     },
     stdout: Bun.file(stdoutLog),
     stderr: Bun.file(stderrLog),
@@ -185,7 +196,7 @@ function waitForReadiness(baseUrl: string, server: WebServer, signal?: AbortSign
 }
 
 export async function startDevScenario(
-  options: { signal?: AbortSignal } = {},
+  options: DevScenarioOptions = {},
 ): Promise<RunningDevScenario> {
   options.signal?.throwIfAborted();
   const port = await reserveEphemeralPort();
@@ -195,7 +206,7 @@ export async function startDevScenario(
   const baseUrl = `http://127.0.0.1:${port}`;
   let server: WebServer;
   try {
-    server = bootWebServer(port, databasePath, scratchDir);
+    server = bootWebServer(port, databasePath, scratchDir, options.serverEnv);
   } catch (error) {
     await rm(scratchDir, { recursive: true, force: true });
     throw error;
@@ -230,8 +241,10 @@ export async function startDevScenario(
   }
 }
 
-export async function checkDevScenario(): Promise<DevScenarioManifest> {
-  const running = await startDevScenario();
+export async function checkDevScenario(
+  options: Pick<DevScenarioOptions, "serverEnv"> = {},
+): Promise<DevScenarioManifest> {
+  const running = await startDevScenario(options);
   try {
     return running.manifest;
   } finally {
@@ -252,7 +265,6 @@ export function formatDevScenarioInstructions(manifest: DevScenarioManifest): st
     "Co-coach + parent: await fetch('/api/dev/sign-in', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({persona: 'second-adult'})}); location.assign('/app')",
     "The server stores the session in an HttpOnly cookie; no credential needs to be copied.",
     "",
-    `Lesson of the week on /app: "${manifest.lesson.title}" (${manifest.lesson.answeredItems} items answered for ${manifest.teams.coached.playerName}).`,
     `Player card on /app: sign in as Co-coach + parent; the "Player card" section above the roster shows ${manifest.teams.coached.playerName}.`,
     `Training week: ${manifest.skillEvents.posted} skill events over ${manifest.skillEvents.drillDays} days ending today, posted by the parent through the dev-only seed route.`,
     "The owner sees the same player cards read-only: coaches read the cards of children on an active season roster; only a guardian records answers or events.",

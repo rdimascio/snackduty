@@ -1,7 +1,7 @@
 import { devScenarioError } from "./dev-scenario-api";
 import type { DevScenarioTeam } from "./dev-scenario-api";
 import { DevScenarioLessonApi } from "./dev-scenario-lessons";
-import type { DevScenarioLesson, DevScenarioSkillCard } from "./dev-scenario-lessons";
+import type { DevScenarioSkillCard } from "./dev-scenario-lessons";
 import { SCENARIO_DRILL_DAYS, scenarioSkillEvents } from "./dev-scenario-skill-events";
 
 const COACHED_TEAM = "Scenario Falcons";
@@ -22,7 +22,6 @@ export interface DevScenarioManifest {
     readonly owner: { readonly key: "default"; readonly displayName: string };
     readonly coachParent: { readonly key: "second-adult"; readonly displayName: string };
   };
-  readonly lesson: { readonly title: string; readonly answeredItems: number };
   readonly skillEvents: { readonly drillDays: number; readonly posted: number };
 }
 
@@ -159,36 +158,6 @@ async function verifySeededScenario(
   );
 }
 
-async function answerQuizItem(
-  api: DevScenarioLessonApi,
-  cookie: string,
-  team: DevScenarioTeam,
-  item: DevScenarioLesson["quiz"][number],
-  choice = 0,
-): Promise<void> {
-  ensure("answer-lesson", choice < item.choiceCount, `no choice for ${item.id} was correct`);
-  const outcome = await api.answerLesson(cookie, team.teamId, {
-    participantId: team.playerId,
-    quizId: item.id,
-    answer: choice,
-  });
-  if (outcome === "correct") return;
-  await answerQuizItem(api, cookie, team, item, choice + 1);
-}
-
-async function answerCurrentLesson(
-  api: DevScenarioLessonApi,
-  guardianCookie: string,
-  team: DevScenarioTeam,
-): Promise<DevScenarioLesson> {
-  const lesson = await api.readCurrentLesson(guardianCookie, team.teamId);
-  await lesson.quiz.reduce(
-    (previous, item) => previous.then(() => answerQuizItem(api, guardianCookie, team, item)),
-    Promise.resolve(),
-  );
-  return lesson;
-}
-
 export function verifyPlayerCard(card: DevScenarioSkillCard): void {
   ensure("verify-player-card", card.areas.length > 0, "the player card carries no areas");
   ensure(
@@ -232,7 +201,6 @@ export async function seedDevScenario(
     player: FAMILY_PLAYER,
   });
   await api.grantCoCoach(owner.cookie, coached.teamId, coachParent.personId);
-  const lesson = await answerCurrentLesson(api, coachParent.cookie, coached);
   const posted = await seedTrainingWeek(api, coachParent.cookie, coached);
 
   const manifest: DevScenarioManifest = {
@@ -243,7 +211,6 @@ export async function seedDevScenario(
       owner: { key: "default", displayName: owner.displayName },
       coachParent: { key: "second-adult", displayName: coachParent.displayName },
     },
-    lesson: { title: lesson.title, answeredItems: lesson.quiz.length },
     skillEvents: { drillDays: SCENARIO_DRILL_DAYS, posted },
   };
 

@@ -102,9 +102,19 @@ describe("scenario training week", () => {
   });
 });
 
+const REFUSED_PROXY = "http://127.0.0.1:9";
+const OFFLINE_SERVER_ENV = {
+  HTTP_PROXY: REFUSED_PROXY,
+  HTTPS_PROXY: REFUSED_PROXY,
+  http_proxy: REFUSED_PROXY,
+  https_proxy: REFUSED_PROXY,
+  NO_PROXY: "127.0.0.1,localhost",
+  no_proxy: "127.0.0.1,localhost",
+};
+
 describe("local development scenario", () => {
-  it("boots, seeds two isolated team roles and a lesson through HTTP, verifies them, and tears down", async () => {
-    const manifest = await checkDevScenario();
+  it("boots, seeds two isolated team roles through HTTP with outbound network blocked, verifies them, and tears down", async () => {
+    const manifest = await checkDevScenario({ serverEnv: OFFLINE_SERVER_ENV });
 
     expect(manifest.webBaseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/u);
     expect(manifest.nativeApiBaseUrl).toBe(manifest.webBaseUrl.replace("127.0.0.1", "localhost"));
@@ -126,9 +136,6 @@ describe("local development scenario", () => {
     expect(instructions).toContain(`${manifest.webBaseUrl}/app`);
     expect(instructions).toContain(`SNACKDAY_API_BASE_URL=${manifest.nativeApiBaseUrl}`);
     expect(instructions).toContain("second-adult");
-    expect(manifest.lesson.title.length).toBeGreaterThan(0);
-    expect(manifest.lesson.answeredItems).toBeGreaterThan(0);
-    expect(instructions).toContain(`Lesson of the week on /app: "${manifest.lesson.title}"`);
     expect(instructions).toContain('"Player card" section above the roster shows Avery Scenario');
     expect(manifest.skillEvents.drillDays).toBe(7);
     expect(manifest.skillEvents.posted).toBeGreaterThan(manifest.skillEvents.drillDays);

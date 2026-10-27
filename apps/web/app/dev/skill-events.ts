@@ -77,8 +77,14 @@ async function seedSkillEvents(
     const nowMs = options.clock();
     const batch = parseDevSkillEventBatch(c.req.body, participantId, nowMs);
     if (!batch.ok) return c.json({ error: batch.error }, 400);
-    const recorded = await appendSkillEvents(tx, participantId, batch.events, nowMs);
-    return c.json({ recorded, duplicates: batch.events.length - recorded });
+    const outcome = await appendSkillEvents(tx, participantId, batch.events, nowMs);
+    if (!outcome.ok) {
+      return c.json(
+        { error: `event ${outcome.conflictIndex} conflicts with an existing or reserved event id` },
+        409,
+      );
+    }
+    return c.json({ recorded: outcome.recorded, duplicates: outcome.duplicates });
   });
 }
 
