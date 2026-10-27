@@ -8,7 +8,7 @@ import { authenticatedAdult, people } from "../lib/server/identity";
 import { participants } from "../lib/server/roster";
 import { listAccessibleTeams } from "../lib/server/team-reads";
 import { teamAccess } from "../lib/server/teams";
-import { mayManageParticipant, teamParticipantIds } from "../lessons/lessons";
+import { mayReadParticipantCard, teamParticipantIds } from "../lessons/lessons";
 import type { LessonResult } from "../lessons/lessons";
 import { participantSkillEvents, rateParticipant } from "./skill-events";
 
@@ -50,7 +50,7 @@ export async function readSkillCard(
   return services.db.transaction(async (tx) => {
     const access = await teamAccess(tx, teamId, personId);
     if (access === undefined) return teamNotFound;
-    if (!(await mayManageParticipant(tx, personId, access.team.id, participantId))) {
+    if (!(await mayReadParticipantCard(tx, personId, access.team.id, participantId))) {
       return participantNotFound;
     }
     return {
@@ -60,13 +60,13 @@ export async function readSkillCard(
   });
 }
 
-async function managedPlayerCards(tx: Db, personId: string): Promise<PlayerCard[]> {
+async function readablePlayerCards(tx: Db, personId: string): Promise<PlayerCard[]> {
   const cards: PlayerCard[] = [];
   const carded = new Set<string>();
   for (const { team } of await listAccessibleTeams(tx, personId)) {
     for (const participantId of await teamParticipantIds(tx, team.id)) {
       if (carded.has(participantId)) continue;
-      if (!(await mayManageParticipant(tx, personId, team.id, participantId))) continue;
+      if (!(await mayReadParticipantCard(tx, personId, team.id, participantId))) continue;
       carded.add(participantId);
       cards.push({
         participantId,
@@ -84,7 +84,7 @@ export async function loadPlayerCards(
   personId: string,
 ): Promise<readonly PlayerCard[]> {
   try {
-    return await services.db.transaction((tx) => managedPlayerCards(tx, personId));
+    return await services.db.transaction((tx) => readablePlayerCards(tx, personId));
   } catch {
     console.warn(JSON.stringify({ level: "warn", event: "skills.player_cards_unavailable" }));
     return [];

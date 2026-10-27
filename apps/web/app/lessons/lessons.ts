@@ -213,6 +213,40 @@ export async function mayManageParticipant(
   return false;
 }
 
+export const COACH_CARD_READ_PERMISSION = "roster.manage";
+
+async function coachesRosteredParticipant(
+  tx: Db,
+  personId: string,
+  teamId: string,
+  participantId: string,
+): Promise<boolean> {
+  for (const seasonId of await rosteredSeasonIds(tx, teamId, participantId)) {
+    if (
+      await authorizeTeamOperation(tx, personId, COACH_CARD_READ_PERMISSION, {
+        teamId,
+        seasonId,
+        participantId,
+      })
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export async function mayReadParticipantCard(
+  tx: Db,
+  personId: string,
+  teamId: string,
+  participantId: string,
+): Promise<boolean> {
+  return (
+    (await mayManageParticipant(tx, personId, teamId, participantId)) ||
+    (await coachesRosteredParticipant(tx, personId, teamId, participantId))
+  );
+}
+
 export async function teamParticipantIds(tx: Db, teamId: string): Promise<string[]> {
   const rows = await tx
     .select()
