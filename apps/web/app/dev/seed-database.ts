@@ -23,15 +23,26 @@ export async function migrateDatabase(sql: SqlDatabase): Promise<void> {
   await new Migrator(sql, applicationMigrations, { dialect: "sqlite" }).migrate();
 }
 
-export async function applySeed(
-  sql: SqlDatabase,
-  directory: string = SEED_DIRECTORY,
-): Promise<string[]> {
+export interface SeedOptions {
+  readonly directory?: string;
+  readonly now?: Date;
+}
+
+const SQLITE_NOW = "'now'";
+
+function atInstant(statements: string, now: Date | undefined): string {
+  return now === undefined
+    ? statements
+    : statements.replaceAll(SQLITE_NOW, `'${now.toISOString()}'`);
+}
+
+export async function applySeed(sql: SqlDatabase, options: SeedOptions = {}): Promise<string[]> {
+  const directory = options.directory ?? SEED_DIRECTORY;
   const files = await seedFiles(directory);
   if (files.length === 0) throw new Error(`no seed files in ${directory}`);
   await sql.transaction(async (tx) => {
     for (const file of files) {
-      const statements = await readFile(file, "utf8");
+      const statements = atInstant(await readFile(file, "utf8"), options.now);
       try {
         await tx.exec(statements);
       } catch (error) {
@@ -50,7 +61,7 @@ export async function seedDatabase(
   const { db, close } = await openSqlite(databasePath);
   try {
     if (options.migrate !== false) await migrateDatabase(db);
-    return await applySeed(db, options.directory);
+    return await applySeed(db, options);
   } finally {
     close();
   }

@@ -21,6 +21,9 @@ import { instantFromWallTime, scheduleDates } from "../app/lib/server/event-time
 import { ensureDevelopmentPersona } from "../app/lib/server/identity";
 import { rateParticipant } from "../app/skills/skill-events";
 
+const DAY_MS = 24 * 60 * 60 * 1_000;
+const MONDAY_NOON_PHOENIX = Date.UTC(2026, 9, 26, 19);
+
 const handles: (() => void)[] = [];
 
 afterEach(() => {
@@ -161,16 +164,35 @@ describe("the SQL dev seed against the current migrations", () => {
     ).toEqual([{ title: SEED_SCHEDULE.cancelledGameTitle }]);
   });
 
-  it("keeps every event within the next three weeks", async () => {
-    const db = await seeded();
-    const [span] = await rows<{ first: string; last: string; today: string }>(
-      db,
-      "SELECT min(local_date) AS first, max(local_date) AS last, date('now', '-7 hours') AS today FROM event_occurrences",
-    );
-    expect(span?.first).toBe(span?.today);
-    expect(Date.parse(span?.last ?? "") - Date.parse(span?.today ?? "")).toBeLessThanOrEqual(
-      21 * 24 * 60 * 60 * 1_000,
-    );
+  it("keeps every event from today through the next three weeks on every weekday", async () => {
+    const days: string[] = [];
+    for (let offset = 0; offset < 7; offset += 1) {
+      const now = new Date(MONDAY_NOON_PHOENIX + offset * DAY_MS);
+      const today = now.toISOString().slice(0, 10);
+      const db = await migrated();
+      await applySeed(db, { now });
+      const [span] = await rows<{ first: string; last: string }>(
+        db,
+        "SELECT min(local_date) AS first, max(local_date) AS last FROM event_occurrences",
+      );
+      const first = Date.parse(span?.first ?? "") - Date.parse(today);
+      const last = Date.parse(span?.last ?? "") - Date.parse(today);
+      expect({ today, first: first >= 0, last: last <= 21 * DAY_MS }).toEqual({
+        today,
+        first: true,
+        last: true,
+      });
+      days.push(new Date(today).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" }));
+    }
+    expect(days.toSorted()).toEqual([
+      "Friday",
+      "Monday",
+      "Saturday",
+      "Sunday",
+      "Thursday",
+      "Tuesday",
+      "Wednesday",
+    ]);
   });
 
   it("seeds open and claimed duty slots and guardian RSVPs", async () => {
