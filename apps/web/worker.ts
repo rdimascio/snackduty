@@ -13,6 +13,7 @@ import AppLayout from "./app/routes/app/layout";
 import overview from "./app/routes/app/page";
 import invite from "./app/routes/invite/page";
 import RootLayout from "./app/routes/layout";
+import { withBrandSecurityFetch } from "./app/server/content-security-policy";
 
 function PublicHome(): ReactNode {
   return createElement(
@@ -92,6 +93,6 @@ export default {
     // Static files from `out/` first (cached at the PoP); the live app for the
     // rest. `env.ASSETS` is per-request, so this thin wrap happens every time; the
     // handler it wraps is the cached, isolate-lifetime one above.
-    return withAssets(env.ASSETS, handler)(request, ctx);
+    return withBrandSecurityFetch(withAssets(env.ASSETS, handler))(request, ctx);
   },
 };

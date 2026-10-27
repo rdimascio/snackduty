@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +19,8 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WEB_ROOT = join(ROOT, "apps", "web");
 const SERVER_ENTRY = join(WEB_ROOT, "test", "support", "csp-scenario-server.ts");
 const VIOLATION_EVENT = "snackday-csp-violation";
+const LESTO_LAYOUT_STYLE = "display:contents";
+const LESTO_LAYOUT_STYLE_HASH = `'sha256-${createHash("sha256").update(LESTO_LAYOUT_STYLE).digest("base64")}'`;
 const SETTLE_MS = 1_000;
 const POSTER_TIMEOUT_MS = 15_000;
 const POSTER_SELECTOR = 'section[aria-label="Lesson of the week"] img';
@@ -115,15 +118,15 @@ async function expectPosterLoaded(page: Page): Promise<void> {
 }
 
 async function expectLayoutWrapper(page: Page): Promise<void> {
-  const wrapper = await page.evaluate(() => {
-    const element = document.querySelector("[data-lesto-layout]");
-    return element === null
-      ? undefined
-      : { display: getComputedStyle(element).display, style: element.getAttribute("style") };
-  });
-  if (wrapper === undefined) fail("the page has no Lesto layout wrapper");
-  if (wrapper.display !== "contents") fail(`the layout wrapper renders as ${wrapper.display}`);
-  if (wrapper.style !== null) fail("the layout wrapper still carries an inline style attribute");
+  const wrappers = await page.evaluate(() =>
+    [...document.querySelectorAll("[data-lesto-layout]")].map(
+      (element) => getComputedStyle(element).display,
+    ),
+  );
+  if (wrappers.length === 0) fail("the page has no Lesto layout wrapper");
+  for (const display of wrappers) {
+    if (display !== "contents") fail(`a layout wrapper renders as ${display}`);
+  }
 }
 
 async function expectAnswerHydrates(page: Page): Promise<void> {
@@ -190,20 +193,37 @@ async function visit(browser: Browser, port: number, target: Visit): Promise<str
   const context = await browser.newContext();
   const page = await context.newPage();
   const problems: string[] = [];
-  await page.exposeFunction(VIOLATION_EVENT, (detail: string) => {
-    problems.push(`violation ${detail}`);
+  const blockedStyleMessages: string[] = [];
+  let blockedLayoutStyles = 0;
+  await page.exposeFunction(VIOLATION_EVENT, (detail: string, layoutWrapper: boolean) => {
+    if (layoutWrapper) blockedLayoutStyles += 1;
+    else problems.push(`violation ${detail}`);
   });
-  await page.addInitScript((event) => {
-    document.addEventListener("securitypolicyviolation", (violation) => {
-      const report = (window as unknown as Record<string, (detail: string) => void>)[event];
-      report?.(
-        `${violation.effectiveDirective} blocked ${violation.blockedURI} at ${violation.sourceFile}:${violation.lineNumber}`,
-      );
-    });
-  }, VIOLATION_EVENT);
+  await page.addInitScript(
+    ({ event, layoutStyle }) => {
+      document.addEventListener("securitypolicyviolation", (violation) => {
+        const report = (
+          window as unknown as Record<string, (detail: string, layoutWrapper: boolean) => void>
+        )[event];
+        const { target } = violation;
+        const layoutWrapper =
+          violation.effectiveDirective === "style-src-attr" &&
+          target instanceof HTMLDivElement &&
+          target.hasAttribute("data-lesto-layout") &&
+          target.getAttribute("style") === layoutStyle;
+        report?.(
+          `${violation.effectiveDirective} blocked ${violation.blockedURI} at ${violation.sourceFile}:${violation.lineNumber}`,
+          layoutWrapper,
+        );
+      });
+    },
+    { event: VIOLATION_EVENT, layoutStyle: LESTO_LAYOUT_STYLE },
+  );
   page.on("console", (message) => {
-    if (/content security policy/iu.test(message.text())) {
-      problems.push(`console ${message.type()}: ${message.text()}`);
+    const text = message.text();
+    if (text.includes(LESTO_LAYOUT_STYLE_HASH)) blockedStyleMessages.push(text);
+    else if (/content security policy/iu.test(text)) {
+      problems.push(`console ${message.type()}: ${text}`);
     }
   });
   page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
@@ -223,6 +243,9 @@ async function visit(browser: Browser, port: number, target: Visit): Promise<str
     if (policy !== expectedPolicy) fail(`carries policy ${String(policy)}`);
     await target.check?.(page);
     await page.waitForTimeout(SETTLE_MS);
+    for (const text of blockedStyleMessages.slice(blockedLayoutStyles)) {
+      problems.push(`console: ${text}`);
+    }
   } catch (error) {
     problems.push(error instanceof Error ? error.message : String(error));
   } finally {
@@ -249,7 +272,7 @@ async function main(): Promise<void> {
       for (const problem of problems) console.log(`     ${problem}`);
     }
     if (failures > 0) fail(`${failures} problem(s) found`);
-    console.log("CSP browser check passed: zero violations.");
+    console.log("CSP browser check passed: no violation except the Lesto layout wrapper style.");
   } finally {
     await browser?.close();
     await server?.stop();

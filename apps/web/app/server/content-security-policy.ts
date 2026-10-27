@@ -1,5 +1,6 @@
 import type { LestoResponse } from "@lesto/web";
 
+import { brandForHost } from "../brand/brand";
 import type { Brand } from "../brand/brand";
 
 type HeaderMap = LestoResponse["headers"];
@@ -66,4 +67,20 @@ export function withContentSecurityPolicy<R extends { readonly headers: HeaderMa
   }
   headers[CONTENT_SECURITY_POLICY_HEADER] = policy;
   return { ...response, headers };
+}
+
+export type FetchHandle<Context> = (request: Request, ctx?: Context) => Promise<Response>;
+
+export function withBrandSecurityFetch<Context>(
+  handle: FetchHandle<Context>,
+): FetchHandle<Context> {
+  return async (request, ctx) => {
+    const response = await handle(request, ctx);
+    const secured = new Response(response.body, response);
+    secured.headers.set(
+      CONTENT_SECURITY_POLICY_HEADER,
+      contentSecurityPolicyFor(brandForHost(request.headers.get("host") ?? undefined)),
+    );
+    return secured;
+  };
 }

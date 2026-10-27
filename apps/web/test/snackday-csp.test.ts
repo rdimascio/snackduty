@@ -8,15 +8,16 @@ import type { AnyLestoResponse, HandleOptions } from "@lesto/web";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { accounts, people, VERIFIED_SESSION_COOKIE } from "../app/lib/server/identity";
+import { withBrandSecurity } from "../app/server/brand-routing";
 import {
   BALLPLAYER_CONTENT_SECURITY_POLICY,
   REEL_MEDIA_ORIGIN,
   SNACKDAY_CONTENT_SECURITY_POLICY,
 } from "../app/server/content-security-policy";
-import { stripLayoutInlineStyle, withoutLayoutInlineStyle } from "../app/server/layout-style";
 import { openRuntimeApplication } from "../runtime";
 import type { RuntimeApplication } from "../runtime";
 import { registerRuntimePages, withBrandPolicy, withRuntimeAssets } from "../runtime/web-surface";
+import worker from "../worker";
 
 const SNACKDAY_POLICY =
   "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://media.dimasciobaseball.com; font-src 'self'; connect-src 'self'; media-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
@@ -47,7 +48,9 @@ const SNACKDAY_ORIGIN_ALLOWANCE: Readonly<Record<string, readonly string[]>> = {
 
 const SNACKDAY_HOST = "staging.snackduty.test";
 
-const LAYOUT_TAG = '<div data-lesto-layout="0" style="display:contents">';
+const BALLPLAYER_HOST = "ballplayer.co";
+
+const LESTO_LAYOUT_WRAPPER = /^<div data-lesto-layout="\d+" style="display:contents">$/u;
 
 function directivesOf(policy: string): Map<string, string[]> {
   const directives = new Map<string, string[]>();
@@ -105,25 +108,23 @@ function executableInlineScripts(html: string): string[] {
   );
 }
 
+function inlineStyledTags(html: string): string[] {
+  return [...html.matchAll(/<[^>]*?[\s"'/]style\s*=[^>]*>/giu)].map(([tag]) => tag);
+}
+
+function unexpectedInlineStyles(html: string): string[] {
+  return inlineStyledTags(html).filter((tag) => !LESTO_LAYOUT_WRAPPER.test(tag));
+}
+
 function expectNoInlineExecution(html: string): void {
   expect(executableInlineScripts(html)).toEqual([]);
-  expect(html).not.toMatch(/<[^>]*?[\s"'/]style\s*=/iu);
+  expect(unexpectedInlineStyles(html)).toEqual([]);
   expect(html).not.toMatch(/<style\b/iu);
   expect(html).not.toMatch(/\son[a-z]+\s*=/iu);
 }
 
 function withHost(host: string, extra: Record<string, string> = {}): HandleOptions {
   return { headers: { host, ...extra } };
-}
-
-function streamOf(chunks: readonly string[]): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
-      controller.close();
-    },
-  });
 }
 
 describe("the brand policies", () => {
@@ -181,41 +182,6 @@ describe("the brand policies", () => {
         .join("; ");
       expect(looseningsOf(trimmed, SNACKDAY_ORIGIN_ALLOWANCE)).toEqual([`${name} is missing`]);
     }
-  });
-});
-
-describe("the layout wrapper style", () => {
-  const html = `<body>${LAYOUT_TAG}<div data-lesto-layout="12" style="display:contents"><p style="display:contents">kept</p></div></div></body>`;
-  const expected =
-    '<body><div data-lesto-layout="0"><div data-lesto-layout="12"><p style="display:contents">kept</p></div></div></body>';
-
-  it("removes only the Lesto layout wrapper inline style", () => {
-    expect(stripLayoutInlineStyle(html)).toBe(expected);
-  });
-
-  it("removes it from a streamed page wherever the chunks split", async () => {
-    for (let cut = 0; cut <= html.length; cut += 1) {
-      const response = withoutLayoutInlineStyle({
-        status: 200,
-        headers: { "content-type": "text/html; charset=utf-8" },
-        body: streamOf([html.slice(0, cut), html.slice(cut)]),
-      });
-      expect({ cut, html: await textOf(response) }).toEqual({ cut, html: expected });
-    }
-  });
-
-  it("removes it from a page streamed one character at a time", async () => {
-    const response = withoutLayoutInlineStyle({
-      status: 200,
-      headers: { "Content-Type": "text/html" },
-      body: streamOf([...html]),
-    });
-    expect(await textOf(response)).toBe(expected);
-  });
-
-  it("leaves responses that are not HTML untouched", () => {
-    const json = { status: 200, headers: { "content-type": "application/json" }, body: LAYOUT_TAG };
-    expect(withoutLayoutInlineStyle(json)).toBe(json);
   });
 });
 
@@ -390,5 +356,136 @@ describe("Snackday in dev (lesto.app.ts)", () => {
 
     expect(response.status).toBe(401);
     expect(policyOf(response)).toBe(SNACKDAY_POLICY);
+  });
+});
+
+describe("the inline style allowance", () => {
+  it("allows only the Lesto layout wrapper style", () => {
+    expect(
+      unexpectedInlineStyles(
+        '<div data-lesto-layout="0" style="display:contents"><div data-lesto-layout="12" style="display:contents"></div></div>',
+      ),
+    ).toEqual([]);
+  });
+
+  it.each([
+    '<p style="display:contents">',
+    '<div data-lesto-layout="0" style="display:block">',
+    '<div data-lesto-layout="0" class="x" style="display:contents">',
+    '<div style="display:contents">',
+  ])("rejects %s", (tag) => {
+    expect(unexpectedInlineStyles(`${tag}x</div>`)).toEqual([tag]);
+  });
+});
+
+describe("Snackday at the edge (worker.ts)", () => {
+  const executionContext = { waitUntil: () => undefined };
+
+  const missingAssets = { fetch: () => Promise.resolve(new Response("", { status: 404 })) };
+
+  const stylesheetAssets = {
+    fetch: (request: Request) =>
+      Promise.resolve(
+        new URL(request.url).pathname === "/styles.css"
+          ? new Response("body{color:red}", { headers: { "content-type": "text/css" } })
+          : new Response("", { status: 404 }),
+      ),
+  };
+
+  function edgeRequest(host: string, path: string): Request {
+    return new Request(`https://${host}${path}`, { headers: { host } });
+  }
+
+  it.each([
+    [SNACKDAY_HOST, SNACKDAY_POLICY],
+    [BALLPLAYER_HOST, BALLPLAYER_POLICY],
+  ])("puts the %s policy on the / page", async (host, policy) => {
+    const response = await worker.fetch(
+      edgeRequest(host, "/"),
+      { ASSETS: missingAssets },
+      executionContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("content-security-policy")).toBe(policy);
+  });
+
+  it.each([
+    [SNACKDAY_HOST, SNACKDAY_POLICY],
+    [BALLPLAYER_HOST, BALLPLAYER_POLICY],
+  ])("puts the %s policy on a static asset", async (host, policy) => {
+    const response = await worker.fetch(
+      edgeRequest(host, "/styles.css"),
+      { ASSETS: stylesheetAssets },
+      executionContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("body{color:red}");
+    expect(response.headers.get("content-type")).toBe("text/css");
+    expect(response.headers.get("content-security-policy")).toBe(policy);
+  });
+
+  it("replaces a policy the asset already carries", async () => {
+    const assets = {
+      fetch: () =>
+        Promise.resolve(
+          new Response("body{}", { headers: { "content-security-policy": "default-src *" } }),
+        ),
+    };
+    const response = await worker.fetch(
+      edgeRequest(SNACKDAY_HOST, "/styles.css"),
+      { ASSETS: assets },
+      executionContext,
+    );
+
+    expect(response.headers.get("content-security-policy")).toBe(SNACKDAY_POLICY);
+  });
+});
+
+describe("the brand security wrapper", () => {
+  const page = [
+    '<div data-lesto-layout="0" style="display:contents">',
+    '<textarea><div data-lesto-layout="1" style="display:contents"></textarea>',
+    '<p title=\'<div data-lesto-layout="2" style="display:contents">\'>x</p>',
+    "</div>",
+  ].join("");
+
+  it("passes a string HTML body through byte for byte with its Content-Length", async () => {
+    const secured = withBrandSecurity(() =>
+      Promise.resolve({
+        status: 200,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "content-length": String(new TextEncoder().encode(page).byteLength),
+        },
+        body: page,
+      }),
+    );
+    const response = await secured("GET", "/", withHost(SNACKDAY_HOST));
+
+    expect(await textOf(response)).toBe(page);
+    expect(headerNamed(response, "content-length")).toBe(
+      String(new TextEncoder().encode(page).byteLength),
+    );
+    expect(policyOf(response)).toBe(SNACKDAY_POLICY);
+  });
+
+  it("passes a streamed HTML body through unchanged", async () => {
+    const bytes = new TextEncoder().encode(page);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    });
+    const secured = withBrandSecurity(() =>
+      Promise.resolve({ status: 200, headers: { "content-type": "text/html" }, body }),
+    );
+    const response = await secured("GET", "/", withHost(SNACKDAY_HOST));
+
+    expect(response.body).toBe(body);
+    expect(await textOf(response)).toBe(page);
   });
 });
