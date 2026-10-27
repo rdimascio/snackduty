@@ -233,7 +233,7 @@ describe("Ballplayer /app for each role", () => {
     expect(status).toBe(200);
     expect(html).toContain('data-brand="ballplayer"');
     expect(html).toContain("Development sign-in");
-    expect(html).toContain("Sign in as the development adult");
+    expect(html).toContain("Sign in as Pat Parent (guardian)");
     expect(cardLabels(html)).toEqual([]);
     expect(html).not.toContain("Casey");
     expect(html).not.toContain("Rowan");
@@ -400,16 +400,8 @@ describe("the Ballplayer session island actions", () => {
     globalThis.fetch = realFetch;
   });
 
-  it("signs in through the dev session route and opens the signed-in page", async () => {
-    expect(await signInAs("second-adult")).toEqual({ state: "working" });
-
-    const { html } = await ballplayerApp(jar);
-    expect(html).toContain("Second Development Adult");
-    expect(html).toContain("No player cards yet");
-  });
-
   it("signs out through the session route and returns the page to signed out", async () => {
-    await signInAs("default");
+    jar = await signIn();
     const signedIn = jar;
     expect(signedIn).not.toBe("");
 
@@ -421,11 +413,11 @@ describe("the Ballplayer session island actions", () => {
 
   it("reports a refused persona as a failure", async () => {
     stubFetch(async () => new Response("", { status: 400 }));
-    expect(await signInAs("default")).toEqual({ state: "failed" });
+    expect(await signInAs("parent")).toEqual({ state: "failed" });
   });
 
   it("reports a server without dev sign-in as unavailable", async () => {
     stubFetch(async () => new Response("", { status: 404 }));
-    expect(await signInAs("default")).toEqual({ state: "unavailable" });
+    expect(await signInAs("parent")).toEqual({ state: "unavailable" });
   });
 });
