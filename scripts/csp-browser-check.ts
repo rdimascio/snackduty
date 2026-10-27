@@ -13,8 +13,8 @@ import {
   BALLPLAYER_CONTENT_SECURITY_POLICY,
   SNACKDAY_CONTENT_SECURITY_POLICY,
 } from "../apps/web/app/server/content-security-policy";
-import { DevScenarioApi } from "./lib/dev-scenario-api";
 import { GAME_DUTIES, PRACTICE_TITLE, SCENARIO_GAMES } from "./lib/dev-scenario-events";
+import { DevScenarioRosterImportApi } from "./lib/dev-scenario-roster-import";
 import { seedDevScenario } from "./lib/dev-scenario-seed";
 import type { SeededDevScenario } from "./lib/dev-scenario-seed";
 
@@ -158,15 +158,14 @@ function largeRosterPlayer(index: number): string {
 }
 
 async function seedLargeRoster(baseUrl: string, seeded: SeededDevScenario): Promise<void> {
-  const api = new DevScenarioApi(baseUrl);
+  const api = new DevScenarioRosterImportApi(baseUrl);
   const owner = await api.signIn("default");
   const { teamId, seasonId } = seeded.manifest.teams.coached;
-  for (let index = 0; index < LARGE_ROSTER_SIZE; index += 1) {
-    await api.addPlayer(owner.cookie, teamId, seasonId, {
-      displayName: largeRosterPlayer(index),
-      birthDate: LARGE_ROSTER_BIRTH_DATE,
-    });
-  }
+  const players = Array.from({ length: LARGE_ROSTER_SIZE }, (_, index) => ({
+    displayName: largeRosterPlayer(index),
+    birthDate: LARGE_ROSTER_BIRTH_DATE,
+  }));
+  await api.importPlayers(owner.cookie, teamId, seasonId, players);
 }
 
 async function checkLargeRoster(page: Page): Promise<void> {
