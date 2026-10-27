@@ -42,13 +42,29 @@ function reserveEphemeralPort(): Promise<number> {
   });
 }
 
-function bootWebServer(port: number, databasePath: string, scratchDir: string): WebServer {
+export interface DevScenarioOptions {
+  readonly signal?: AbortSignal;
+  readonly serverEnv?: Readonly<Record<string, string>>;
+}
+
+function bootWebServer(
+  port: number,
+  databasePath: string,
+  scratchDir: string,
+  serverEnv: Readonly<Record<string, string>> = {},
+): WebServer {
   const stdoutLog = join(scratchDir, "web.stdout.log");
   const stderrLog = join(scratchDir, "web.stderr.log");
   const child = Bun.spawn({
     cmd: ["bun", "--bun", "lesto", "dev", "--port", String(port)],
     cwd: join(ROOT, "apps", "web"),
-    env: { ...process.env, LESTO_DB: databasePath, SNACKDAY_DEV_SIGN_IN: "true" },
+    env: {
+      ...process.env,
+      LESTO_DB: databasePath,
+      SNACKDAY_DEV_SIGN_IN: "true",
+      SNACKDAY_LESSON_OF_THE_WEEK: "true",
+      ...serverEnv,
+    },
     stdout: Bun.file(stdoutLog),
     stderr: Bun.file(stderrLog),
   });
@@ -180,7 +196,7 @@ function waitForReadiness(baseUrl: string, server: WebServer, signal?: AbortSign
 }
 
 export async function startDevScenario(
-  options: { signal?: AbortSignal } = {},
+  options: DevScenarioOptions = {},
 ): Promise<RunningDevScenario> {
   options.signal?.throwIfAborted();
   const port = await reserveEphemeralPort();
@@ -190,7 +206,7 @@ export async function startDevScenario(
   const baseUrl = `http://127.0.0.1:${port}`;
   let server: WebServer;
   try {
-    server = bootWebServer(port, databasePath, scratchDir);
+    server = bootWebServer(port, databasePath, scratchDir, options.serverEnv);
   } catch (error) {
     await rm(scratchDir, { recursive: true, force: true });
     throw error;
@@ -225,8 +241,10 @@ export async function startDevScenario(
   }
 }
 
-export async function checkDevScenario(): Promise<DevScenarioManifest> {
-  const running = await startDevScenario();
+export async function checkDevScenario(
+  options: Pick<DevScenarioOptions, "serverEnv"> = {},
+): Promise<DevScenarioManifest> {
+  const running = await startDevScenario(options);
   try {
     return running.manifest;
   } finally {
@@ -246,6 +264,11 @@ export function formatDevScenarioInstructions(manifest: DevScenarioManifest): st
     "Owner: await fetch('/api/dev/sign-in', {method: 'POST'}); location.assign('/app')",
     "Co-coach + parent: await fetch('/api/dev/sign-in', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({persona: 'second-adult'})}); location.assign('/app')",
     "The server stores the session in an HttpOnly cookie; no credential needs to be copied.",
+    "",
+    `Player card on /app: sign in as Co-coach + parent; the "Player card" section above the roster shows ${manifest.teams.coached.playerName}.`,
+    `Training week: ${manifest.skillEvents.posted} skill events over ${manifest.skillEvents.drillDays} days ending today, posted by the parent through the dev-only seed route.`,
+    "The owner sees the same player cards read-only: coaches read the cards of children on an active season roster; only a guardian records answers or events.",
+    "The seed route POST /api/dev/teams/:teamId/participants/:participantId/skill-events exists only with SNACKDAY_DEV_SIGN_IN=true and never in production.",
     "",
     `Native simulator scheme environment: SNACKDAY_API_BASE_URL=${manifest.nativeApiBaseUrl} SNACKDAY_DEV_SIGN_IN=true`,
     `Native live tests: SNACKDAY_LIVE_API=${manifest.nativeApiBaseUrl} bash scripts/ios-live-test.sh`,

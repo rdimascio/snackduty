@@ -8,6 +8,7 @@ import { unavailableInviteDeliverer } from "./runtime/delivery";
 import { runtimeConfiguration } from "./runtime/config";
 import { aesGcmInvitationPayloadCipher } from "./app/lib/server/invitation-outbox";
 import { reelLessonCatalog } from "./app/lessons/catalog";
+import { registerDevSkillEventRoutes } from "./app/dev/skill-events";
 
 // Lesto invokes this factory per boot; importing it opens no database.
 export default async function applicationConfig() {
@@ -22,7 +23,7 @@ export default async function applicationConfig() {
     clock: Date.now,
   });
   const audience = env.SNACKDAY_APPLE_CLIENT_ID?.trim();
-  return createApplication({
+  const { config } = createApplication({
     sql,
     db,
     sessions,
@@ -41,5 +42,14 @@ export default async function applicationConfig() {
         }
       : {}),
     ...(audience ? { appleVerifier: createAppleIdentityVerifier({ audience }) } : {}),
-  }).config;
+  });
+  return {
+    ...config,
+    app: registerDevSkillEventRoutes(config.app, {
+      enabled: env.SNACKDAY_DEV_SIGN_IN,
+      db,
+      sessions,
+      clock: Date.now,
+    }),
+  };
 }

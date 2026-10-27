@@ -1,10 +1,15 @@
-import { DevScenarioApi, devScenarioError } from "./dev-scenario-api";
+import { devScenarioError } from "./dev-scenario-api";
 import type { DevScenarioTeam } from "./dev-scenario-api";
+import { DevScenarioLessonApi } from "./dev-scenario-lessons";
+import type { DevScenarioSkillCard } from "./dev-scenario-lessons";
+import { SCENARIO_DRILL_DAYS, scenarioSkillEvents } from "./dev-scenario-skill-events";
 
 const COACHED_TEAM = "Scenario Falcons";
 const FAMILY_TEAM = "Scenario Comets";
 const COACHED_PLAYER = { displayName: "Avery Scenario", birthDate: "2018-04-09" } as const;
 const FAMILY_PLAYER = { displayName: "Jordan Scenario", birthDate: "2019-05-14" } as const;
+const SCENARIO_TIME_ZONE = "America/Los_Angeles";
+const MIN_STREAK_DAYS = 3;
 
 export interface DevScenarioManifest {
   readonly webBaseUrl: string;
@@ -17,6 +22,7 @@ export interface DevScenarioManifest {
     readonly owner: { readonly key: "default"; readonly displayName: string };
     readonly coachParent: { readonly key: "second-adult"; readonly displayName: string };
   };
+  readonly skillEvents: { readonly drillDays: number; readonly posted: number };
 }
 
 export interface SeededDevScenario {
@@ -36,11 +42,11 @@ const season = (label: string) => ({
   label,
   startDate: dateDaysFromNow(-30),
   endDate: dateDaysFromNow(120),
-  timeZone: "America/Los_Angeles",
+  timeZone: SCENARIO_TIME_ZONE,
 });
 
 async function createTeamScenario(
-  api: DevScenarioApi,
+  api: DevScenarioLessonApi,
   ownerCookie: string,
   memberCookie: string,
   input: {
@@ -106,7 +112,7 @@ function verifyPrivatePlayer(body: { roster?: readonly unknown[] }, team: DevSce
 }
 
 async function verifySeededScenario(
-  api: DevScenarioApi,
+  api: DevScenarioLessonApi,
   manifest: DevScenarioManifest,
   ownerCookie: string,
   coachParentCookie: string,
@@ -131,6 +137,17 @@ async function verifySeededScenario(
     "the second adult's coach grant is not isolated to one team",
   );
   verifyPrivatePlayer(coachedRoster, coached);
+  const [parentCard, ownerCard] = await Promise.all([
+    api.readSkillCard(coachParentCookie, coached.teamId, coached.playerId),
+    api.readSkillCard(ownerCookie, coached.teamId, coached.playerId),
+  ]);
+  verifyPlayerCard(parentCard);
+  verifyPlayerCard(ownerCard);
+  ensure(
+    "verify-coach-card",
+    JSON.stringify(ownerCard) === JSON.stringify(parentCard),
+    "the owner's read-only player card differs from the parent's",
+  );
   verifyPrivatePlayer(familyRoster, family);
   await api.expectOwnerOnlySurfaceHidden(coachParentCookie, coached.teamId);
   await api.createSeason(
@@ -141,11 +158,36 @@ async function verifySeededScenario(
   );
 }
 
+export function verifyPlayerCard(card: DevScenarioSkillCard): void {
+  ensure("verify-player-card", card.areas.length > 0, "the player card carries no areas");
+  ensure(
+    "verify-player-card",
+    card.scoredSkills > 0,
+    "the seeded events did not score any skill on the player card",
+  );
+  ensure("verify-player-card", card.overall > 0, "the player card overall rating is 0");
+  ensure(
+    "verify-player-card",
+    card.streakDays >= MIN_STREAK_DAYS,
+    `the player card streak is ${card.streakDays} days; expected at least ${MIN_STREAK_DAYS}`,
+  );
+}
+
+async function seedTrainingWeek(
+  api: DevScenarioLessonApi,
+  guardianCookie: string,
+  team: DevScenarioTeam,
+): Promise<number> {
+  const events = scenarioSkillEvents(team.playerId, Date.now(), SCENARIO_TIME_ZONE);
+  await api.seedSkillEvents(guardianCookie, team.teamId, team.playerId, events);
+  return events.length;
+}
+
 export async function seedDevScenario(
   baseUrl: string,
   signal?: AbortSignal,
 ): Promise<SeededDevScenario> {
-  const api = new DevScenarioApi(baseUrl, signal);
+  const api = new DevScenarioLessonApi(baseUrl, signal);
   const owner = await api.signIn("default");
   const coachParent = await api.signIn("second-adult");
   const coached = await createTeamScenario(api, owner.cookie, coachParent.cookie, {
@@ -159,6 +201,7 @@ export async function seedDevScenario(
     player: FAMILY_PLAYER,
   });
   await api.grantCoCoach(owner.cookie, coached.teamId, coachParent.personId);
+  const posted = await seedTrainingWeek(api, coachParent.cookie, coached);
 
   const manifest: DevScenarioManifest = {
     webBaseUrl: baseUrl,
@@ -168,6 +211,7 @@ export async function seedDevScenario(
       owner: { key: "default", displayName: owner.displayName },
       coachParent: { key: "second-adult", displayName: coachParent.displayName },
     },
+    skillEvents: { drillDays: SCENARIO_DRILL_DAYS, posted },
   };
 
   return {

@@ -309,9 +309,9 @@ async function guardianFixture(target: SkillTestApplication, lesson: Lesson) {
   const { app } = target;
   const current = selectLessonWeek(lesson);
   const ownerCookie = await signIn(app);
-  const { teamId, casey } = await seedTeam(app, ownerCookie);
+  const { teamId, casey, rowan } = await seedTeam(app, ownerCookie);
   const guardianCookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
-  return { app, ownerCookie, guardianCookie, teamId, casey, lesson: current };
+  return { app, ownerCookie, guardianCookie, teamId, casey, rowan, lesson: current };
 }
 
 describe("Reel skill map", () => {
@@ -649,12 +649,12 @@ describe("skill card API", () => {
     expect(json(response)).toEqual(rate([], taxonomyV0, rulesV0, littleLeague));
   });
 
-  it("refuses a coach who is not the child's guardian", async () => {
+  it("lets a coach who is not the child's guardian read the card", async () => {
     const { app, ownerCookie, teamId, casey } = await guardianFixture(flagOn, runToFirst.lesson);
 
     const response = await readCard(app, ownerCookie, teamId, casey);
-    expect(response.status).toBe(404);
-    expect(json(response)).toEqual({ error: "participant not found" });
+    expect(response.status).toBe(200);
+    expect(json(response)).toEqual(rate([], taxonomyV0, rulesV0, littleLeague));
   });
 
   it("refuses a guardian whose relationship only grants participant.read", async () => {
@@ -776,14 +776,16 @@ describe("player card on /app", () => {
     expect(section).not.toContain("Riley Kid");
   });
 
-  it("shows no player card to a coach who manages no child", async () => {
+  it("shows a coach who manages no child a card for every rostered child", async () => {
     const { app, ownerCookie } = await guardianFixture(flagOn, runToFirst.lesson);
 
     const html = await pageText(
       await app.handle("GET", "/app", { headers: { cookie: ownerCookie } }),
     );
     expect(html).toContain("Lesson of the week");
-    expect(html).not.toContain("Player card");
+    const section = html.slice(html.indexOf('aria-label="Player card"'));
+    expect(section).toContain("Casey Kid");
+    expect(section).toContain("Rowan Kid");
   });
 
   it("hides the route and the section when the flag is off", async () => {
@@ -857,14 +859,17 @@ describe("player card refresh after an answer", () => {
   });
 
   it("publishes nothing when the card read is refused or fails", async () => {
-    const { app, ownerCookie, teamId, casey } = await guardianFixture(flagOn, runToFirst.lesson);
+    const { app, guardianCookie, teamId, casey, rowan } = await guardianFixture(
+      flagOn,
+      runToFirst.lesson,
+    );
     const target = new EventTarget();
     const updates: PlayerCardUpdate[] = [];
     const unsubscribe = subscribePlayerCardUpdates((update) => updates.push(update), target);
 
-    const refused = await refreshPlayerCard(teamId, casey, {
+    const refused = await refreshPlayerCard(teamId, rowan, {
       target,
-      get: cardGetter(app, ownerCookie, []),
+      get: cardGetter(app, guardianCookie, []),
     });
     const failed = await refreshPlayerCard(teamId, casey, {
       target,
