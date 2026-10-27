@@ -7,7 +7,13 @@ import type { Clock, SessionService as Sessions } from "../lib/server/applicatio
 import { authenticatedAdult } from "../lib/server/identity";
 import { teamAccess } from "../lib/server/teams";
 import { mayManageParticipant } from "../lessons/lessons";
-import { appendSkillEvents, playerIdFor } from "../skills/skill-events";
+import {
+  appendSkillEvents,
+  isCheckPassedShapedId,
+  playerIdFor,
+  SkillEventInsertConflict,
+} from "../skills/skill-events";
+import { seedEventIdStem } from "./seed-event-ids";
 
 export const DEV_SKILL_EVENTS_PATH =
   "/api/dev/teams/:teamId/participants/:participantId/skill-events";
@@ -42,6 +48,7 @@ export function parseDevSkillEventBatch(
     return { ok: false, error: `batch exceeds ${DEV_SKILL_EVENTS_MAX_BATCH} events` };
   }
   const playerId = playerIdFor(participantId);
+  const idStem = seedEventIdStem(participantId);
   const ids = new Set<string>();
   const events: SkillEvent[] = [];
   for (const [index, candidate] of body.entries()) {
@@ -52,6 +59,9 @@ export function parseDevSkillEventBatch(
       return invalidEvent(index, "names an unknown skill");
     }
     if (event.playerId !== playerId) return invalidEvent(index, "belongs to another player");
+    if (!event.id.startsWith(idStem) && !isCheckPassedShapedId(event.id)) {
+      return invalidEvent(index, "has an id outside this player's seed id range");
+    }
     if (Date.parse(event.occurredAt) > nowMs) return invalidEvent(index, "occurs in the future");
     if (ids.has(event.id)) return invalidEvent(index, "repeats an event id");
     ids.add(event.id);
@@ -68,24 +78,26 @@ async function seedSkillEvents(
   if (identity === undefined) return c.json({ error: "authentication required" }, 401);
   const personId = identity.person.id;
   const participantId = c.param("participantId");
-  return options.db.transaction(async (tx) => {
-    const access = await teamAccess(tx, c.param("teamId"), personId);
-    if (access === undefined) return c.json({ error: "team not found" }, 404);
-    if (!(await mayManageParticipant(tx, personId, access.team.id, participantId))) {
-      return c.json({ error: "participant not found" }, 404);
-    }
-    const nowMs = options.clock();
-    const batch = parseDevSkillEventBatch(c.req.body, participantId, nowMs);
-    if (!batch.ok) return c.json({ error: batch.error }, 400);
-    const outcome = await appendSkillEvents(tx, participantId, batch.events, nowMs);
-    if (!outcome.ok) {
-      return c.json(
-        { error: `event ${outcome.conflictIndex} conflicts with an existing or reserved event id` },
-        409,
-      );
-    }
-    return c.json({ recorded: outcome.recorded, duplicates: outcome.duplicates });
-  });
+  const conflict = (index: number) =>
+    c.json({ error: `event ${index} conflicts with an existing or reserved event id` }, 409);
+  try {
+    return await options.db.transaction(async (tx) => {
+      const access = await teamAccess(tx, c.param("teamId"), personId);
+      if (access === undefined) return c.json({ error: "team not found" }, 404);
+      if (!(await mayManageParticipant(tx, personId, access.team.id, participantId))) {
+        return c.json({ error: "participant not found" }, 404);
+      }
+      const nowMs = options.clock();
+      const batch = parseDevSkillEventBatch(c.req.body, participantId, nowMs);
+      if (!batch.ok) return c.json({ error: batch.error }, 400);
+      const outcome = await appendSkillEvents(tx, participantId, batch.events, nowMs);
+      if (!outcome.ok) return conflict(outcome.conflictIndex);
+      return c.json({ recorded: outcome.recorded, duplicates: outcome.duplicates });
+    });
+  } catch (error) {
+    if (error instanceof SkillEventInsertConflict) return conflict(error.conflictIndex);
+    throw error;
+  }
 }
 
 export function registerDevSkillEventRoutes(app: Lesto, options: DevSkillEventOptions): Lesto {

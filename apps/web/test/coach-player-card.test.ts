@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { Db } from "@lesto/db";
 import { createApp } from "@lesto/kernel";
 import type { App } from "@lesto/kernel";
 import { openSqlite } from "@lesto/runtime";
@@ -9,6 +10,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { staticLessonCatalog } from "../app/lessons/catalog";
 import { parseReelEpisode } from "../app/lessons/reel-contract";
+import { seedEventIdStem } from "../app/dev/seed-event-ids";
 import { DEV_SKILL_EVENTS_MAX_BATCH, registerDevSkillEventRoutes } from "../app/dev/skill-events";
 import { COACH_CARD_READ_PERMISSION } from "../app/lessons/lessons";
 import { createApplication } from "../app/lib/server/composition";
@@ -16,7 +18,14 @@ import { identityServices } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
 import { DEFAULT_GUARDIAN_PERMISSIONS, guardianRelationships } from "../app/lib/server/roster";
-import { checkPassedEventId, PLAYER_CARD_RULESET, playerIdFor } from "../app/skills/skill-events";
+import {
+  appendSkillEvents,
+  checkPassedEventId,
+  PLAYER_CARD_RULESET,
+  playerIdFor,
+  SkillEventInsertConflict,
+} from "../app/skills/skill-events";
+import { scenarioSkillEvents } from "../../../scripts/lib/dev-scenario-skill-events";
 
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
@@ -166,7 +175,7 @@ function drill(participantId: string, index: number, daysAgo: number, skill: str
   const occurredAt = NOW - daysAgo * DAY_MS;
   return {
     contract: "skill.events/v0",
-    id: `evt_seed${index}`,
+    id: `${seedEventIdStem(participantId)}seed${index}`,
     playerId: playerIdFor(participantId),
     occurredAt: new Date(occurredAt).toISOString(),
     localDate: localDate(occurredAt),
@@ -503,21 +512,153 @@ describe("development skill event seed route", () => {
     },
   );
 
-  it("refuses an id another child already holds and writes nothing from the batch", async () => {
-    const { ownerCookie, guardianCookie, teamId, casey, rowan } = await guardiansOfTwoChildren();
-    expect((await post(guardianCookie, seedPath(teamId, casey), week(casey))).status).toBe(200);
-    const rowanWeek = week(rowan);
+  interface RowanProbe {
+    readonly caseyDrill: ReturnType<typeof drill>;
+    readonly rowanEventId: string;
+    readonly rowanLessonEventId: string;
+  }
 
-    const response = await post(ownerCookie, seedPath(teamId, rowan), [
-      { ...rowanWeek[0], id: "evt_fresh" },
-      rowanWeek[1],
+  async function probeBeforeAndAfterRowanSeeds(probe: (ids: RowanProbe) => unknown[]) {
+    const { ownerCookie, guardianCookie, teamId, casey, rowan, rowanLessonEventId } =
+      await guardiansOfTwoChildren();
+    const rowanWeek = week(rowan);
+    const body = probe({
+      caseyDrill: drill(casey, 99, 1, "infield.ready-position"),
+      rowanEventId: rowanWeek[1]?.id ?? "",
+      rowanLessonEventId,
+    });
+    const send = async () => {
+      const response = await post(guardianCookie, seedPath(teamId, casey), body);
+      return { status: response.status, body: json(response) };
+    };
+
+    const unseeded = await send();
+    expect(await storedEventRows()).toEqual([]);
+    expect((await post(ownerCookie, seedPath(teamId, rowan), rowanWeek)).status).toBe(200);
+    const seeded = await send();
+    expect(await storedEventCount()).toBe(rowanWeek.length);
+    expect((await storedEventRows()).every((row) => row.participant_id === rowan)).toBe(true);
+    return { unseeded, seeded };
+  }
+
+  it("refuses an id in another child's seed range the same way whether or not it is held", async () => {
+    const { unseeded, seeded } = await probeBeforeAndAfterRowanSeeds(
+      ({ caseyDrill, rowanEventId }) => [{ ...caseyDrill, id: rowanEventId }],
+    );
+
+    expect(unseeded).toEqual({
+      status: 400,
+      body: { error: "event 0 has an id outside this player's seed id range" },
+    });
+    expect(seeded).toEqual(unseeded);
+  });
+
+  it("answers a foreign id followed by a reserved id the same way whether or not it is held", async () => {
+    const { unseeded, seeded } = await probeBeforeAndAfterRowanSeeds(
+      ({ caseyDrill, rowanEventId, rowanLessonEventId }) => [
+        { ...caseyDrill, id: rowanEventId },
+        { ...caseyDrill, id: rowanLessonEventId },
+      ],
+    );
+
+    expect(unseeded).toEqual({
+      status: 400,
+      body: { error: "event 0 has an id outside this player's seed id range" },
+    });
+    expect(seeded).toEqual(unseeded);
+  });
+
+  it("refuses an id outside the player's seed range before reading stored events", async () => {
+    const { guardianCookie, teamId, casey } = await guardianOfCasey();
+    const [firstDrill] = week(casey);
+
+    const response = await post(guardianCookie, seedPath(teamId, casey), [
+      { ...firstDrill, id: "evt_fresh" },
     ]);
+    expect(response.status).toBe(400);
+    expect(await storedEventCount()).toBe(0);
+  });
+
+  it("does not let a seed range be a prefix of a longer participant's range", () => {
+    expect(seedEventIdStem("participant_ab").startsWith(seedEventIdStem("participant_a"))).toBe(
+      false,
+    );
+  });
+
+  it("accepts the dev scenario's week for its own child and replays it as duplicates", async () => {
+    const { guardianCookie, teamId, casey } = await guardianOfCasey();
+    const events = scenarioSkillEvents(casey, NOW, "America/Los_Angeles");
+
+    const first = await post(guardianCookie, seedPath(teamId, casey), events);
+    expect(first.status).toBe(200);
+    expect(json(first)).toEqual({ recorded: events.length, duplicates: 0 });
+    const replay = await post(guardianCookie, seedPath(teamId, casey), events);
+    expect(replay.status).toBe(200);
+    expect(json(replay)).toEqual({ recorded: 0, duplicates: events.length });
+  });
+
+  function racingInserts(db: Db): Db {
+    const forward = (target: Db, key: string | symbol): unknown => {
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    };
+    const racingTx = (tx: Db): Db =>
+      new Proxy(tx, {
+        get: (target, key) =>
+          key === "raw"
+            ? async (sql: string, params?: readonly unknown[]) => {
+                if (sql.includes("RETURNING")) await target.raw(sql, params);
+                return target.raw(sql, params);
+              }
+            : forward(target, key),
+      });
+    return new Proxy(db, {
+      get: (target, key) =>
+        key === "transaction"
+          ? <R>(fn: (tx: Db) => Promise<R>) => target.transaction((tx) => fn(racingTx(tx)))
+          : forward(target, key),
+    });
+  }
+
+  it("rolls back the whole batch when a fresh event's insert returns no row", async () => {
+    const { casey } = await guardianOfCasey();
+    const events = parseSkillEvents(week(casey));
+
+    await expect(
+      racingInserts(services.db).transaction((tx) => appendSkillEvents(tx, casey, events, NOW)),
+    ).rejects.toEqual(new SkillEventInsertConflict(0));
+    expect(await storedEventCount()).toBe(0);
+  });
+
+  it("answers 409 and writes nothing when a fresh event loses an insert race", async () => {
+    const { guardianCookie, teamId, casey } = await guardianOfCasey();
+    const racingApp = await createApp({
+      ...config,
+      app: registerDevSkillEventRoutes(
+        createApplication({
+          sql,
+          db: services.db,
+          sessions: services.sessions,
+          mode: "development",
+          clock,
+          developmentSignIn: true,
+          inviteDelivery: devInviteDeliverer(),
+          invitationCipher: aesGcmInvitationPayloadCipher(new Uint8Array(32).fill(7)),
+          lessons: { enabled: true, catalog: staticLessonCatalog([episode]) },
+        }).config.app,
+        { enabled: true, db: racingInserts(services.db), sessions: services.sessions, clock },
+      ),
+    });
+
+    const response = await racingApp.handle("POST", seedPath(teamId, casey), {
+      headers: { ...sameOrigin, cookie: guardianCookie },
+      body: week(casey),
+    });
     expect(response.status).toBe(409);
     expect(json(response)).toEqual({
-      error: "event 1 conflicts with an existing or reserved event id",
+      error: "event 0 conflicts with an existing or reserved event id",
     });
-    expect(await storedEventCount()).toBe(7);
-    expect((await storedEventRows()).every((row) => row.participant_id === casey)).toBe(true);
+    expect(await storedEventCount()).toBe(0);
   });
 
   it("refuses a changed event under an id the same child already holds", async () => {

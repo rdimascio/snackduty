@@ -132,15 +132,26 @@ export async function appendCheckPassed(tx: Db, check: PassedCheck): Promise<voi
 
 const CHECK_PASSED_ID_PATTERN = /^evt_[0-9a-f]{32}$/u;
 
+export function isCheckPassedShapedId(id: string): boolean {
+  return CHECK_PASSED_ID_PATTERN.test(id);
+}
+
 export type AppendSkillEventsOutcome =
   | { readonly ok: true; readonly recorded: number; readonly duplicates: number }
   | { readonly ok: false; readonly conflictIndex: number };
+
+export class SkillEventInsertConflict extends Error {
+  constructor(readonly conflictIndex: number) {
+    super(`Skill event ${conflictIndex} was not inserted.`);
+    this.name = "SkillEventInsertConflict";
+  }
+}
 
 async function claimsAnotherCheckPassedId(
   participantId: string,
   event: SkillEvent,
 ): Promise<boolean> {
-  if (!CHECK_PASSED_ID_PATTERN.test(event.id)) return false;
+  if (!isCheckPassedShapedId(event.id)) return false;
   if (event.type !== "check_passed" || event.source.itemId === undefined) return true;
   return (
     event.id !== (await checkPassedEventId(participantId, event.source.id, event.source.itemId))
@@ -178,24 +189,25 @@ export async function appendSkillEvents(
   events: readonly SkillEvent[],
   recordedAtMs: number,
 ): Promise<AppendSkillEventsOutcome> {
-  const fresh: SkillEvent[] = [];
+  const fresh: { readonly index: number; readonly event: SkillEvent }[] = [];
   for (const [index, event] of events.entries()) {
     if (await claimsAnotherCheckPassedId(participantId, event)) {
       return { ok: false, conflictIndex: index };
     }
     const replay = await isIdempotentReplay(tx, participantId, event);
     if (replay === false) return { ok: false, conflictIndex: index };
-    if (replay === undefined) fresh.push(event);
+    if (replay === undefined) fresh.push({ index, event });
   }
   const recordedAt = new Date(recordedAtMs).toISOString();
-  for (const event of fresh) {
-    await tx.raw(insertSkillEventSql, [
+  for (const { index, event } of fresh) {
+    const inserted = await tx.raw(`${insertSkillEventSql} RETURNING id`, [
       event.id,
       participantId,
       JSON.stringify(event),
       event.occurredAt,
       recordedAt,
     ]);
+    if (inserted.length === 0) throw new SkillEventInsertConflict(index);
   }
   return { ok: true, recorded: fresh.length, duplicates: events.length - fresh.length };
 }

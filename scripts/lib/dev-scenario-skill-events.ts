@@ -1,3 +1,5 @@
+import { seedEventIdStem } from "../../apps/web/app/dev/seed-event-ids";
+
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const PAST_DAY_NOON_UTC_HOUR = 20;
 
@@ -66,7 +68,7 @@ export function scenarioSkillEvents(
   timeZone: string,
 ): ScenarioSkillEvent[] {
   const playerId = scenarioPlayerId(participantId);
-  const idStem = `evt_${playerId.slice("plr_".length)}`;
+  const idStem = seedEventIdStem(participantId);
   const today = localDateIn(nowMs, timeZone);
   const event = (
     id: string,
