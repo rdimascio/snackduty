@@ -19,7 +19,7 @@ import { openRuntimeDatabase } from "./database";
 import type { RuntimeDatabase, RuntimeDatabaseTarget } from "./database";
 import { unavailableInviteDeliverer } from "./delivery";
 import { remoteSafetyPolicy } from "./surface";
-import { registerRuntimePages, withRuntimeAssets } from "./web-surface";
+import { registerRuntimePages, withBrandPolicy, withRuntimeAssets } from "./web-surface";
 import { withRuntimeRelease } from "./release";
 
 export interface RuntimeApplicationAdapters {
@@ -105,13 +105,12 @@ export async function openRuntimeApplication(
       ...application.config,
       dialect: database.dialect,
     });
-    const app = remoteSafetyPolicy(
-      withRuntimeRelease(withRuntimeAssets(kernel), configuration.release),
-      {
+    const app = withBrandPolicy(
+      remoteSafetyPolicy(withRuntimeRelease(withRuntimeAssets(kernel), configuration.release), {
         invitationDeliveryAvailable:
           adapters.inviteDelivery !== undefined && application.outbox !== undefined,
         upstreamCredentialPathLoggingSafe: configuration.upstreamCredentialPathLoggingSafe,
-      },
+      }),
     );
 
     return {

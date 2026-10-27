@@ -5,9 +5,15 @@ import type { App } from "@lesto/kernel";
 import { scanRoutes } from "@lesto/router";
 import { contentTypeOf, nodeStaticReader, staticCacheControl } from "@lesto/runtime";
 import { applyFileRoutes, loadFileRoutes } from "@lesto/web";
-import type { Lesto } from "@lesto/web";
+import type { Lesto, PageDef } from "@lesto/web";
+
+import { routeBrands, withBrandSecurity } from "../app/server/brand-routing";
 
 const webRoot = fileURLToPath(new URL("../", import.meta.url));
+
+interface BallplayerHomeModule {
+  readonly ballplayerHome: PageDef<"/">;
+}
 
 /** Use the same file-route discovery and layout composition as the Lesto CLI. */
 export async function registerRuntimePages(app: Lesto): Promise<void> {
@@ -25,6 +31,10 @@ export async function registerRuntimePages(app: Lesto): Promise<void> {
     (kind, segments) => import(join(directory, ...segments, kind)),
   );
   applyFileRoutes(app, files, modules);
+  const ballplayerHomePage: BallplayerHomeModule = await import(
+    join(webRoot, "app/ballplayer/home-page.tsx")
+  );
+  routeBrands(app, { home: ballplayerHomePage.ballplayerHome });
 }
 
 /** Only the two public build outputs are exposed; database/source files never are. */
@@ -53,4 +63,8 @@ export function withRuntimeAssets(app: App, outputRoot = join(webRoot, "out")): 
       return app.handle(method, path, options);
     },
   };
+}
+
+export function withBrandPolicy(app: App): App {
+  return { ...app, handle: withBrandSecurity(app.handle.bind(app)) };
 }

@@ -146,3 +146,262 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Barlow Condensed";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("/fonts/barlow-condensed-latin-700-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Barlow Condensed";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 800;
+  src: url("/fonts/barlow-condensed-latin-800-normal.woff2") format("woff2");
+}
+
+@theme {
+  --color-field: oklch(0.15 0.012 255);
+  --color-line: oklch(1 0 0 / 9%);
+  --color-track: oklch(1 0 0 / 8%);
+  --color-chalk: oklch(0.97 0.005 85);
+  --color-clay: oklch(0.72 0.16 48);
+  --color-ink: oklch(0.17 0.02 48);
+}
+
+:root:has([data-brand="ballplayer"]),
+[data-brand="ballplayer"] {
+  --background: oklch(0.15 0.012 255);
+  --foreground: oklch(0.97 0.005 85);
+  --muted: oklch(0.72 0.015 255);
+  --color-muted: oklch(0.72 0.015 255);
+  --accent: oklch(0.72 0.16 48);
+  --accent-foreground: oklch(0.17 0.02 48);
+  --ring: oklch(0.72 0.16 48);
+  --border: oklch(1 0 0 / 9%);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer utilities {
+  .hero-glow {
+    background-image: radial-gradient(
+      60rem 40rem at 85% 20%,
+      oklch(0.72 0.16 48 / 10%),
+      transparent 70%
+    );
+  }
+}
+
+@layer components {
+  .tier-diamond {
+    --tier-1: oklch(0.86 0.1 215);
+    --tier-2: oklch(0.62 0.14 265);
+    --tier-3: oklch(0.96 0.05 200);
+    --tier-glow: oklch(0.75 0.14 230 / 30%);
+  }
+
+  .tier-gold {
+    --tier-1: oklch(0.86 0.14 85);
+    --tier-2: oklch(0.64 0.13 62);
+    --tier-3: oklch(0.96 0.08 95);
+    --tier-glow: oklch(0.78 0.15 75 / 26%);
+  }
+
+  .tier-silver {
+    --tier-1: oklch(0.86 0.01 255);
+    --tier-2: oklch(0.6 0.015 255);
+    --tier-3: oklch(0.97 0.005 255);
+    --tier-glow: oklch(0.8 0.01 255 / 18%);
+  }
+
+  .tier-bronze {
+    --tier-1: oklch(0.72 0.11 55);
+    --tier-2: oklch(0.5 0.09 45);
+    --tier-3: oklch(0.86 0.08 65);
+    --tier-glow: oklch(0.65 0.12 50 / 22%);
+  }
+
+  .tier-rookie {
+    --tier-1: oklch(0.7 0.02 255);
+    --tier-2: oklch(0.45 0.02 255);
+    --tier-3: oklch(0.85 0.01 255);
+    --tier-glow: oklch(0.6 0.02 255 / 14%);
+  }
+
+  .player-card {
+    border-radius: 1.75rem;
+    padding: 2px;
+    background: conic-gradient(
+      from 200deg,
+      var(--tier-1),
+      var(--tier-2),
+      var(--tier-3),
+      var(--tier-2),
+      var(--tier-1)
+    );
+    box-shadow:
+      0 40px 90px -30px var(--tier-glow),
+      0 30px 60px -10px oklch(0 0 0 / 60%);
+    transition:
+      transform 500ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 500ms ease;
+  }
+
+  .player-card:hover {
+    transform: perspective(1000px) rotateX(3deg) rotateY(-5deg) translateY(-4px);
+    box-shadow:
+      0 50px 110px -30px var(--tier-glow),
+      0 40px 70px -10px oklch(0 0 0 / 65%);
+  }
+
+  .card-face {
+    border-radius: calc(1.75rem - 2px);
+    background:
+      radial-gradient(28rem 20rem at 90% -10%, var(--tier-glow), transparent 60%),
+      radial-gradient(20rem 16rem at -10% 110%, oklch(0.72 0.16 48 / 10%), transparent 70%),
+      linear-gradient(
+        165deg,
+        oklch(0.24 0.02 258),
+        oklch(0.15 0.016 258) 60%,
+        oklch(0.12 0.014 258)
+      );
+  }
+
+  .foil-text {
+    background-image: linear-gradient(180deg, var(--tier-3), var(--tier-1) 55%, var(--tier-2));
+    background-clip: text;
+    color: transparent;
+  }
+
+  .jersey-number {
+    color: transparent;
+    -webkit-text-stroke: 2px oklch(1 0 0 / 22%);
+    background-image: linear-gradient(180deg, oklch(1 0 0 / 10%), transparent 80%);
+    background-clip: text;
+  }
+
+  .tier-badge {
+    background-image: linear-gradient(135deg, var(--tier-3), var(--tier-1) 50%, var(--tier-2));
+    color: oklch(0.18 0.02 60);
+  }
+
+  .card-seams {
+    opacity: 0.35;
+  }
+
+  .seam-ball {
+    fill: oklch(1 0 0 / 3%);
+    stroke: oklch(1 0 0 / 8%);
+    stroke-width: 1;
+  }
+
+  .seam-line {
+    fill: none;
+    stroke: oklch(0.62 0.19 25 / 35%);
+    stroke-width: 1;
+  }
+
+  .seam-stitch {
+    fill: none;
+    stroke: oklch(0.62 0.19 25 / 55%);
+    stroke-width: 7;
+    stroke-dasharray: 1.5 6;
+  }
+
+  .card-shine {
+    background-image: linear-gradient(
+      115deg,
+      transparent 35%,
+      oklch(1 0 0 / 9%) 45%,
+      oklch(1 0 0 / 16%) 50%,
+      oklch(1 0 0 / 9%) 55%,
+      transparent 65%
+    );
+    background-size: 250% 100%;
+    background-position: 130% 0;
+    opacity: 0;
+    animation: card-shine 1.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.4s both;
+  }
+
+  .player-card:hover .card-shine {
+    animation: card-shine 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .radar-grid {
+    fill: none;
+    stroke: oklch(1 0 0 / 9%);
+    stroke-width: 1;
+  }
+
+  .radar-shape {
+    fill: var(--tier-1);
+    fill-opacity: 0.2;
+    stroke: var(--tier-1);
+    stroke-width: 2;
+    stroke-linejoin: round;
+  }
+
+  .radar-dot {
+    fill: var(--tier-3);
+  }
+
+  .radar-label {
+    fill: var(--color-muted);
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+  }
+
+  .bar-track {
+    fill: oklch(1 0 0 / 10%);
+  }
+
+  .bar-fill {
+    fill: var(--tier-1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .player-card,
+    .player-card:hover {
+      transform: none;
+      transition: none;
+    }
+
+    .card-shine,
+    .player-card:hover .card-shine {
+      animation: none;
+    }
+  }
+}
+
+@keyframes card-shine {
+  from {
+    background-position: 130% 0;
+    opacity: 1;
+  }
+
+  70% {
+    opacity: 1;
+  }
+
+  to {
+    background-position: -30% 0;
+    opacity: 0;
+  }
+}

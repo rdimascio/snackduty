@@ -8,6 +8,8 @@ import { unavailableInviteDeliverer } from "./runtime/delivery";
 import { runtimeConfiguration } from "./runtime/config";
 import { aesGcmInvitationPayloadCipher } from "./app/lib/server/invitation-outbox";
 import { reelLessonCatalog } from "./app/lessons/catalog";
+import { routeBrands, secureBrands } from "./app/server/brand-routing";
+import { ballplayerHome } from "./app/ballplayer/home-page";
 import { registerDevSkillEventRoutes } from "./app/dev/skill-events";
 
 // Lesto invokes this factory per boot; importing it opens no database.
@@ -43,13 +45,11 @@ export default async function applicationConfig() {
       : {}),
     ...(audience ? { appleVerifier: createAppleIdentityVerifier({ audience }) } : {}),
   });
-  return {
-    ...config,
-    app: registerDevSkillEventRoutes(config.app, {
-      enabled: env.SNACKDAY_DEV_SIGN_IN,
-      db,
-      sessions,
-      clock: Date.now,
-    }),
-  };
+  const app = registerDevSkillEventRoutes(config.app, {
+    enabled: env.SNACKDAY_DEV_SIGN_IN,
+    db,
+    sessions,
+    clock: Date.now,
+  });
+  return { ...config, app: secureBrands(routeBrands(app, { home: ballplayerHome })) };
 }

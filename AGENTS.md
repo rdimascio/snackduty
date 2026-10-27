@@ -22,6 +22,15 @@ Snackday is a Bun monorepo for a Lesto web application and a native SwiftUI iOS 
 - Use `apply_patch` for deliberate source edits and preserve unrelated work in the shared worktree.
 - Infrastructure conventions come from the sibling Lesto repository at `../crack`; read its `AGENTS.md`, `ARCHITECTURE.md`, and `CONVENTIONS.md` before changing infrastructure.
 
+## Brands
+
+- One app serves two brands: Snackday and Ballplayer. Same deploy, data model, and accounts; sessions stay per host.
+- `apps/web/app/brand/brand.ts` picks the brand from the request `Host` header only. `ballplayer.co`, `www.ballplayer.co`, and the dev host `ballplayer.localhost` (any port, any case) are Ballplayer; every other or missing host is Snackday. Never read `X-Forwarded-Host` for the brand.
+- `apps/web/app/server/brand-routing.ts` is the one wiring point. `routeBrands` only routes; it wraps the Lesto app in dev (`lesto.app.ts`) and production (`registerRuntimePages` in `runtime/web-surface.ts`). On the Ballplayer host, `GET /` renders `app/ballplayer/home-page.tsx` with no layouts and no client bundle, and `/fonts/*` serves `public/fonts`. Only the platform allowlist in that file (`/api/*`, `/__lesto/*`, `/styles.css`, `/client.js`) falls through to the shared app; every other Ballplayer-host request gets a plain 404 until Ballplayer has its own pages.
+- Ballplayer styles live in `app/styles/app.css`, scoped by `data-brand="ballplayer"` on the page shell. Fonts are self-hosted under `public/fonts` with their OFL licenses. Load nothing from another origin and add no analytics to Ballplayer.
+- Open Ballplayer locally: run `bun run --filter web dev`, then open `http://ballplayer.localhost:<port>/`. The dev live-reload scripts are inline, so the policy blocks them on that host.
+- Ballplayer-host responses from the app handler carry `CONTENT_SECURITY_POLICY` from `apps/web/app/server/content-security-policy.ts`. Production applies it once, outermost, in `openRuntimeApplication` (`runtime/application.ts`), around the remote safety policy, release and asset wrappers; dev applies it with `secureBrands` in `lesto.app.ts`. Responses the `@lesto/runtime` transport writes itself (`/health`, `/readyz`, and its own 400, 413, 500 and 503 answers) and dev-server assets (`/styles.css`, `/@lesto-dev/*`) are outside the app handler and carry no policy. Do not loosen that policy (no new source, `unsafe-*`, `data:`, or removed directive) without Ryan's explicit yes. Snackday responses carry no policy from this code; Snackday's own policy is a separate change.
+
 ## Repository layout
 
 - `apps/web`: one Lesto origin for the marketing site and signed-in product.
