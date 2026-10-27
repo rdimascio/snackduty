@@ -10,7 +10,7 @@ export function isDevScenarioError(error: unknown): error is DevScenarioError {
   return error instanceof Error && "step" in error;
 }
 
-function ensure(step: string, condition: boolean, message: string): asserts condition {
+export function ensure(step: string, condition: boolean, message: string): asserts condition {
   if (!condition) throw devScenarioError(step, message);
 }
 
@@ -60,7 +60,7 @@ export class DevScenarioApi {
     return this.signal === undefined ? timeout : AbortSignal.any([timeout, this.signal]);
   }
 
-  private async json<T>(
+  protected async json<T>(
     step: string,
     path: string,
     init: RequestInit,
@@ -82,7 +82,7 @@ export class DevScenarioApi {
     }
   }
 
-  private mutation(cookie?: string): Record<string, string> {
+  protected mutation(cookie?: string): Record<string, string> {
     return {
       "Content-Type": "application/json",
       "Sec-Fetch-Site": "same-origin",

@@ -48,7 +48,12 @@ function bootWebServer(port: number, databasePath: string, scratchDir: string): 
   const child = Bun.spawn({
     cmd: ["bun", "--bun", "lesto", "dev", "--port", String(port)],
     cwd: join(ROOT, "apps", "web"),
-    env: { ...process.env, LESTO_DB: databasePath, SNACKDAY_DEV_SIGN_IN: "true" },
+    env: {
+      ...process.env,
+      LESTO_DB: databasePath,
+      SNACKDAY_DEV_SIGN_IN: "true",
+      SNACKDAY_LESSON_OF_THE_WEEK: "true",
+    },
     stdout: Bun.file(stdoutLog),
     stderr: Bun.file(stderrLog),
   });
@@ -246,6 +251,10 @@ export function formatDevScenarioInstructions(manifest: DevScenarioManifest): st
     "Owner: await fetch('/api/dev/sign-in', {method: 'POST'}); location.assign('/app')",
     "Co-coach + parent: await fetch('/api/dev/sign-in', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({persona: 'second-adult'})}); location.assign('/app')",
     "The server stores the session in an HttpOnly cookie; no credential needs to be copied.",
+    "",
+    `Lesson of the week on /app: "${manifest.lesson.title}" (${manifest.lesson.answeredItems} items answered for ${manifest.teams.coached.playerName}).`,
+    `Player card on /app: sign in as Co-coach + parent; the "Player card" section above the roster shows ${manifest.teams.coached.playerName}.`,
+    "The owner sees the lesson card but no player card: player cards render only for a guardian of the child.",
     "",
     `Native simulator scheme environment: SNACKDAY_API_BASE_URL=${manifest.nativeApiBaseUrl} SNACKDAY_DEV_SIGN_IN=true`,
     `Native live tests: SNACKDAY_LIVE_API=${manifest.nativeApiBaseUrl} bash scripts/ios-live-test.sh`,
