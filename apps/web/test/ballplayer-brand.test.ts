@@ -56,6 +56,8 @@ const SNACKDAY_PAGES: readonly [string, number][] = [
 
 const SNACKDAY_PAGE_PATHS = SNACKDAY_PAGES.map(([path]) => path);
 
+const BALLPLAYER_NOT_FOUND_PATHS = SNACKDAY_PAGE_PATHS.filter((path) => path !== "/app");
+
 const SNACKDAY_HOSTS = [
   "staging.snackduty.test",
   "localhost:3000",
@@ -134,6 +136,16 @@ async function expectBallplayerNotFound(response: AnyLestoResponse): Promise<voi
   expect(response.status).toBe(404);
   expectStrictPolicy(policyOf(response));
   expect(await textOf(response)).toBe("Not Found");
+}
+
+async function expectBallplayerApp(response: AnyLestoResponse, signIn: string): Promise<void> {
+  const html = await textOf(response);
+  expect(response.status).toBe(200);
+  expectStrictPolicy(policyOf(response));
+  expect(html).toContain("<title>Player cards — Ballplayer</title>");
+  expect(html).toContain('data-brand="ballplayer"');
+  expect(html).toContain(signIn);
+  expect(html).not.toContain("Team overview");
 }
 
 async function expectSnackdayPage(response: AnyLestoResponse, status: number): Promise<void> {
@@ -271,12 +283,16 @@ describe("brands in production (runtime/web-surface.ts)", () => {
     expectStrictPolicy(policyOf(api));
   });
 
-  it.each(SNACKDAY_PAGE_PATHS)(
+  it.each(BALLPLAYER_NOT_FOUND_PATHS)(
     "answers %s on the Ballplayer host with a 404 and the policy",
     async (path) => {
       await expectBallplayerNotFound(await get(app(), path, "ballplayer.co"));
     },
   );
+
+  it("renders the Ballplayer player cards page at /app on the Ballplayer host", async () => {
+    await expectBallplayerApp(await get(app(), "/app", "ballplayer.co"), "Sign-in coming soon");
+  });
 
   it.each(SNACKDAY_PAGES)(
     "renders %s on a Snackday host with the Snackday policy",
@@ -397,12 +413,19 @@ describe("brands in dev (lesto.app.ts)", () => {
     expectStrictPolicy(policyOf(response));
   });
 
-  it.each(SNACKDAY_PAGE_PATHS)(
+  it.each(BALLPLAYER_NOT_FOUND_PATHS)(
     "answers %s on the Ballplayer host with a 404 and the policy",
     async (path) => {
       await expectBallplayerNotFound(await get(devApp(), path, "ballplayer.localhost:3000"));
     },
   );
+
+  it("renders the Ballplayer player cards page at /app on the Ballplayer host", async () => {
+    await expectBallplayerApp(
+      await get(devApp(), "/app", "ballplayer.localhost:3000"),
+      "Development sign-in",
+    );
+  });
 
   it.each(SNACKDAY_PAGES)(
     "renders %s on a Snackday host with the Snackday policy",

@@ -19,6 +19,12 @@ function BallplayerHome(): ReactNode {
             Ballplayer
           </h1>
           <p className="mt-6 max-w-md text-xl text-muted sm:text-2xl">{tagline}</p>
+          <a
+            className="mt-10 inline-flex min-h-11 items-center justify-center rounded-lg bg-clay px-6 py-2 text-sm font-bold tracking-[0.2em] text-ink uppercase transition-colors hover:bg-clay/90"
+            href="/app"
+          >
+            Sign in
+          </a>
         </section>
         <div className="flex justify-center lg:justify-end">
           <PlayerCard player={samplePlayer} />
