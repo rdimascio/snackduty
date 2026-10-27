@@ -43,5 +43,8 @@
     "typescript": "^5.7.0",
     "vitest": "^4.1.8"
   },
-  "packageManager": "bun@1.3.5"
+  "packageManager": "bun@1.3.5",
+  "patchedDependencies": {
+    "@lesto/ui@0.2.0": "patches/@lesto%2Fui@0.2.0.patch"
+  }
 }

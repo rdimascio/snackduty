@@ -1,0 +1,20 @@
+diff --git a/dist/server.js b/dist/server.js
+index 5d2a60d87b96eeccf8b3d6a4f2f878dc5a3a263a..662e1676800b4b4ba4fdcbbb0cf9e4f4cbc26ee8 100644
+--- a/dist/server.js
++++ b/dist/server.js
+@@ -116,6 +116,7 @@ async function renderPageStream(page, options = {}, render = reactRenderToReadab
+   const aborter = renderAbort(options.signal, options.renderTimeoutMs);
+   const stream = await render(page.element, {
+     onError,
++    progressiveChunkSize: Number.POSITIVE_INFINITY,
+     ...aborter.signal !== void 0 ? { signal: aborter.signal } : {},
+     ...options.bootstrapModules !== void 0 ? { bootstrapModules: [...options.bootstrapModules] } : {},
+     ...options.bootstrapScriptContent !== void 0 ? { bootstrapScriptContent: options.bootstrapScriptContent } : {}
+@@ -139,6 +140,7 @@ async function renderPageStreamToString(page, options = {}, render = reactRender
+   try {
+     const stream = await render(page.element, {
+       onError,
++      progressiveChunkSize: Number.POSITIVE_INFINITY,
+       ...aborter.signal !== void 0 ? { signal: aborter.signal } : {},
+       ...options.bootstrapModules !== void 0 ? { bootstrapModules: [...options.bootstrapModules] } : {},
+       ...options.bootstrapScriptContent !== void 0 ? { bootstrapScriptContent: options.bootstrapScriptContent } : {}
