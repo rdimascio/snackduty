@@ -84,6 +84,20 @@ curl -s http://127.0.0.1:<port>/ \
 - **Islands hydrate on the client.** A component is interactive only if it is a
   `defineIsland` under `app/islands/`; everything else is server-only.
 
+## Snackday app sections
+
+- The `/app` sidebar is the `team-navigation` island (`app/islands/team-navigation.tsx`);
+  its section list lives in `app/team/navigation.tsx`. A Lesto layout receives only
+  `children`, never the request path, so the server renders the five links and the
+  island marks the current one with `aria-current="page"` from `location.pathname`
+  after it mounts. Add a section there, not in `app/routes/app/layout.tsx`.
+- `/app/team?team=<teamId>&season=<seasonId>` selects the team and season. With no
+  query it shows the first accessible team and its first active season. A team or
+  season the adult cannot read answers 404 with the same "Team not found" state.
+- Team page reads (`app/team/team-page-reads.ts`) authorize through `teamAccess`,
+  `readableActiveTeam`, and `ownedActiveTeam`; the islands call the existing
+  `/api/teams/...` routes through `app/team/team-actions.ts`.
+
 ## Adding things
 
 - A page: `app/routes/<path>/page.tsx` (default-export a `PageDef`).

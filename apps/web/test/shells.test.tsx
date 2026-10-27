@@ -27,7 +27,7 @@ describe("Snackday route shells", () => {
     expect(html).not.toContain("Counter");
   });
 
-  it("renders the application shell with only existing links enabled", () => {
+  it("renders the application shell with every section linked", () => {
     const html = render(
       <AppLayout>
         <appPage.component state="signed-out" />
@@ -35,11 +35,9 @@ describe("Snackday route shells", () => {
     );
 
     expect(html).toContain('aria-label="Team workspace"');
-    expect(html).toContain('aria-current="page"');
-    expect(html).toContain('aria-disabled="true"');
+    expect(html).not.toContain('aria-disabled="true"');
     expect(html).toContain("Workspace menu");
     expect(html).toContain('id="main-content"');
-    expect(html).not.toContain('href="/app/roster"');
   });
 
   it("renders the second marketing route with shared feature content", () => {
