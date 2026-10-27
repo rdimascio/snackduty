@@ -14,6 +14,7 @@ import type {
 interface Notice {
   readonly ok: boolean;
   readonly message: string;
+  readonly stale: boolean;
 }
 
 interface BoardControls {
@@ -21,6 +22,7 @@ interface BoardControls {
   readonly pendingOccurrenceId: string | undefined;
   readonly notices: Readonly<Record<string, Notice>>;
   readonly run: (action: DutyAction) => Promise<boolean>;
+  readonly reload: () => void;
 }
 
 const staticControls: BoardControls = {
@@ -28,7 +30,12 @@ const staticControls: BoardControls = {
   pendingOccurrenceId: undefined,
   notices: {},
   run: () => Promise.resolve(false),
+  reload: () => undefined,
 };
+
+function reloadPage(): void {
+  window.location.reload();
+}
 
 const primaryButton =
   "inline-flex min-h-10 items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60";
@@ -155,7 +162,7 @@ function SlotRow({
   slot: DutySlotView;
   viewerPersonId: string;
 }): ReactNode {
-  const disabled = !controls.interactive || locked || controls.pendingOccurrenceId === occurrenceId;
+  const disabled = !controls.interactive || locked || controls.pendingOccurrenceId !== undefined;
   const mine = slot.assignee?.personId === viewerPersonId;
   const open = slot.assignee === undefined;
 
@@ -250,7 +257,7 @@ function AddSlotForm({
   controls: BoardControls;
   occurrenceId: string;
 }): ReactNode {
-  const disabled = !controls.interactive || controls.pendingOccurrenceId === occurrenceId;
+  const disabled = !controls.interactive || controls.pendingOccurrenceId !== undefined;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -387,6 +394,11 @@ function OccurrenceCard({
           {notice.message}
         </p>
       )}
+      {notice?.stale === true ? (
+        <button className={`${secondaryButton} mt-2`} onClick={controls.reload} type="button">
+          Reload the list
+        </button>
+      ) : null}
       {controls.pendingOccurrenceId === occurrence.id ? (
         <p aria-live="polite" className="mt-3 text-sm text-muted-foreground" role="status">
           Saving…
@@ -440,8 +452,12 @@ export function DutiesBoardShell(props: DutiesBoardProps): ReactNode {
 
 export function DutiesBoard({
   transport = fetchTransport,
+  reload = reloadPage,
   ...props
-}: DutiesBoardProps & { readonly transport?: DutiesTransport }): ReactNode {
+}: DutiesBoardProps & {
+  readonly transport?: DutiesTransport;
+  readonly reload?: () => void;
+}): ReactNode {
   const [occurrences, setOccurrences] = useState<readonly DutyOccurrenceView[]>(props.occurrences);
   const [pendingOccurrenceId, setPendingOccurrenceId] = useState<string | undefined>();
   const [notices, setNotices] = useState<Readonly<Record<string, Notice>>>({});
@@ -465,7 +481,11 @@ export function DutiesBoard({
       }
       setNotices((current) => ({
         ...current,
-        [action.occurrenceId]: { ok: result.ok, message: result.message },
+        [action.occurrenceId]: {
+          ok: result.ok,
+          message: result.message,
+          stale: result.stale === true,
+        },
       }));
       return result.ok;
     } finally {
@@ -476,7 +496,7 @@ export function DutiesBoard({
   return (
     <BoardView
       board={{ ...props, occurrences }}
-      controls={{ interactive: true, pendingOccurrenceId, notices, run }}
+      controls={{ interactive: true, pendingOccurrenceId, notices, run, reload }}
     />
   );
 }

@@ -122,7 +122,11 @@ export interface DutyActionResult {
   readonly ok: boolean;
   readonly message: string;
   readonly slots?: readonly DutySlotView[];
+  readonly stale?: boolean;
 }
+
+const LIST_REFRESHED = "The list now shows the latest.";
+const LIST_MAY_BE_STALE = "The list may be out of date.";
 
 export const fetchTransport: DutiesTransport = async (request) => {
   const response = await fetch(request.url, {
@@ -219,6 +223,21 @@ export function parseDutySlots(value: unknown): DutySlotView[] | undefined {
   return sortSlotsSnacksFirst(slots);
 }
 
+function parseDutySlotReply(value: unknown): DutySlotView | undefined {
+  if (!isRecord(value)) return undefined;
+  return parseSlot((value as { dutySlot?: unknown }).dutySlot);
+}
+
+export function mergeDutySlot(
+  slots: readonly DutySlotView[],
+  returned: DutySlotView,
+): DutySlotView[] {
+  const known = slots.some((slot) => slot.id === returned.id);
+  return sortSlotsSnacksFirst(
+    known ? slots.map((slot) => (slot.id === returned.id ? returned : slot)) : [...slots, returned],
+  );
+}
+
 function serverCode(json: unknown): string | undefined {
   if (!isRecord(json)) return undefined;
   const { code } = json as { code?: unknown };
@@ -265,14 +284,15 @@ function failureMessage(
   label: string,
   slots: readonly DutySlotView[] | undefined,
 ): string {
+  const listState = slots === undefined ? LIST_MAY_BE_STALE : LIST_REFRESHED;
   if (code === "duty_slot_taken") {
     const holder = action.kind === "add" ? "" : holderName(slots, action.slotId);
     return holder === ""
-      ? `Someone else claimed ${label} first. The list now shows the latest.`
-      : `${holder} claimed ${label} first. The list now shows the latest.`;
+      ? `Someone else claimed ${label} first. ${listState}`
+      : `${holder} claimed ${label} first. ${listState}`;
   }
   if (code === "duty_slot_changed") {
-    return `${label} changed while you were looking. The list now shows the latest.`;
+    return `${label} changed while you were looking. ${listState}`;
   }
   if (code === "event_occurrence_unavailable") {
     return "This event has started or was cancelled, so its duties are locked.";
@@ -311,17 +331,33 @@ export async function performDutyAction(
   } catch {
     reply = undefined;
   }
-  const refreshed = await refreshDutySlots(transport, teamId, action.occurrenceId);
   const label = slotLabel(context.slots, action);
   const ok = reply !== undefined && reply.status >= 200 && reply.status < 300;
-  const message = ok
-    ? successMessage(action, label, refreshed, context.adults)
-    : failureMessage(
-        action,
-        reply?.status ?? 0,
-        reply === undefined ? undefined : serverCode(reply.json),
-        label,
-        refreshed,
-      );
-  return { ok, message, ...(refreshed === undefined ? {} : { slots: refreshed }) };
+
+  if (ok) {
+    const returned = parseDutySlotReply(reply?.json);
+    const slots =
+      returned === undefined
+        ? await refreshDutySlots(transport, teamId, action.occurrenceId)
+        : mergeDutySlot(context.slots, returned);
+    const message = successMessage(action, label, slots, context.adults);
+    return slots === undefined
+      ? { ok, message: `${message} ${LIST_MAY_BE_STALE}`, stale: true }
+      : { ok, message, slots };
+  }
+
+  const status = reply?.status ?? 0;
+  const raced = status === 404 || status === 409;
+  const refreshed = raced
+    ? await refreshDutySlots(transport, teamId, action.occurrenceId)
+    : undefined;
+  const code = reply === undefined ? undefined : serverCode(reply.json);
+  const message = failureMessage(action, status, code, label, refreshed);
+  if (!raced) return { ok, message };
+  if (refreshed !== undefined) return { ok, message, slots: refreshed };
+  return {
+    ok,
+    message: message.endsWith(LIST_MAY_BE_STALE) ? message : `${message} ${LIST_MAY_BE_STALE}`,
+    stale: true,
+  };
 }

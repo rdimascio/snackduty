@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { DutiesBoard } from "../app/duties/duties-board";
 import { assignableTeamAdults, loadDutiesPage } from "../app/duties/duties-data";
 import { performDutyAction, sortSlotsSnacksFirst } from "../app/duties/duties-model";
-import type { DutiesBoardProps, DutiesTransport } from "../app/duties/duties-model";
+import type { DutiesBoardProps, DutiesRequest, DutiesTransport } from "../app/duties/duties-model";
 import { DEV_PERSONAS } from "../app/lib/server/identity";
 import { registerRuntimePages } from "../runtime/web-surface";
 
@@ -448,16 +448,34 @@ describe("duties board island against the real API", () => {
     }
   });
 
-  async function mount(cookie: string): Promise<HTMLElement> {
+  async function mount(
+    cookie: string,
+    options: { transport?: DutiesTransport; reload?: () => void } = {},
+  ): Promise<HTMLElement> {
     const board = await boardFor(cookie);
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     roots.push(root);
     await act(() =>
-      root.render(createElement(DutiesBoard, { ...board, transport: transportFor(cookie) })),
+      root.render(
+        createElement(DutiesBoard, {
+          ...board,
+          transport: options.transport ?? transportFor(cookie),
+          ...(options.reload === undefined ? {} : { reload: options.reload }),
+        }),
+      ),
     );
     return container;
+  }
+
+  function unreadableListTransport(cookie: string, sent: DutiesRequest[]): DutiesTransport {
+    const real = transportFor(cookie);
+    return async (request) => {
+      sent.push(request);
+      if (request.method === "GET") return { status: 503, json: undefined };
+      return real(request);
+    };
   }
 
   async function settle(done: () => boolean): Promise<void> {
@@ -527,6 +545,80 @@ describe("duties board island against the real API", () => {
     expect(container.textContent).not.toContain("Claim Snacks");
     expect(myDutiesText(container)).toContain("You hold no upcoming duties");
     expect((await slotRow(fixture.snackSlotId)).assignee).toBe(DEV_PERSONAS.default.personId);
+  });
+
+  it("disables every action control on the board while any action is saving", async () => {
+    const fixture = await seedTeam(await signIn());
+    await addSlot(fixture.ownerCookie, fixture.teamId, fixture.practiceId, "Scorebook");
+    const parentCookie = await joinAsParent(fixture);
+    const real = transportFor(parentCookie);
+    const sent: DutiesRequest[] = [];
+    let releaseClaim: () => void = () => undefined;
+    const claimHeld = new Promise<void>((resolve) => {
+      releaseClaim = resolve;
+    });
+    const container = await mount(parentCookie, {
+      transport: async (request) => {
+        sent.push(request);
+        if (request.url.endsWith(`/${fixture.snackSlotId}/claim`)) await claimHeld;
+        return real(request);
+      },
+    });
+
+    await click(container, "Claim Snacks");
+    expect(button(container, "Claim Scorebook").disabled).toBe(true);
+    expect(button(container, "Claim Field setup").disabled).toBe(true);
+    await click(container, "Claim Scorebook");
+    expect(sent.map((request) => request.url)).toEqual([
+      `/api/teams/${encodeURIComponent(fixture.teamId)}/occurrences/${encodeURIComponent(fixture.gameId)}/duty-slots/${encodeURIComponent(fixture.snackSlotId)}/claim`,
+    ]);
+
+    releaseClaim();
+    await settle(() => container.textContent?.includes("You claimed Snacks.") ?? false);
+    expect(button(container, "Claim Scorebook").disabled).toBe(false);
+  });
+
+  it("shows the saved claim from the claim answer without reading the list again", async () => {
+    const fixture = await seedTeam(await signIn());
+    const parentCookie = await joinAsParent(fixture);
+    const sent: DutiesRequest[] = [];
+    const container = await mount(parentCookie, {
+      transport: unreadableListTransport(parentCookie, sent),
+    });
+
+    await click(container, "Claim Snacks");
+    await settle(() => container.textContent?.includes("You claimed Snacks.") ?? false);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("You claimed Snacks.");
+    expect(container.textContent).toContain("Claimed by you");
+    expect(container.textContent).not.toContain("Claim Snacks");
+    expect(myDutiesText(container)).toContain("Snacks");
+    expect(sent.filter((request) => request.method === "GET")).toEqual([]);
+    expect(container.textContent).not.toContain("Reload the list");
+  });
+
+  it("says the list may be out of date and offers a reload when a race re-read fails", async () => {
+    const fixture = await seedTeam(await signIn());
+    const parentCookie = await joinAsParent(fixture);
+    let reloads = 0;
+    const container = await mount(parentCookie, {
+      transport: unreadableListTransport(parentCookie, []),
+      reload: () => {
+        reloads += 1;
+      },
+    });
+    const ownerClaim = await post(
+      fixture.ownerCookie,
+      `/api/teams/${fixture.teamId}/occurrences/${fixture.gameId}/duty-slots/${fixture.snackSlotId}/claim`,
+    );
+    expect(ownerClaim.status).toBe(200);
+
+    await click(container, "Claim Snacks");
+    await settle(() => container.querySelector('[role="alert"]') !== null);
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Someone else claimed Snacks first. The list may be out of date.",
+    );
+    await click(container, "Reload the list");
+    expect(reloads).toBe(1);
   });
 
   it("lets a coach add a slot, assign an adult, and unassign them", async () => {
