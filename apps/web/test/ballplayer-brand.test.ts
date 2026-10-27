@@ -8,7 +8,10 @@ import type { App } from "@lesto/kernel";
 import type { AnyLestoResponse, HandleOptions } from "@lesto/web";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { CONTENT_SECURITY_POLICY } from "../app/server/content-security-policy";
+import {
+  BALLPLAYER_CONTENT_SECURITY_POLICY,
+  SNACKDAY_CONTENT_SECURITY_POLICY,
+} from "../app/server/content-security-policy";
 import { openRuntimeApplication } from "../runtime";
 import type { RuntimeApplication } from "../runtime";
 import { registerRuntimePages, withBrandPolicy, withRuntimeAssets } from "../runtime/web-surface";
@@ -16,6 +19,9 @@ import { findThirdPartyRisks, hasInlineScript, hasInlineStyle } from "./support/
 
 const EXPECTED_POLICY =
   "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; media-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+const SNACKDAY_POLICY =
+  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://media.dimasciobaseball.com; font-src 'self'; connect-src 'self'; media-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 const REQUIRED_DIRECTIVES = [
   "default-src",
@@ -133,24 +139,25 @@ async function expectBallplayerNotFound(response: AnyLestoResponse): Promise<voi
 async function expectSnackdayPage(response: AnyLestoResponse, status: number): Promise<void> {
   const html = await textOf(response);
   expect(response.status).toBe(status);
-  expect(policyOf(response)).toBeUndefined();
+  expect(policyOf(response)).toBe(SNACKDAY_POLICY);
   expect(html).not.toContain('data-brand="ballplayer"');
 }
 
 async function expectSnackdayHome(response: AnyLestoResponse): Promise<void> {
   const html = await textOf(response);
   expect(response.status).toBe(200);
-  expect(policyOf(response)).toBeUndefined();
+  expect(policyOf(response)).toBe(SNACKDAY_POLICY);
   expect(html).toContain("Snackday — youth sports, minus the chaos");
   expect(html).toContain("Don&#x27;t forget");
   expect(html).not.toContain('data-brand="ballplayer"');
   expect(html).not.toContain("Sample card");
 }
 
-describe("the shared Ballplayer policy", () => {
+describe("the Ballplayer policy", () => {
   it("is the exact strict policy", () => {
-    expect(CONTENT_SECURITY_POLICY).toBe(EXPECTED_POLICY);
-    expectStrictPolicy(CONTENT_SECURITY_POLICY);
+    expect(BALLPLAYER_CONTENT_SECURITY_POLICY).toBe(EXPECTED_POLICY);
+    expectStrictPolicy(BALLPLAYER_CONTENT_SECURITY_POLICY);
+    expect(SNACKDAY_CONTENT_SECURITY_POLICY).toBe(SNACKDAY_POLICY);
   });
 
   it("rejects a policy that loosens any directive", () => {
@@ -199,9 +206,12 @@ describe("brands in production (runtime/web-surface.ts)", () => {
     await expectBallplayerHome(await get(app(), "/", host));
   });
 
-  it.each(SNACKDAY_HOSTS)("renders the unchanged Snackday page on %j", async (host) => {
-    await expectSnackdayHome(await get(app(), "/", host));
-  });
+  it.each(SNACKDAY_HOSTS)(
+    "renders the Snackday page with the Snackday policy on %j",
+    async (host) => {
+      await expectSnackdayHome(await get(app(), "/", host));
+    },
+  );
 
   it("renders Ballplayer HTML with no inline style or script and no other origin", async () => {
     const html = await textOf(await get(app(), "/", "ballplayer.co"));
@@ -268,11 +278,14 @@ describe("brands in production (runtime/web-surface.ts)", () => {
     },
   );
 
-  it.each(SNACKDAY_PAGES)("renders %s unchanged on a Snackday host", async (path, status) => {
-    await expectSnackdayPage(await get(app(), path, "staging.snackduty.test"), status);
-  });
+  it.each(SNACKDAY_PAGES)(
+    "renders %s on a Snackday host with the Snackday policy",
+    async (path, status) => {
+      await expectSnackdayPage(await get(app(), path, "staging.snackduty.test"), status);
+    },
+  );
 
-  it("puts the policy on runtime wrapper responses for the Ballplayer host only", async () => {
+  it("puts each brand policy on runtime wrapper responses", async () => {
     const requests: readonly [string, string, number][] = [
       ["GET", "/__snackday/release", 404],
       ["GET", "/api/dev/session", 404],
@@ -286,18 +299,18 @@ describe("brands in production (runtime/web-surface.ts)", () => {
       expect({ path, status: ballplayer.status }).toEqual({ path, status });
       expect({ path, policy: policyOf(ballplayer) }).toEqual({ path, policy: EXPECTED_POLICY });
       expect({ path, status: snackday.status }).toEqual({ path, status });
-      expect({ path, policy: policyOf(snackday) }).toEqual({ path, policy: undefined });
+      expect({ path, policy: policyOf(snackday) }).toEqual({ path, policy: SNACKDAY_POLICY });
     }
   });
 
-  it("leaves Snackday responses without the policy and without Ballplayer fonts", async () => {
+  it("gives Snackday responses the Snackday policy and no Ballplayer fonts", async () => {
     const font = await get(app(), `/fonts/${FONT_FILE}`, "staging.snackduty.test");
     const api = await get(app(), "/api/teams", "staging.snackduty.test");
 
     expect(font.status).toBe(404);
-    expect(policyOf(font)).toBeUndefined();
+    expect(policyOf(font)).toBe(SNACKDAY_POLICY);
     expect(api.status).toBe(401);
-    expect(policyOf(api)).toBeUndefined();
+    expect(policyOf(api)).toBe(SNACKDAY_POLICY);
   });
 });
 
@@ -337,7 +350,7 @@ describe("brands on runtime static assets", () => {
     expect(policyOf(response)).toBeUndefined();
   });
 
-  it("leaves the stylesheet for a Snackday host unchanged", async () => {
+  it("puts the Snackday policy on the stylesheet for a Snackday host", async () => {
     const response = await get(
       withBrandPolicy(withRuntimeAssets(fallthrough, out)),
       "/styles.css",
@@ -345,7 +358,7 @@ describe("brands on runtime static assets", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(policyOf(response)).toBeUndefined();
+    expect(policyOf(response)).toBe(SNACKDAY_POLICY);
   });
 });
 
@@ -369,9 +382,12 @@ describe("brands in dev (lesto.app.ts)", () => {
     await expectBallplayerHome(await get(devApp(), "/", host));
   });
 
-  it.each(SNACKDAY_HOSTS)("renders the unchanged Snackday page on %j", async (host) => {
-    await expectSnackdayHome(await get(devApp(), "/", host));
-  });
+  it.each(SNACKDAY_HOSTS)(
+    "renders the Snackday page with the Snackday policy on %j",
+    async (host) => {
+      await expectSnackdayHome(await get(devApp(), "/", host));
+    },
+  );
 
   it("serves a self-hosted font on the Ballplayer host with the policy", async () => {
     const response = await get(devApp(), `/fonts/${FONT_FILE}`, BALLPLAYER_HOSTS[2]);
@@ -388,17 +404,20 @@ describe("brands in dev (lesto.app.ts)", () => {
     },
   );
 
-  it.each(SNACKDAY_PAGES)("renders %s unchanged on a Snackday host", async (path, status) => {
-    await expectSnackdayPage(await get(devApp(), path, "localhost:3000"), status);
-  });
+  it.each(SNACKDAY_PAGES)(
+    "renders %s on a Snackday host with the Snackday policy",
+    async (path, status) => {
+      await expectSnackdayPage(await get(devApp(), path, "localhost:3000"), status);
+    },
+  );
 
-  it("puts the policy on a Ballplayer-host API response only", async () => {
+  it("puts each brand policy on an API response", async () => {
     const ballplayer = await get(devApp(), "/api/teams", "ballplayer.localhost:3000");
     const snackday = await get(devApp(), "/api/teams", "localhost:3000");
 
     expect(ballplayer.status).toBe(401);
     expectStrictPolicy(policyOf(ballplayer));
     expect(snackday.status).toBe(401);
-    expect(policyOf(snackday)).toBeUndefined();
+    expect(policyOf(snackday)).toBe(SNACKDAY_POLICY);
   });
 });
