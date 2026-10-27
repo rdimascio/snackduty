@@ -1,4 +1,8 @@
+import { KERNEL_DEFAULT_RATE_LIMIT, secureStack } from "@lesto/kernel";
+import type { LestoAppConfig } from "@lesto/kernel";
 import { openSqlite } from "@lesto/runtime";
+import { runPipeline } from "@lesto/web";
+import type { HandleOptions, LestoRequest, LestoResponse } from "@lesto/web";
 import { env } from "./env";
 import { createApplication } from "./app/lib/server/composition";
 import { identityServices } from "./app/lib/server/identity";
@@ -11,6 +15,53 @@ import { reelLessonCatalog } from "./app/lessons/catalog";
 import { routeBrands, secureBrands } from "./app/server/brand-routing";
 import { ballplayerHome } from "./app/ballplayer/home-page";
 import { registerDevSkillEventRoutes } from "./app/dev/skill-events";
+
+const DEV_ASSET_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
+
+const DEV_ASSET_PATHS: ReadonlySet<string> = new Set(["/client.js", "/styles.css"]);
+
+const DEV_ASSET_PREFIXES: readonly string[] = ["/@lesto-dev/", "/@fs/", "/@vite/"];
+
+function isDevAssetRequest(method: string, path: string): boolean {
+  return (
+    DEV_ASSET_METHODS.has(method.toUpperCase()) &&
+    (DEV_ASSET_PATHS.has(path) || DEV_ASSET_PREFIXES.some((prefix) => path.startsWith(prefix)))
+  );
+}
+
+function pipelineRequest(method: string, path: string, options?: HandleOptions): LestoRequest {
+  return {
+    method,
+    path,
+    params: {},
+    query: options?.query ?? {},
+    headers: options?.headers ?? {},
+    body: options?.body,
+  };
+}
+
+function exemptDevAssetsFromRateLimit(config: LestoAppConfig): LestoAppConfig {
+  if (config.secure === false) return config;
+  const { rateLimit, ...unlimited } = config.secure ?? {};
+  const durable =
+    config.durable === false ? {} : { db: config.db, dialect: config.dialect ?? "sqlite" };
+  const limited = secureStack({
+    rateLimit: rateLimit ?? { ...KERNEL_DEFAULT_RATE_LIMIT },
+    ...durable,
+    ...unlimited,
+  });
+  const assets = secureStack(unlimited);
+  const handle = config.app.handle.bind(config.app);
+  config.app.handle = async (method, path, options) => {
+    const response = await runPipeline(
+      isDevAssetRequest(method, path) ? assets : limited,
+      pipelineRequest(method, path, options),
+      () => handle(method, path, options),
+    );
+    return response as LestoResponse;
+  };
+  return { ...config, secure: false };
+}
 
 // Lesto invokes this factory per boot; importing it opens no database.
 export default async function applicationConfig() {
@@ -51,5 +102,6 @@ export default async function applicationConfig() {
     sessions,
     clock: Date.now,
   });
-  return { ...config, app: secureBrands(routeBrands(app, { home: ballplayerHome })) };
+  const branded = { ...config, app: secureBrands(routeBrands(app, { home: ballplayerHome })) };
+  return mode === "development" ? exemptDevAssetsFromRateLimit(branded) : branded;
 }
