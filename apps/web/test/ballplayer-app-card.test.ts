@@ -161,7 +161,7 @@ describe("the Ballplayer /app page states", () => {
     const html = renderPage({ state: "signed-out", devSignIn: true });
 
     expect(html).toContain("Development sign-in");
-    expect(html).toContain("Sign in as the second adult");
+    expect(html).toContain("Sign in as Cole Cocoach (co-coach)");
   });
 
   it("shows the error state with a reload link", () => {
