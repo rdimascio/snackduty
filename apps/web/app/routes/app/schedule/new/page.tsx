@@ -46,6 +46,7 @@ const load = async (c: Context<"/app/schedule/new">): Promise<NewEventData> => {
       date: localDateOf(tomorrow, scope.season.timeZone),
       startTime: "17:00",
       endTime: "18:00",
+      endsNextDay: false,
       repeat: "none",
       weekdays: [],
       untilDate: "",

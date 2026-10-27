@@ -13,7 +13,9 @@ import {
   createEvent,
   readAttendance,
   recordAttendance,
+  seriesFormValues,
   updateSeries,
+  withTimesChanged,
 } from "../app/schedule/schedule-actions";
 import type {
   ApiSender,
@@ -256,6 +258,7 @@ const formValues: EventFormValues = {
   date: "2026-10-27",
   startTime: "16:30",
   endTime: "18:00",
+  endsNextDay: false,
   repeat: "none",
   weekdays: [],
   untilDate: "",
@@ -513,6 +516,57 @@ describe("schedule island actions against the real API", () => {
     expect(html).toContain("claim it on Duties");
   });
 
+  it("keeps a series that crosses midnight at its stored length when a coach edits only the title", async () => {
+    const owner = await signIn();
+    const team = await seedTeam(owner);
+    await created(owner, team, {
+      ...singleEvent({ date: "2026-10-30", title: "Overnight campout" }),
+      schedule: {
+        timeZone: TIME_ZONE,
+        localTime: "23:30",
+        durationMinutes: 90,
+        frequency: "once",
+        startDate: "2026-10-30",
+      },
+    });
+    const seriesId = (
+      (await sql.prepare("SELECT id FROM event_series LIMIT 1").get([])) as { id: string }
+    ).id;
+    const storedDuration = async () =>
+      (
+        (await sql
+          .prepare("SELECT duration_minutes AS minutes FROM event_series WHERE id = ?")
+          .get([seriesId])) as { minutes: number }
+      ).minutes;
+
+    const edit = await page(`/app/schedule/series/${seriesId}/edit`, owner, { team: team.teamId });
+    expect(edit.status).toBe(200);
+    expect(edit.html).toMatch(/<input[^>]*name="endTime" value="01:00"/u);
+    expect(edit.html).not.toContain('value="23:59"');
+    expect(edit.html.match(/<input[^>]*name="endsNextDay"[^>]*>/u)?.[0]).toContain('checked=""');
+
+    const initial = seriesFormValues({
+      title: "Overnight campout",
+      kind: "practice",
+      startDate: "2026-10-30",
+      localTime: "23:30",
+      durationMinutes: 90,
+      frequency: "once",
+    });
+    const renamed = buildEventInput({ ...initial, title: "Campout" }, TIME_ZONE, "edit");
+    if (!renamed.ok) throw new Error("title-only edit should build");
+    expect((await updateSeries(team.teamId, seriesId, renamed.input, sender(owner))).ok).toBe(true);
+    expect(await storedDuration()).toBe(90);
+
+    const earlier = buildEventInput(
+      { ...withTimesChanged(initial), startTime: "23:00" },
+      TIME_ZONE,
+      "edit",
+    );
+    if (!earlier.ok) throw new Error("start change should build");
+    expect(earlier.input.schedule.durationMinutes).toBe(120);
+  });
+
   it("refuses a parent who tries to create, edit, or cancel", async () => {
     const owner = await signIn();
     const team = await seedTeam(owner);
@@ -686,7 +740,8 @@ describe("schedule island actions against the real API", () => {
       ok: false,
       errors: {
         title: "Enter a title.",
-        endTime: "End the event at least 5 minutes after it starts, on the same day.",
+        endTime:
+          "End the event at least 5 minutes after it starts. For an event that runs past midnight, check Ends the next day.",
         weekdays: "Choose at least one day.",
         untilDate: "The last date cannot be before the first date.",
       },

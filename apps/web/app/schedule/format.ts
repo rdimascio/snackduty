@@ -122,23 +122,38 @@ export function repeatSummary(series: {
   return `Repeats weekly on ${joinWords(days)}${until}`;
 }
 
-export function durationBetween(startTime: string, endTime: string): number | undefined {
-  const minutes = (value: string) => {
-    const match = /^(\d{2}):(\d{2})$/u.exec(value);
-    if (match === null) return undefined;
-    return Number(match[1]) * 60 + Number(match[2]);
-  };
-  const start = minutes(startTime);
-  const end = minutes(endTime);
-  if (start === undefined || end === undefined || end <= start) return undefined;
-  return end - start;
+export const MINUTES_PER_DAY = 24 * 60;
+
+function minutesOfTime(value: string): number | undefined {
+  const match = /^(\d{2}):(\d{2})$/u.exec(value);
+  if (match === null) return undefined;
+  return Number(match[1]) * 60 + Number(match[2]);
 }
 
-export function addMinutesToTime(time: string, minutes: number): string {
-  const match = /^(\d{2}):(\d{2})$/u.exec(time);
-  if (match === null) return time;
-  const total = Math.min(Number(match[1]) * 60 + Number(match[2]) + minutes, 23 * 60 + 59);
-  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+export function durationBetween(
+  startTime: string,
+  endTime: string,
+  endsNextDay: boolean,
+): number | undefined {
+  const start = minutesOfTime(startTime);
+  const end = minutesOfTime(endTime);
+  if (start === undefined || end === undefined) return undefined;
+  const duration = end + (endsNextDay ? MINUTES_PER_DAY : 0) - start;
+  return duration > 0 ? duration : undefined;
+}
+
+export function endAfter(
+  startTime: string,
+  durationMinutes: number,
+): { readonly endTime: string; readonly endsNextDay: boolean } {
+  const start = minutesOfTime(startTime);
+  if (start === undefined) return { endTime: startTime, endsNextDay: false };
+  const total = start + durationMinutes;
+  const ofDay = total % MINUTES_PER_DAY;
+  return {
+    endTime: `${String(Math.floor(ofDay / 60)).padStart(2, "0")}:${String(ofDay % 60).padStart(2, "0")}`,
+    endsNextDay: total >= MINUTES_PER_DAY,
+  };
 }
 
 export interface ScheduleSelection {

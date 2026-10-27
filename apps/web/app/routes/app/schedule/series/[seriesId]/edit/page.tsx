@@ -3,13 +3,14 @@ import type { ReactNode } from "react";
 import type { Context, PageDef, PageProps } from "@lesto/web";
 
 import ScheduleEventFormIsland from "../../../../../../islands/schedule-event-form";
-import { addMinutesToTime, scheduleHref } from "../../../../../../schedule/format";
+import { scheduleHref } from "../../../../../../schedule/format";
 import {
   loadSeries,
   queryValue,
   resolveTeamScope,
   statusForScope,
 } from "../../../../../../schedule/schedule-data";
+import { seriesFormValues } from "../../../../../../schedule/schedule-actions";
 import type { EventFormValues } from "../../../../../../schedule/schedule-actions";
 import { ScheduleFailure, ScheduleIntro } from "../../../../../../schedule/schedule-views";
 import type { ScheduleFailureState } from "../../../../../../schedule/schedule-views";
@@ -53,21 +54,7 @@ const load = async (c: Context<Path>): Promise<EditData> => {
     teamName: scope.team.name,
     seriesTitle: series.title,
     timeZone: series.timeZone,
-    initial: {
-      title: series.title,
-      kind: series.kind,
-      location: series.location ?? "",
-      notes: series.notes ?? "",
-      date: series.startDate,
-      startTime: series.localTime,
-      endTime: addMinutesToTime(series.localTime, series.durationMinutes),
-      repeat: series.frequency === "weekly" ? "weekly" : "none",
-      weekdays: series.byWeekday ?? [],
-      untilDate: series.untilDate ?? "",
-      snackDuty: false,
-      snackLabel: "",
-      snackInstructions: "",
-    },
+    initial: seriesFormValues(series),
   };
 };
 

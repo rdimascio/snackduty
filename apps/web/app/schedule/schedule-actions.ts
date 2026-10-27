@@ -1,4 +1,4 @@
-import { durationBetween } from "./format";
+import { MINUTES_PER_DAY, durationBetween, endAfter } from "./format";
 import type { AttendanceStatus, EventKind, Weekday } from "./format";
 
 export interface ApiReply {
@@ -82,6 +82,8 @@ export interface EventFormValues {
   readonly date: string;
   readonly startTime: string;
   readonly endTime: string;
+  readonly endsNextDay: boolean;
+  readonly storedDurationMinutes?: number | undefined;
   readonly repeat: "none" | "weekly";
   readonly weekdays: readonly Weekday[];
   readonly untilDate: string;
@@ -122,6 +124,46 @@ export interface CreateEventInput extends EventSeriesInput {
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
+const MINIMUM_DURATION_MINUTES = 5;
+
+export interface SeriesFormSource {
+  readonly title: string;
+  readonly kind: EventKind;
+  readonly location?: string | undefined;
+  readonly notes?: string | undefined;
+  readonly localTime: string;
+  readonly durationMinutes: number;
+  readonly frequency: "once" | "weekly";
+  readonly byWeekday?: readonly Weekday[] | undefined;
+  readonly startDate: string;
+  readonly untilDate?: string | undefined;
+}
+
+export function seriesFormValues(series: SeriesFormSource): EventFormValues {
+  const end = endAfter(series.localTime, series.durationMinutes);
+  return {
+    title: series.title,
+    kind: series.kind,
+    location: series.location ?? "",
+    notes: series.notes ?? "",
+    date: series.startDate,
+    startTime: series.localTime,
+    endTime: end.endTime,
+    endsNextDay: end.endsNextDay,
+    storedDurationMinutes: series.durationMinutes,
+    repeat: series.frequency === "weekly" ? "weekly" : "none",
+    weekdays: series.byWeekday ?? [],
+    untilDate: series.untilDate ?? "",
+    snackDuty: false,
+    snackLabel: "",
+    snackInstructions: "",
+  };
+}
+
+export function withTimesChanged(values: EventFormValues): EventFormValues {
+  const { storedDurationMinutes: _stored, ...rest } = values;
+  return rest;
+}
 
 function optionalText(value: string): string | undefined {
   const trimmed = value.trim();
@@ -148,9 +190,14 @@ export function buildEventInput(
     errors.notes = "Keep the notes under 2,000 characters.";
   }
   if (!DATE_PATTERN.test(values.date)) errors.date = "Choose a date.";
-  const duration = durationBetween(values.startTime, values.endTime);
-  if (duration === undefined || duration < 5) {
-    errors.endTime = "End the event at least 5 minutes after it starts, on the same day.";
+  const duration =
+    values.storedDurationMinutes ??
+    durationBetween(values.startTime, values.endTime, values.endsNextDay);
+  if (duration === undefined || duration < MINIMUM_DURATION_MINUTES) {
+    errors.endTime =
+      "End the event at least 5 minutes after it starts. For an event that runs past midnight, check Ends the next day.";
+  } else if (duration > MINUTES_PER_DAY) {
+    errors.endTime = "Keep the event to 24 hours or less.";
   }
   const weekly = values.repeat === "weekly";
   if (weekly) {

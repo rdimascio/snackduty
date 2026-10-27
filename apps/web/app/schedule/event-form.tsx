@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 
 import { EVENT_KINDS, WEEKDAYS, weekdayOfDate } from "./format";
 import type { EventKind, Weekday } from "./format";
-import { buildEventInput, createEvent, updateSeries } from "./schedule-actions";
+import { buildEventInput, createEvent, updateSeries, withTimesChanged } from "./schedule-actions";
 import type { ApiSender, EventFormField, EventFormValues } from "./schedule-actions";
 
 export type EventFormProps = {
@@ -59,6 +59,13 @@ export function EventForm({
 
   function update<K extends keyof EventFormValues>(key: K, value: EventFormValues[K]) {
     setValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateTime<K extends "startTime" | "endTime" | "endsNextDay">(
+    key: K,
+    value: EventFormValues[K],
+  ) {
+    setValues((current) => ({ ...withTimesChanged(current), [key]: value }));
   }
 
   function setRepeat(repeat: "none" | "weekly") {
@@ -230,7 +237,7 @@ export function EventForm({
             <input
               className={inputClass}
               name="startTime"
-              onChange={(event) => update("startTime", event.currentTarget.value)}
+              onChange={(event) => updateTime("startTime", event.currentTarget.value)}
               required
               step={300}
               type="time"
@@ -244,7 +251,7 @@ export function EventForm({
               aria-invalid={invalid("endTime")}
               className={inputClass}
               name="endTime"
-              onChange={(event) => update("endTime", event.currentTarget.value)}
+              onChange={(event) => updateTime("endTime", event.currentTarget.value)}
               required
               step={300}
               type="time"
@@ -252,6 +259,15 @@ export function EventForm({
             />
           </label>
         </div>
+        <label className="flex min-h-11 items-center gap-3 text-sm font-semibold">
+          <input
+            checked={values.endsNextDay}
+            name="endsNextDay"
+            onChange={(event) => updateTime("endsNextDay", event.currentTarget.checked)}
+            type="checkbox"
+          />
+          Ends the next day
+        </label>
         <FieldError id="event-date-error" message={errors.date} />
         <FieldError id="event-endTime-error" message={errors.endTime} />
         <label className={labelClass}>
