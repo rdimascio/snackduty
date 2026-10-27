@@ -2,12 +2,15 @@ import { createApp } from "@lesto/kernel";
 import type { App } from "@lesto/kernel";
 import { openSqlite } from "@lesto/runtime";
 import { statusForError } from "@lesto/web";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { act, createElement } from "react";
+import type { Root } from "react-dom/client";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createApplication } from "../app/lib/server/composition";
 import { identityServices } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
+import { CopyField } from "../app/team/copy-field";
 import {
   createCalendarFeed,
   createSeason,
@@ -19,6 +22,7 @@ import {
   setCoCoach,
 } from "../app/team/team-actions";
 import type { Fetcher } from "../app/team/team-actions";
+import { TeamInvitationsPanel } from "../app/team/team-invitations-panel";
 import {
   loadCalendarFeedStatus,
   loadTeamInvitations,
@@ -279,11 +283,28 @@ describe("/app/team page", () => {
     expect(parentPage.html).not.toContain("Jordan Lee");
   });
 
-  it("links every sidebar section and disables none", async () => {
+  it("links every sidebar section to a page that loads for a signed-in owner", async () => {
     const { owner } = await scenario();
     const page = await teamPage(owner);
-    for (const href of ["/app", "/app/team", "/app/roster", "/app/schedule", "/app/duties"]) {
-      expect(page.html).toContain(`href="${href}"`);
+    const navigations = [
+      ...page.html.matchAll(/<nav aria-label="Team workspace"[^>]*>(.*?)<\/nav>/gsu),
+    ];
+    expect(navigations).toHaveLength(2);
+    const hrefs = new Set(
+      navigations.flatMap(([, links]) =>
+        [...(links ?? "").matchAll(/href="([^"]+)"/gu)].map(([, href]) => href ?? ""),
+      ),
+    );
+    expect([...hrefs]).toStrictEqual([
+      "/app",
+      "/app/team",
+      "/app/roster",
+      "/app/schedule",
+      "/app/duties",
+    ]);
+    for (const href of hrefs) {
+      const response = await app.handle("GET", href, { headers: { cookie: owner } });
+      expect({ href, status: response.status }).toStrictEqual({ href, status: 200 });
     }
     expect(page.html).toContain(islandMarker("TeamNavigation"));
     expect(page.html).not.toContain('aria-disabled="true"');
@@ -467,5 +488,184 @@ describe("Team page island actions against the real API", () => {
     const broken: Fetcher = () => Promise.reject(new Error("offline"));
     const result = await createCalendarFeed(broken, "team_x");
     expect(result).toMatchObject({ ok: false, status: 0 });
+  });
+});
+
+describe("Team page islands in a browser", () => {
+  let window: import("happy-dom").Window;
+  let createRoot: typeof import("react-dom/client").createRoot;
+  let clipboard: string | undefined;
+  const savedGlobals = new Map<string, PropertyDescriptor | undefined>();
+  const roots: Root[] = [];
+
+  beforeAll(async () => {
+    const { Window } = await import("happy-dom");
+    window = new Window({ url: "https://snackday.test/app/team" });
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          clipboard = value;
+        },
+      },
+    });
+    const globals = {
+      window,
+      document: window.document,
+      navigator: window.navigator,
+      IS_REACT_ACT_ENVIRONMENT: true,
+    };
+    for (const [key, value] of Object.entries(globals)) {
+      savedGlobals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    }
+    ({ createRoot } = await import("react-dom/client"));
+  });
+
+  afterEach(async () => {
+    for (const root of roots.splice(0)) await act(() => root.unmount());
+    window.document.body.innerHTML = "";
+    clipboard = undefined;
+  });
+
+  afterAll(async () => {
+    await window.happyDOM.close();
+    for (const [key, descriptor] of savedGlobals) {
+      if (descriptor === undefined) Reflect.deleteProperty(globalThis, key);
+      else Object.defineProperty(globalThis, key, descriptor);
+    }
+  });
+
+  async function mount(element: ReturnType<typeof createElement>) {
+    const container = window.document.createElement("div");
+    window.document.body.append(container);
+    const root = createRoot(container as unknown as HTMLElement);
+    roots.push(root);
+    await act(() => root.render(element));
+    return { container, root };
+  }
+
+  async function settle(done: () => boolean): Promise<void> {
+    for (let attempt = 0; attempt < 200 && !done(); attempt += 1) {
+      await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    }
+  }
+
+  function clickButton(container: ParentNode, name: string): void {
+    const found = [...container.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === name,
+    );
+    if (found === undefined) throw new Error(`Button "${name}" is missing.`);
+    found.click();
+  }
+
+  function setValue(element: unknown, value: string) {
+    const field = element as { value: string; dispatchEvent(event: unknown): boolean };
+    const prototype = Object.getPrototypeOf(field) as object;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    if (setter === undefined) throw new Error("The field has no value setter.");
+    setter.call(field, value);
+    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+  }
+
+  async function submitInvitation(container: ParentNode, name: string, email: string) {
+    await act(async () => {
+      setValue(container.querySelector('input[name="inviteeLabel"]'), name);
+      setValue(container.querySelector('input[name="email"]'), email);
+    });
+    await act(async () => {
+      container
+        .querySelector('form[aria-label="Send an invitation"]')
+        ?.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await settle(() => container.textContent?.includes("Invitation sent to") ?? false);
+  }
+
+  function failingReads(cookie: string): Fetcher {
+    const real = fetcherFor(cookie);
+    return (path, init) =>
+      init.method === "GET"
+        ? Promise.resolve({ status: 503, json: async () => ({ error: "unavailable" }) })
+        : real(path, init);
+  }
+
+  const pendingList = 'ul[aria-label="Pending invitations"]';
+  const staleNotice = "it may be out of date";
+
+  it("drops a revoked invitation from the pending list when the follow-up read fails", async () => {
+    const { owner, teamId } = await scenario();
+    const sent = await sendInvitation(fetcherFor(owner), teamId, {
+      inviteeLabel: "Jordan Lee",
+      invitedRole: "adult",
+      email: "jordan@example.com",
+    });
+    if (!sent.ok) throw new Error(sent.message);
+    const listed = await listInvitations(fetcherFor(owner), teamId);
+    if (!listed.ok) throw new Error(listed.message);
+    const { container } = await mount(
+      createElement(TeamInvitationsPanel, {
+        teamId,
+        invitations: listed.value,
+        fetcher: failingReads(owner),
+      }),
+    );
+    expect(container.querySelector(pendingList)?.textContent).toContain("Jordan Lee");
+
+    await act(async () => {
+      clickButton(container, "Revoke invitation for Jordan Lee");
+    });
+    await settle(() => container.textContent?.includes("revoked.") ?? false);
+
+    expect(container.textContent).toContain("Invitation for Jordan Lee revoked.");
+    expect(container.querySelector(pendingList)?.textContent ?? null).toBeNull();
+    expect(container.textContent).toContain("No pending invitations.");
+    expect(container.textContent).toContain(staleNotice);
+  });
+
+  it("lists a sent invitation when the follow-up read fails", async () => {
+    const { owner, teamId } = await scenario();
+    const { container } = await mount(
+      createElement(TeamInvitationsPanel, {
+        teamId,
+        invitations: [],
+        fetcher: failingReads(owner),
+      }),
+    );
+    await submitInvitation(container, "Jordan Lee", "jordan@example.com");
+
+    expect(container.textContent).toContain("Invitation sent to Jordan Lee.");
+    expect(container.querySelector(pendingList)?.textContent).toContain("Jordan Lee");
+    expect(container.textContent).toContain(staleNotice);
+  });
+
+  it("shows no stale notice when the follow-up read succeeds", async () => {
+    const { owner, teamId } = await scenario();
+    const { container } = await mount(
+      createElement(TeamInvitationsPanel, { teamId, invitations: [], fetcher: fetcherFor(owner) }),
+    );
+    await submitInvitation(container, "Jordan Lee", "jordan@example.com");
+
+    expect(container.querySelector(pendingList)?.textContent).toContain("Jordan Lee");
+    expect(container.textContent).not.toContain(staleNotice);
+  });
+
+  it("confirms a copy only while the field still shows the copied link", async () => {
+    const field = (value: string) => createElement(CopyField, { label: "Feed link", value });
+    const { container, root } = await mount(field("https://snackday.test/a"));
+    await act(async () => {
+      clickButton(container, "Copy link");
+    });
+    expect(clipboard).toBe("https://snackday.test/a");
+    expect(container.textContent).toContain("Link copied.");
+
+    await act(() => root.render(field("https://snackday.test/b")));
+    expect(container.textContent).not.toContain("Copied");
+    expect(container.textContent).not.toContain("Link copied.");
+
+    await act(async () => {
+      clickButton(container, "Copy link");
+    });
+    expect(clipboard).toBe("https://snackday.test/b");
+    expect(container.textContent).toContain("Link copied.");
   });
 });

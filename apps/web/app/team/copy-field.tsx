@@ -10,16 +10,20 @@ export function absoluteUrl(path: string): string {
 
 export function CopyField({ label, value }: { label: string; value: string }): ReactNode {
   const id = useId();
-  const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
+  const [attempt, setAttempt] = useState<
+    { readonly outcome: "copied" | "manual"; readonly value: string } | undefined
+  >();
+  const state = attempt?.value === value ? attempt.outcome : "idle";
 
   async function copy(): Promise<void> {
+    const copying = value;
     try {
-      await navigator.clipboard.writeText(value);
-      setState("copied");
+      await navigator.clipboard.writeText(copying);
+      setAttempt({ outcome: "copied", value: copying });
     } catch {
       const input = document.getElementById(id);
       if (input instanceof HTMLInputElement) input.select();
-      setState("manual");
+      setAttempt({ outcome: "manual", value: copying });
     }
   }
 

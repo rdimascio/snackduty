@@ -38,9 +38,6 @@ describe("Snackday route shells", () => {
     expect(html).not.toContain('aria-disabled="true"');
     expect(html).toContain("Workspace menu");
     expect(html).toContain('id="main-content"');
-    for (const href of ["/app", "/app/team", "/app/roster", "/app/schedule", "/app/duties"]) {
-      expect(html).toContain(`href="${href}"`);
-    }
   });
 
   it("renders the second marketing route with shared feature content", () => {
