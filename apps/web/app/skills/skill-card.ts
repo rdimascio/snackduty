@@ -79,12 +79,19 @@ async function readablePlayerCards(tx: Db, personId: string): Promise<PlayerCard
   return cards;
 }
 
+export async function readPlayerCards(
+  services: SkillCardServices,
+  personId: string,
+): Promise<readonly PlayerCard[]> {
+  return services.db.transaction((tx) => readablePlayerCards(tx, personId));
+}
+
 export async function loadPlayerCards(
   services: SkillCardServices,
   personId: string,
 ): Promise<readonly PlayerCard[]> {
   try {
-    return await services.db.transaction((tx) => readablePlayerCards(tx, personId));
+    return await readPlayerCards(services, personId);
   } catch {
     console.warn(JSON.stringify({ level: "warn", event: "skills.player_cards_unavailable" }));
     return [];

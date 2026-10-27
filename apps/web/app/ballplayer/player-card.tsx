@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { AreaRadar } from "./area-radar";
 import { cardTier } from "./card-tier";
-import type { AreaRating, PlayerCardData } from "./sample-player";
+import type { AreaRating, PlayerCardData, PlayerStreak } from "./sample-player";
 
 function SeamPattern(): ReactNode {
   return (
@@ -58,6 +58,66 @@ function ProgressBar({ percent }: { percent: number }): ReactNode {
   );
 }
 
+function PlayerLine({ player }: { player: PlayerCardData }): ReactNode {
+  const parts = [
+    player.number === undefined ? undefined : `#${player.number}`,
+    player.level,
+    player.bats === undefined || player.throws === undefined
+      ? undefined
+      : `B/T ${player.bats}/${player.throws}`,
+  ].filter((part) => part !== undefined);
+  if (parts.length === 0) return null;
+  return (
+    <p className="mt-1.5 text-xs font-medium tracking-wider text-muted uppercase">
+      {parts.join(" · ")}
+    </p>
+  );
+}
+
+function StreakBadge({ streak }: { streak: PlayerStreak }): ReactNode {
+  return (
+    <div className="flex items-center gap-1.5 text-(--tier-3)">
+      <FlameIcon />
+      <span className="text-xs font-semibold text-chalk">{`${streak.days}-day streak`}</span>
+      {streak.multiplier === undefined ? null : (
+        <span className="rounded bg-(--tier-1)/15 px-1.5 py-0.5 text-[0.65rem] font-bold tabular-nums">
+          {streak.multiplier}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function NextRating({ overall, percent }: { overall: number; percent: number }): ReactNode {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex justify-between text-xs font-semibold tracking-[0.18em] text-muted uppercase">
+        <span>Next {overall + 1}</span>
+        <span className="tabular-nums">{percent}%</span>
+      </div>
+      <ProgressBar percent={percent} />
+    </div>
+  );
+}
+
+function CardFooter({ player }: { player: PlayerCardData }): ReactNode {
+  if (player.streak === undefined && player.progressToNext === undefined) return null;
+  return (
+    <footer className="relative mt-4 grid grid-cols-[auto_1fr] items-center gap-5">
+      {player.streak === undefined ? <span /> : <StreakBadge streak={player.streak} />}
+      {player.progressToNext === undefined ? null : (
+        <NextRating overall={player.overall} percent={player.progressToNext} />
+      )}
+    </footer>
+  );
+}
+
+const STAT_COLUMNS: Readonly<Record<number, string>> = {
+  3: "grid-cols-3",
+  4: "grid-cols-4",
+  5: "grid-cols-5",
+};
+
 export function PlayerCard({ player }: { player: PlayerCardData }): ReactNode {
   const tier = cardTier(player.overall);
   const topRating = Math.max(...player.areas.map((area) => area.rating));
@@ -65,9 +125,9 @@ export function PlayerCard({ player }: { player: PlayerCardData }): ReactNode {
   return (
     <article
       aria-label={`Player card for ${player.name}`}
-      className={`player-card tier-${tier} w-full max-w-sm`}
+      className={`player-card tier-${tier} flex w-full max-w-sm flex-col`}
     >
-      <div className="card-face relative isolate overflow-hidden px-6 pt-6 pb-5">
+      <div className="card-face relative isolate flex flex-1 flex-col overflow-hidden px-6 pt-6 pb-5">
         <SeamPattern />
         <div aria-hidden="true" className="card-shine pointer-events-none absolute inset-0" />
 
@@ -79,61 +139,54 @@ export function PlayerCard({ player }: { player: PlayerCardData }): ReactNode {
             <span className="mt-1.5 text-[0.65rem] font-bold tracking-[0.3em] text-chalk/80 uppercase">
               OVR
             </span>
-            <span className="mt-3 rounded-md border border-(--tier-1)/40 px-2 py-0.5 font-display text-lg leading-tight font-bold tracking-wider text-(--tier-3)">
-              {player.position}
-            </span>
+            {player.position === undefined ? null : (
+              <span className="mt-3 rounded-md border border-(--tier-1)/40 px-2 py-0.5 font-display text-lg leading-tight font-bold tracking-wider text-(--tier-3)">
+                {player.position}
+              </span>
+            )}
           </div>
           <div className="flex flex-col items-end">
             <span className="tier-badge rounded-full px-2.5 py-1 text-[0.65rem] font-bold tracking-[0.25em] uppercase">
               {tier}
             </span>
-            <span
-              aria-hidden="true"
-              className="jersey-number mt-1 font-display text-[9rem] leading-[0.75] font-extrabold"
-            >
-              {player.number}
-            </span>
+            {player.number === undefined ? null : (
+              <span
+                aria-hidden="true"
+                className="jersey-number mt-1 font-display text-[9rem] leading-[0.75] font-extrabold"
+              >
+                {player.number}
+              </span>
+            )}
           </div>
         </header>
 
         <div className="relative mt-4">
-          <h2 className="font-display text-4xl leading-none font-extrabold tracking-wide uppercase">
+          <h2 className="font-display text-4xl leading-none font-extrabold tracking-wide break-words uppercase">
             {player.name}
           </h2>
-          <p className="mt-1.5 text-xs font-medium tracking-wider text-muted uppercase">
-            #{player.number} · {player.level} · B/T {player.bats}/{player.throws}
-          </p>
+          <PlayerLine player={player} />
         </div>
 
         <div className="relative mx-auto mt-3 w-56">
           <AreaRadar areas={player.areas} />
         </div>
 
-        <dl className="relative mt-1 grid grid-cols-5 gap-1 rounded-2xl border border-line bg-black/20 px-2 py-3">
+        <dl
+          className={`relative mt-1 grid ${STAT_COLUMNS[player.areas.length] ?? "grid-cols-5"} gap-1 rounded-2xl border border-line bg-black/20 px-2 py-3`}
+        >
           {player.areas.map((area) => (
-            <StatCell area={area} isTop={area.rating === topRating} key={area.short} />
+            <StatCell
+              area={area}
+              isTop={topRating > 0 && area.rating === topRating}
+              key={area.short}
+            />
           ))}
         </dl>
 
-        <footer className="relative mt-4 grid grid-cols-[auto_1fr] items-center gap-5">
-          <div className="flex items-center gap-1.5 text-(--tier-3)">
-            <FlameIcon />
-            <span className="text-xs font-semibold text-chalk">{player.streakDays}-day streak</span>
-            <span className="rounded bg-(--tier-1)/15 px-1.5 py-0.5 text-[0.65rem] font-bold tabular-nums">
-              {player.streakMultiplier}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <div className="flex justify-between text-xs font-semibold tracking-[0.18em] text-muted uppercase">
-              <span>Next {player.overall + 1}</span>
-              <span className="tabular-nums">{player.progressToNext}%</span>
-            </div>
-            <ProgressBar percent={player.progressToNext} />
-          </div>
-        </footer>
+        <CardFooter player={player} />
 
-        <p className="relative mt-4 text-center text-xs font-semibold tracking-[0.3em] text-muted uppercase">
-          Sample card · Ballplayer
+        <p className="relative mt-auto pt-4 text-center text-xs font-semibold tracking-[0.3em] text-muted uppercase">
+          {player.caption}
         </p>
       </div>
     </article>
