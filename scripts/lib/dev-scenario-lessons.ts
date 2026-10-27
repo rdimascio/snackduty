@@ -76,6 +76,32 @@ export class DevScenarioLessonApi extends DevScenarioApi {
     return outcome;
   }
 
+  async seedSkillEvents(
+    cookie: string,
+    teamId: string,
+    participantId: string,
+    events: readonly unknown[],
+  ): Promise<number> {
+    const step = "seed-skill-events";
+    const body = await this.json<{ recorded?: number; duplicates?: number }>(
+      step,
+      `/api/dev/teams/${teamId}/participants/${participantId}/skill-events`,
+      { method: "POST", headers: this.mutation(cookie), body: JSON.stringify(events) },
+      200,
+    );
+    ensure(
+      step,
+      typeof body.recorded === "number" && typeof body.duplicates === "number",
+      "response carries no recorded count",
+    );
+    ensure(
+      step,
+      body.recorded + body.duplicates === events.length,
+      "the seed route did not account for every event",
+    );
+    return body.recorded;
+  }
+
   async readSkillCard(
     cookie: string,
     teamId: string,

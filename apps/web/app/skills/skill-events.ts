@@ -130,6 +130,27 @@ export async function appendCheckPassed(tx: Db, check: PassedCheck): Promise<voi
   ]);
 }
 
+export async function appendSkillEvents(
+  tx: Db,
+  participantId: string,
+  events: readonly SkillEvent[],
+  recordedAtMs: number,
+): Promise<number> {
+  const recordedAt = new Date(recordedAtMs).toISOString();
+  let recorded = 0;
+  for (const event of events) {
+    const rows = await tx.raw(`${insertSkillEventSql} RETURNING id`, [
+      event.id,
+      participantId,
+      JSON.stringify(event),
+      event.occurredAt,
+      recordedAt,
+    ]);
+    recorded += rows.length;
+  }
+  return recorded;
+}
+
 export async function participantSkillEvents(tx: Db, participantId: string): Promise<SkillEvent[]> {
   const rows = await tx
     .select()
