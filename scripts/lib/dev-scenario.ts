@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { Subprocess } from "bun";
 
 import { redactAcceptanceLog } from "./acceptance-evidence";
-import { devScenarioError, isDevScenarioError } from "./dev-scenario-api";
+import { DevScenarioApi, devScenarioError, isDevScenarioError } from "./dev-scenario-api";
 import { seedDevScenario } from "./dev-scenario-seed";
 import type { DevScenarioManifest } from "./dev-scenario-seed";
 
@@ -120,6 +120,61 @@ async function readinessAttempt(
   }
 }
 
+function stylesheetHrefs(html: string): string[] {
+  return [...html.matchAll(/<link\b[^>]*>/giu)]
+    .map((match) => match[0])
+    .filter((tag) => /\brel=["']?stylesheet\b/iu.test(tag))
+    .flatMap((tag) => {
+      const href = /\bhref=["']([^"']+)["']/iu.exec(tag)?.[1];
+      return href === undefined ? [] : [href];
+    });
+}
+
+const APP_STYLESHEET_STEP = "app-stylesheet";
+
+function scenarioRequestSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(5_000);
+  return signal === undefined ? timeout : AbortSignal.any([timeout, signal]);
+}
+
+async function verifyStylesheetResponse(url: URL, signal?: AbortSignal): Promise<void> {
+  const response = await fetch(url, { signal: scenarioRequestSignal(signal) });
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = await response.text();
+  if (response.status !== 200) {
+    throw devScenarioError(
+      APP_STYLESHEET_STEP,
+      `GET ${url.pathname} answered ${response.status}; expected 200`,
+    );
+  }
+  if (!contentType.startsWith("text/css")) {
+    throw devScenarioError(
+      APP_STYLESHEET_STEP,
+      `GET ${url.pathname} served ${contentType}; expected text/css`,
+    );
+  }
+  if (body.trim() === "") {
+    throw devScenarioError(APP_STYLESHEET_STEP, `GET ${url.pathname} served no CSS`);
+  }
+}
+
+export async function verifyAppStylesheet(baseUrl: string, signal?: AbortSignal): Promise<void> {
+  const { cookie } = await new DevScenarioApi(baseUrl, signal).signIn("default");
+  const page = await fetch(`${baseUrl}/app`, {
+    headers: { Cookie: cookie },
+    signal: scenarioRequestSignal(signal),
+  });
+  if (page.status !== 200) {
+    throw devScenarioError(APP_STYLESHEET_STEP, `GET /app answered ${page.status}; expected 200`);
+  }
+  const hrefs = stylesheetHrefs(await page.text());
+  if (hrefs.length === 0)
+    throw devScenarioError(APP_STYLESHEET_STEP, "GET /app links no stylesheet");
+  await Promise.all(
+    hrefs.map((href) => verifyStylesheetResponse(new URL(href, `${baseUrl}/app`), signal)),
+  );
+}
+
 function waitForReadiness(baseUrl: string, server: WebServer, signal?: AbortSignal): Promise<void> {
   return readinessAttempt(baseUrl, server, Date.now() + 30_000, signal);
 }
@@ -154,6 +209,7 @@ export async function startDevScenario(
     await waitForReadiness(baseUrl, server, options.signal);
     const seeded = await seedDevScenario(baseUrl, options.signal);
     await seeded.verify();
+    await verifyAppStylesheet(baseUrl, options.signal);
     return {
       manifest: seeded.manifest,
       stop,

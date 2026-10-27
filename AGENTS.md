@@ -22,6 +22,7 @@ Snackday is a Bun monorepo for a Lesto web application and a native SwiftUI iOS 
 ## Repository layout
 
 - `apps/web`: one Lesto origin for the marketing site and signed-in product.
+  `apps/web/public/styles.css` is a committed symlink to `out/styles.css`: in `lesto dev`, Vite rewrites the page's `/styles.css` link to `/@lesto-dev/styles.css` and serves it from `public/`. Production does not read `public/`.
 - `apps/ios`: native SwiftUI application and Xcode project (planned).
 - `packages/domain`: framework-independent domain types, schemas, policies, and tests.
 - `docs`: product, architecture, privacy, and decision records.
