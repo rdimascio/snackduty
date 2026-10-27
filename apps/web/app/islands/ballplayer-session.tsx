@@ -3,13 +3,15 @@ import { useState } from "react";
 
 import { defineIsland } from "@lesto/ui";
 
+import type { SeedPersonaKey } from "../dev/seed-personas";
+
 export type BallplayerSessionAction = "sign-in" | "sign-out";
 
 export type BallplayerSessionProps = {
   readonly action: BallplayerSessionAction;
 };
 
-type Persona = "default" | "second-adult";
+type Persona = Extract<SeedPersonaKey, "parent" | "head-coach" | "co-coach">;
 
 type SessionStatus =
   | { readonly state: "idle" }
@@ -17,9 +19,13 @@ type SessionStatus =
   | { readonly state: "unavailable" }
   | { readonly state: "failed" };
 
-const DEV_PERSONAS: readonly { readonly persona: Persona; readonly label: string }[] = [
-  { persona: "default", label: "Sign in as the development adult" },
-  { persona: "second-adult", label: "Sign in as the second adult" },
+export const BALLPLAYER_DEV_PERSONAS: readonly {
+  readonly persona: Persona;
+  readonly label: string;
+}[] = [
+  { persona: "parent", label: "Sign in as Pat Parent (guardian)" },
+  { persona: "head-coach", label: "Sign in as Hana Headcoach (head coach)" },
+  { persona: "co-coach", label: "Sign in as Cole Cocoach (co-coach)" },
 ];
 
 const jsonPost = {
@@ -84,7 +90,7 @@ function SignInButtons({
 }): ReactNode {
   return (
     <div className="flex flex-col gap-3">
-      {DEV_PERSONAS.map(({ persona, label }, index) => (
+      {BALLPLAYER_DEV_PERSONAS.map(({ persona, label }, index) => (
         <button
           className={index === 0 ? primaryClass : secondaryClass}
           disabled={disabled}

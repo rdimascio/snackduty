@@ -8,8 +8,9 @@ import type { Subprocess } from "bun";
 
 import { redactAcceptanceLog } from "./acceptance-evidence";
 import { DevScenarioApi, devScenarioError, isDevScenarioError } from "./dev-scenario-api";
-import { seedDevScenario } from "./dev-scenario-seed";
-import type { DevScenarioManifest } from "./dev-scenario-seed";
+import { seedDatabase } from "../../apps/web/app/dev/seed-database";
+import { scenarioManifest, verifySeededScenario } from "./dev-scenario-roles";
+import type { DevScenarioManifest } from "./dev-scenario-roles";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -21,6 +22,7 @@ interface WebServer {
 
 export interface RunningDevScenario {
   readonly manifest: DevScenarioManifest;
+  readonly readyInMs: number;
   stop(): Promise<void>;
   waitForServerExit(): Promise<number>;
 }
@@ -198,6 +200,7 @@ function waitForReadiness(baseUrl: string, server: WebServer, signal?: AbortSign
 export async function startDevScenario(
   options: DevScenarioOptions = {},
 ): Promise<RunningDevScenario> {
+  const startedAt = performance.now();
   options.signal?.throwIfAborted();
   const port = await reserveEphemeralPort();
   options.signal?.throwIfAborted();
@@ -205,7 +208,9 @@ export async function startDevScenario(
   const databasePath = join(scratchDir, "scenario.db");
   const baseUrl = `http://127.0.0.1:${port}`;
   let server: WebServer;
+  let seedFiles: string[];
   try {
+    seedFiles = await seedDatabase(databasePath);
     server = bootWebServer(port, databasePath, scratchDir, options.serverEnv);
   } catch (error) {
     await rm(scratchDir, { recursive: true, force: true });
@@ -223,11 +228,12 @@ export async function startDevScenario(
   try {
     options.signal?.throwIfAborted();
     await waitForReadiness(baseUrl, server, options.signal);
-    const seeded = await seedDevScenario(baseUrl, options.signal);
-    await seeded.verify();
+    const manifest = scenarioManifest(baseUrl, seedFiles);
+    await verifySeededScenario(manifest, options.signal);
     await verifyAppStylesheet(baseUrl, options.signal);
     return {
-      manifest: seeded.manifest,
+      manifest,
+      readyInMs: performance.now() - startedAt,
       stop,
       waitForServerExit: () => server.process.exited,
     };
@@ -252,31 +258,44 @@ export async function checkDevScenario(
   }
 }
 
-export function formatDevScenarioInstructions(manifest: DevScenarioManifest): string {
+function roleRows(manifest: DevScenarioManifest): string[] {
+  const keyWidth = Math.max(...manifest.personas.map((persona) => persona.key.length));
+  const roleWidth = Math.max(...manifest.personas.map((persona) => persona.role.length));
+  return manifest.personas.map(
+    (persona) =>
+      `  ${persona.key.padEnd(keyWidth)}  ${persona.role.padEnd(roleWidth)}  ${persona.displayName} <${persona.email}>`,
+  );
+}
+
+export function formatDevScenarioInstructions(
+  manifest: DevScenarioManifest,
+  readyInMs?: number,
+): string {
+  const { coached, second } = manifest.teams;
   return [
-    "Synthetic coach-parent-player scenario is ready on loopback only.",
+    readyInMs === undefined
+      ? "Seeded development scenario is ready on loopback only."
+      : `Seeded development scenario is ready on loopback only (${(readyInMs / 1_000).toFixed(1)}s).`,
     "",
+    `Sign in as any role: ${manifest.signInPageUrl}`,
     `Web app: ${manifest.webBaseUrl}/app`,
-    `Coached team: ${manifest.teams.coached.name} (${manifest.teams.coached.seasonLabel})`,
-    `Parent-only team: ${manifest.teams.family.name} (${manifest.teams.family.seasonLabel})`,
     "",
-    "Switch the current browser session from DevTools on the Web app origin:",
-    "Owner: await fetch('/api/dev/sign-in', {method: 'POST'}); location.assign('/app')",
-    "Co-coach + parent: await fetch('/api/dev/sign-in', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({persona: 'second-adult'})}); location.assign('/app')",
-    "The server stores the session in an HttpOnly cookie; no credential needs to be copied.",
+    "Roles (persona key, role, adult):",
+    ...roleRows(manifest),
     "",
-    `Player card on /app: sign in as Co-coach + parent; the "Player card" section above the roster shows ${manifest.teams.coached.playerName}.`,
-    `Training week: ${manifest.skillEvents.posted} skill events over ${manifest.skillEvents.drillDays} days ending today, posted by the parent through the dev-only seed route.`,
-    "The owner sees the same player cards read-only: coaches read the cards of children on an active season roster; only a guardian records answers or events.",
-    "The seed route POST /api/dev/teams/:teamId/participants/:participantId/skill-events exists only with SNACKDAY_DEV_SIGN_IN=true and never in production.",
+    `Teams: ${coached.name} (${coached.teamId}) and ${second.name} (${second.teamId}), both "${coached.seasonLabel}".`,
+    `Seed files applied after migrations: ${manifest.seedFiles.join(", ")}.`,
+    `Calendar feed for Pat Parent: ${manifest.calendarFeedUrl}`,
+    `Pending invitation for Sid Stranger: ${manifest.invitationUrls.stranger}`,
+    "",
+    'Sign in from a script: POST /api/dev/sign-in with {"persona": "<key>"}; no body signs in the default adult.',
+    "Sign-in and the /dev/sign-in page exist only with SNACKDAY_DEV_SIGN_IN=true and never in production.",
     "",
     `Native simulator scheme environment: SNACKDAY_API_BASE_URL=${manifest.nativeApiBaseUrl} SNACKDAY_DEV_SIGN_IN=true`,
-    `Native live tests: SNACKDAY_LIVE_API=${manifest.nativeApiBaseUrl} bash scripts/ios-live-test.sh`,
-    "The current native launch flow signs in as the default development owner.",
+    `Native live tests: SNACKDAY_LIVE_API=${manifest.nativeApiBaseUrl} SNACKDAY_LIVE_UI_TEAM_ID=${second.teamId} bash scripts/ios-live-test.sh`,
     "",
     "Press Ctrl-C to stop the server and delete its temporary database.",
   ].join("\n");
 }
 
-export type { DevScenarioManifest } from "./dev-scenario-seed";
-export { seedDevScenario } from "./dev-scenario-seed";
+export type { DevScenarioManifest } from "./dev-scenario-roles";

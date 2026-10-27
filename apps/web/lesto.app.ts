@@ -11,6 +11,7 @@ import { reelLessonCatalog } from "./app/lessons/catalog";
 import { routeBrands, secureBrands } from "./app/server/brand-routing";
 import { ballplayerHome } from "./app/ballplayer/home-page";
 import { registerDevSkillEventRoutes } from "./app/dev/skill-events";
+import { registerDevSignIn } from "./app/dev/sign-in";
 
 // Lesto invokes this factory per boot; importing it opens no database.
 export default async function applicationConfig() {
@@ -45,11 +46,14 @@ export default async function applicationConfig() {
       : {}),
     ...(audience ? { appleVerifier: createAppleIdentityVerifier({ audience }) } : {}),
   });
-  const app = registerDevSkillEventRoutes(config.app, {
-    enabled: env.SNACKDAY_DEV_SIGN_IN,
-    db,
-    sessions,
-    clock: Date.now,
-  });
+  const app = registerDevSignIn(
+    registerDevSkillEventRoutes(config.app, {
+      enabled: env.SNACKDAY_DEV_SIGN_IN,
+      db,
+      sessions,
+      clock: Date.now,
+    }),
+    { enabled: env.SNACKDAY_DEV_SIGN_IN, db, sessions },
+  );
   return { ...config, app: secureBrands(routeBrands(app, { home: ballplayerHome })) };
 }

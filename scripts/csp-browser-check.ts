@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Database } from "bun:sqlite";
 import { chromium } from "playwright-core";
 import type { Browser, Page } from "playwright-core";
 
@@ -13,10 +14,13 @@ import {
   BALLPLAYER_CONTENT_SECURITY_POLICY,
   SNACKDAY_CONTENT_SECURITY_POLICY,
 } from "../apps/web/app/server/content-security-policy";
-import { GAME_DUTIES, PRACTICE_TITLE, SCENARIO_GAMES } from "./lib/dev-scenario-events";
-import { DevScenarioRosterImportApi } from "./lib/dev-scenario-roster-import";
-import { seedDevScenario } from "./lib/dev-scenario-seed";
-import type { SeededDevScenario } from "./lib/dev-scenario-seed";
+import { seedDatabase } from "../apps/web/app/dev/seed-database";
+import {
+  DEV_SIGN_IN_PAGE_PATH,
+  SEED_PERSONAS,
+  SEED_SCHEDULE,
+  SEED_TEAMS,
+} from "../apps/web/app/dev/seed-personas";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WEB_ROOT = join(ROOT, "apps", "web");
@@ -31,7 +35,7 @@ const REACT_PROGRESSIVE_CHUNK_SIZE = 12_800;
 const LARGE_ROSTER_SIZE = 60;
 const LARGE_ROSTER_BIRTH_DATE = "2018-06-01";
 
-type Persona = "default" | "second-adult";
+type Persona = "head-coach" | "parent";
 
 interface Visit {
   readonly label: string;
@@ -73,13 +77,13 @@ async function firstLine(stream: ReadableStream<Uint8Array>): Promise<string> {
   }
 }
 
-async function startServer(scratch: string): Promise<Running> {
+async function startServer(databasePath: string): Promise<Running> {
   const child = Bun.spawn({
     cmd: ["bun", SERVER_ENTRY],
     cwd: WEB_ROOT,
     env: {
       ...process.env,
-      LESTO_DB: join(scratch, "scenario.db"),
+      LESTO_DB: databasePath,
       SNACKDAY_DEV_SIGN_IN: "true",
       SNACKDAY_LESSON_OF_THE_WEEK: "true",
       SNACKDAY_RUNTIME_MODE: "development",
@@ -150,22 +154,41 @@ async function checkAppOverview(page: Page, persona: Persona): Promise<void> {
   await expectVisible(page, 'section[aria-label="Player card"]', "the player card section");
   await expectVisible(page, "[data-lesto-island]", "an island");
   await expectPosterLoaded(page);
-  if (persona === "second-adult") await expectAnswerHydrates(page);
+  if (persona === "parent") await expectAnswerHydrates(page);
+}
+
+async function checkSignInPage(page: Page): Promise<void> {
+  await expectVisible(page, "[data-lesto-island]", "the sign-in island");
+  for (const persona of SEED_PERSONAS) {
+    await expectVisible(page, `button[data-persona="${persona.key}"]`, `the ${persona.key} button`);
+  }
+  await page.waitForSelector(`button[data-persona="${SEED_PERSONAS[0].key}"]:not([disabled])`, {
+    timeout: 5_000,
+  });
 }
 
 function largeRosterPlayer(index: number): string {
   return `Roster Load ${String(index + 1).padStart(3, "0")}`;
 }
 
-async function seedLargeRoster(baseUrl: string, seeded: SeededDevScenario): Promise<void> {
-  const api = new DevScenarioRosterImportApi(baseUrl);
-  const owner = await api.signIn("default");
-  const { teamId, seasonId } = seeded.manifest.teams.coached;
-  const players = Array.from({ length: LARGE_ROSTER_SIZE }, (_, index) => ({
-    displayName: largeRosterPlayer(index),
-    birthDate: LARGE_ROSTER_BIRTH_DATE,
-  }));
-  await api.importPlayers(owner.cookie, teamId, seasonId, players);
+function largeRosterSql(): string {
+  const { teamId, seasonId } = SEED_TEAMS.coached;
+  const now = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+  const players = `WITH RECURSIVE players(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM players WHERE n < ${LARGE_ROSTER_SIZE})`;
+  return [
+    `INSERT INTO people (id, display_name, status, created_at, updated_at) ${players} SELECT 'person_load_' || n, 'Roster Load ' || printf('%03d', n), 'active', ${now}, ${now} FROM players;`,
+    `INSERT INTO participants (id, person_id, birth_date, status, created_at, updated_at) ${players} SELECT 'participant_load_' || n, 'person_load_' || n, '${LARGE_ROSTER_BIRTH_DATE}', 'active', ${now}, ${now} FROM players;`,
+    `INSERT INTO memberships (id, team_id, season_id, member_kind, member_person_id, member_participant_id, status, created_at, updated_at) ${players} SELECT 'membership_load_' || n, '${teamId}', '${seasonId}', 'participant', NULL, 'participant_load_' || n, 'active', ${now}, ${now} FROM players;`,
+  ].join("\n");
+}
+
+function seedLargeRoster(databasePath: string): void {
+  const database = new Database(databasePath);
+  try {
+    database.exec(largeRosterSql());
+  } finally {
+    database.close();
+  }
 }
 
 async function checkLargeRoster(page: Page): Promise<void> {
@@ -203,14 +226,16 @@ async function expectText(page: Page, text: string, what: string): Promise<void>
 
 async function checkSchedule(page: Page): Promise<void> {
   await expectLayoutWrapper(page);
-  await expectText(page, SCENARIO_GAMES[0]?.title ?? "", "the first seeded game");
-  await expectText(page, PRACTICE_TITLE, "the practice series");
+  await expectText(page, SEED_SCHEDULE.gameTitles[0], "the first seeded game");
+  await expectText(page, SEED_SCHEDULE.practiceTitle, "the practice series");
 }
 
 async function checkDuties(page: Page): Promise<void> {
   await expectLayoutWrapper(page);
   await expectVisible(page, "[data-lesto-island]", "the duties board island");
-  for (const label of GAME_DUTIES) await expectText(page, label, `the ${label} duty slot`);
+  for (const label of SEED_SCHEDULE.gameDuties) {
+    await expectText(page, label, `the ${label} duty slot`);
+  }
 }
 
 function seededPageVisits(persona: Persona, name: string): Visit[] {
@@ -238,28 +263,35 @@ const VISITS: readonly Visit[] = [
   { label: "Snackday home", origin: "snackday", path: "/", expectStatus: 200 },
   { label: "Snackday features", origin: "snackday", path: "/features", expectStatus: 200 },
   {
-    label: "/app as coach and parent",
+    label: "/dev/sign-in role list",
     origin: "snackday",
-    path: "/app",
-    persona: "second-adult",
+    path: DEV_SIGN_IN_PAGE_PATH,
     expectStatus: 200,
-    check: (page) => checkAppOverview(page, "second-adult"),
+    check: checkSignInPage,
   },
   {
-    label: "/app as owner coach",
+    label: "/app as parent",
     origin: "snackday",
     path: "/app",
-    persona: "default",
+    persona: "parent",
     expectStatus: 200,
-    check: (page) => checkAppOverview(page, "default"),
+    check: (page) => checkAppOverview(page, "parent"),
   },
-  ...seededPageVisits("default", "owner coach"),
-  ...seededPageVisits("second-adult", "coach and parent"),
   {
-    label: `/app as owner coach with a ${LARGE_ROSTER_SIZE}-player roster`,
+    label: "/app as head coach",
     origin: "snackday",
     path: "/app",
-    persona: "default",
+    persona: "head-coach",
+    expectStatus: 200,
+    check: (page) => checkAppOverview(page, "head-coach"),
+  },
+  ...seededPageVisits("head-coach", "head coach"),
+  ...seededPageVisits("parent", "parent"),
+  {
+    label: `/app as head coach with a ${LARGE_ROSTER_SIZE}-player roster`,
+    origin: "snackday",
+    path: "/app",
+    persona: "head-coach",
     expectStatus: 200,
     check: checkLargeRoster,
   },
@@ -357,11 +389,10 @@ async function main(): Promise<void> {
   let server: Running | undefined;
   let browser: Browser | undefined;
   try {
-    server = await startServer(scratch);
-    const baseUrl = `http://127.0.0.1:${server.port}`;
-    const seeded = await seedDevScenario(baseUrl);
-    await seeded.verify();
-    await seedLargeRoster(baseUrl, seeded);
+    const databasePath = join(scratch, "scenario.db");
+    await seedDatabase(databasePath);
+    seedLargeRoster(databasePath);
+    server = await startServer(databasePath);
     browser = await chromium.launch({ headless: true });
     let failures = 0;
     for (const target of VISITS) {

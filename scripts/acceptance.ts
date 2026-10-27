@@ -30,7 +30,8 @@ import { fileURLToPath } from "node:url";
 import type { Subprocess } from "bun";
 
 import { namedTestProblems, zeroTestProblems } from "./lib/xcodebuild-verdict";
-import { seedDevScenario } from "./lib/dev-scenario-seed";
+import { seedDatabase } from "../apps/web/app/dev/seed-database";
+import { SEED_TEAMS } from "../apps/web/app/dev/seed-personas";
 import {
   type AcceptanceProvenance,
   acceptanceProvenance,
@@ -1460,7 +1461,8 @@ async function main(): Promise<void> {
     const port = reserveEphemeralPort();
     base = `http://127.0.0.1:${port}`;
     scratchDir = await mkdtemp(join(tmpdir(), "snackday-accept-"));
-    server = bootWebServer(port, join(scratchDir, "acceptance.db"), scratchDir);
+    const databasePath = join(scratchDir, "acceptance.db");
+    server = bootWebServer(port, databasePath, scratchDir);
     await waitForReadiness(base, server);
     const cookie = await signIn(base);
     const ids = await createTeamSeasonAndRoster(base, cookie);
@@ -1471,8 +1473,8 @@ async function main(): Promise<void> {
     await verifyRosterImport(base, cookie, ids);
     await verifyInvitationJourney(base, cookie, ids);
     await verifyEventsJourney(base, cookie, ids);
-    const coordination = await seedDevScenario(base);
-    await runIosLiveCheck(port, scratchDir, coordination.manifest.teams.family.teamId);
+    await seedDatabase(databasePath, { migrate: false });
+    await runIosLiveCheck(port, scratchDir, SEED_TEAMS.second.teamId);
   } catch (error) {
     failedStep = error instanceof StepFailure ? error.step : "unexpected";
     if (server !== undefined) await dumpServerLogs(server);
