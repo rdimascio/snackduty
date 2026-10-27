@@ -4,18 +4,23 @@ export interface AreaRating {
   readonly rating: number;
 }
 
+export interface PlayerStreak {
+  readonly days: number;
+  readonly multiplier?: string;
+}
+
 export interface PlayerCardData {
   readonly name: string;
-  readonly number: number;
-  readonly position: string;
-  readonly level: string;
-  readonly bats: string;
-  readonly throws: string;
+  readonly number?: number;
+  readonly position?: string;
+  readonly level?: string;
+  readonly bats?: string;
+  readonly throws?: string;
   readonly overall: number;
-  readonly progressToNext: number;
-  readonly streakDays: number;
-  readonly streakMultiplier: string;
+  readonly progressToNext?: number;
+  readonly streak?: PlayerStreak;
   readonly areas: readonly AreaRating[];
+  readonly caption: string;
 }
 
 export const samplePlayer: PlayerCardData = {
@@ -27,8 +32,7 @@ export const samplePlayer: PlayerCardData = {
   throws: "R",
   overall: 84,
   progressToNext: 62,
-  streakDays: 12,
-  streakMultiplier: "1.5x",
+  streak: { days: 12, multiplier: "1.5x" },
   areas: [
     { area: "Hitting", short: "HIT", rating: 86 },
     { area: "Fielding", short: "FLD", rating: 88 },
@@ -36,4 +40,5 @@ export const samplePlayer: PlayerCardData = {
     { area: "Speed", short: "SPD", rating: 79 },
     { area: "Baseball IQ", short: "IQ", rating: 85 },
   ],
+  caption: "Sample card · Ballplayer",
 };
