@@ -1,10 +1,10 @@
 import { ensure } from "./dev-scenario-api";
-import type { DevScenarioIdentity } from "./dev-scenario-api";
 import { DevScenarioLessonApi } from "./dev-scenario-lessons";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const SATURDAY = 6;
 const SUNDAY = 0;
+const WEEK_MS = 7 * DAY_MS;
 
 export type ScenarioPersona = "owner" | "parent";
 export type ScenarioAttendance = "yes" | "no" | "maybe";
@@ -50,7 +50,10 @@ export const SCENARIO_GAMES: readonly ScenarioGame[] = [
   },
 ];
 
+const DUTY_WINDOW_MS = (SCENARIO_GAMES.length + 1) * WEEK_MS;
+export const PRACTICE_SNACK_SLOTS = 3;
 export const PRACTICE_SNACK_CLAIMS: readonly ScenarioPersona[] = ["parent", "owner"];
+export const RSVP_EVENTS = 2;
 
 export const SCENARIO_RSVPS = {
   parentChild: ["yes", "no"],
@@ -185,36 +188,7 @@ export interface ScenarioRosterEntry {
   readonly guardians?: readonly { readonly displayName?: string }[];
 }
 
-const RATE_LIMITED = /\banswered 429\b/u;
-const RATE_LIMIT_RETRIES = 10;
-const RATE_LIMIT_BACKOFF_MS = 500;
-export const RATE_LIMIT_REFILL_MS = 2_000;
-
-async function retryRateLimited<T>(request: () => Promise<T>, attempt = 0): Promise<T> {
-  try {
-    return await request();
-  } catch (error) {
-    const rateLimited = error instanceof Error && RATE_LIMITED.test(error.message);
-    if (!rateLimited || attempt >= RATE_LIMIT_RETRIES) throw error;
-    await Bun.sleep(RATE_LIMIT_BACKOFF_MS);
-    return retryRateLimited(request, attempt + 1);
-  }
-}
-
 export class DevScenarioEventApi extends DevScenarioLessonApi {
-  protected override json<T>(
-    step: string,
-    path: string,
-    init: RequestInit,
-    expectedStatus: number,
-  ): Promise<T> {
-    return retryRateLimited(() => super.json<T>(step, path, init, expectedStatus));
-  }
-
-  override signIn(persona: "default" | "second-adult"): Promise<DevScenarioIdentity> {
-    return retryRateLimited(() => super.signIn(persona));
-  }
-
   async readSeasonRoster(
     cookie: string,
     teamId: string,
@@ -362,20 +336,16 @@ export interface ScenarioEventSeed {
   readonly familyRsvp: { readonly participantId: string; readonly guardian: ScenarioPersona };
 }
 
-async function ensureSeries(
+async function createSeries(
   seed: ScenarioEventSeed,
   target: ScenarioEventTarget,
   input: ScenarioEventInput,
 ): Promise<ScenarioSeries> {
   const owner = seed.adults.owner.cookie;
-  const find = async () =>
-    (await seed.api.listSeasonEvents(owner, target.teamId, target.seasonId)).find(
-      (entry) => entry.series.title === input.title,
-    );
-  const existing = await find();
-  if (existing !== undefined) return existing;
   await seed.api.createEvent(owner, target.teamId, target.seasonId, input);
-  const created = await find();
+  const created = (await seed.api.listSeasonEvents(owner, target.teamId, target.seasonId)).find(
+    (entry) => entry.series.title === input.title,
+  );
   ensure("seed-events", created !== undefined, `${input.title} was not listed after creation`);
   return created;
 }
@@ -384,32 +354,27 @@ function acceptsDuties(occurrence: ScenarioOccurrence, nowMs: number): boolean {
   return occurrence.status === "scheduled" && Date.parse(occurrence.startsAt) > nowMs;
 }
 
-async function ensureDuties(
+async function createDuties(
   seed: ScenarioEventSeed,
   teamId: string,
   occurrence: ScenarioOccurrence,
   claims: Readonly<Partial<Record<string, ScenarioPersona>>>,
   labels: readonly string[],
 ): Promise<void> {
-  if (!acceptsDuties(occurrence, seed.nowMs)) return;
   const owner = seed.adults.owner.cookie;
-  const existing = await seed.api.listDutySlots(owner, teamId, occurrence.id);
   for (const label of labels) {
-    const slot =
-      existing.find((candidate) => candidate.label === label) ??
-      (await seed.api.createDutySlot(owner, teamId, occurrence.id, label));
+    const slot = await seed.api.createDutySlot(owner, teamId, occurrence.id, label);
     const claimant = claims[label];
-    if (claimant === undefined || slot.assignee !== undefined) continue;
+    if (claimant === undefined) continue;
     await seed.api.claimDutySlot(seed.adults[claimant].cookie, teamId, occurrence.id, slot.id);
   }
 }
 
-function upcomingScheduled(
-  series: readonly ScenarioSeries[],
+export function upcomingScheduled(
+  occurrences: readonly ScenarioOccurrence[],
   nowMs: number,
 ): readonly ScenarioOccurrence[] {
-  return series
-    .flatMap((entry) => entry.occurrences)
+  return occurrences
     .filter((occurrence) => acceptsDuties(occurrence, nowMs))
     .toSorted((left, right) => left.startsAt.localeCompare(right.startsAt));
 }
@@ -424,13 +389,14 @@ export async function seedScenarioEvents(seed: ScenarioEventSeed): Promise<Scena
   const { api, coached, family, adults } = seed;
   const plan = scenarioEventPlan(seed.nowMs, coached.season);
 
-  const practice = await ensureSeries(seed, coached, plan.practice);
-  const upcomingPractices = practice.occurrences.filter((occurrence) =>
-    acceptsDuties(occurrence, seed.nowMs),
+  const practice = await createSeries(seed, coached, plan.practice);
+  const snackPractices = upcomingScheduled(practice.occurrences, seed.nowMs).slice(
+    0,
+    PRACTICE_SNACK_SLOTS,
   );
-  for (const [index, occurrence] of upcomingPractices.entries()) {
+  for (const [index, occurrence] of snackPractices.entries()) {
     const claimant = PRACTICE_SNACK_CLAIMS[index];
-    await ensureDuties(
+    await createDuties(
       seed,
       coached.teamId,
       occurrence,
@@ -441,12 +407,13 @@ export async function seedScenarioEvents(seed: ScenarioEventSeed): Promise<Scena
 
   const games: ScenarioSeries[] = [];
   for (const game of plan.games) {
-    const series = await ensureSeries(seed, coached, game.input);
+    const series = await createSeries(seed, coached, game.input);
     games.push(series);
     const [occurrence] = series.occurrences;
     ensure("seed-events", occurrence !== undefined, `${game.title} has no occurrence`);
-    await ensureDuties(seed, coached.teamId, occurrence, game.claims, GAME_DUTIES);
-    if (game.cancelledReason !== undefined && occurrence.status === "scheduled") {
+    if (game.cancelledReason === undefined) {
+      await createDuties(seed, coached.teamId, occurrence, game.claims, GAME_DUTIES);
+    } else {
       await api.cancelOccurrence(
         adults.owner.cookie,
         coached.teamId,
@@ -461,7 +428,10 @@ export async function seedScenarioEvents(seed: ScenarioEventSeed): Promise<Scena
     coached.teamId,
     coached.seasonId,
   );
-  const nextEvents = upcomingScheduled(coachedEvents, seed.nowMs).slice(0, 2);
+  const nextEvents = upcomingScheduled(
+    coachedEvents.flatMap((entry) => entry.occurrences),
+    seed.nowMs,
+  ).slice(0, RSVP_EVENTS);
   for (const rsvp of seed.rsvps) {
     for (const [index, occurrence] of nextEvents.entries()) {
       const status = rsvp.statuses[index];
@@ -476,7 +446,7 @@ export async function seedScenarioEvents(seed: ScenarioEventSeed): Promise<Scena
     }
   }
 
-  const familyEvent = await ensureSeries(seed, family, plan.familyEvent);
+  const familyEvent = await createSeries(seed, family, plan.familyEvent);
   const [familyOccurrence] = familyEvent.occurrences;
   ensure("seed-events", familyOccurrence !== undefined, "the family event has no occurrence");
   if (acceptsDuties(familyOccurrence, seed.nowMs)) {
@@ -496,6 +466,15 @@ export async function seedScenarioEvents(seed: ScenarioEventSeed): Promise<Scena
   };
 }
 
+function inDutyWindow(occurrence: ScenarioOccurrence, seededAtMs: number): boolean {
+  const startsAtMs = Date.parse(occurrence.startsAt);
+  return startsAtMs > seededAtMs && startsAtMs <= seededAtMs + DUTY_WINDOW_MS;
+}
+
+function rsvpTotal(occurrence: ScenarioOccurrence): number {
+  return occurrence.attendance.yes + occurrence.attendance.no + occurrence.attendance.maybe;
+}
+
 export interface ScenarioEventCounts {
   readonly series: number;
   readonly occurrences: number;
@@ -510,11 +489,12 @@ export async function countScenarioEvents(
   api: DevScenarioEventApi,
   cookie: string,
   target: ScenarioEventTarget,
+  seededAtMs: number,
 ): Promise<ScenarioEventCounts> {
   const events = await api.listSeasonEvents(cookie, target.teamId, target.seasonId);
   const occurrences = events.flatMap((entry) => entry.occurrences);
   const slots: ScenarioDutySlot[] = [];
-  for (const occurrence of occurrences) {
+  for (const occurrence of occurrences.filter((candidate) => inDutyWindow(candidate, seededAtMs))) {
     slots.push(...(await api.listDutySlots(cookie, target.teamId, occurrence.id)));
   }
   const claimed = slots.flatMap((slot) => (slot.assignee === undefined ? [] : [slot.assignee]));
@@ -525,11 +505,7 @@ export async function countScenarioEvents(
     dutySlots: slots.length,
     claimedSlots: claimed.length,
     assignees: [...new Set(claimed.map((assignee) => assignee.personId))].toSorted(),
-    rsvps: occurrences.reduce(
-      (total, occurrence) =>
-        total + occurrence.attendance.yes + occurrence.attendance.no + occurrence.attendance.maybe,
-      0,
-    ),
+    rsvps: occurrences.reduce((total, occurrence) => total + rsvpTotal(occurrence), 0),
   };
 }
 
@@ -538,6 +514,7 @@ export async function verifyScenarioEvents(
   adults: Readonly<Record<ScenarioPersona, ScenarioAdult>>,
   coached: ScenarioEventTarget,
   family: ScenarioEventTarget,
+  seededAtMs: number,
 ): Promise<void> {
   const step = "verify-events";
   const coachedEvents = await api.listSeasonEvents(
@@ -566,7 +543,21 @@ export async function verifyScenarioEvents(
     cancelled.length === 1 && cancelled[0]?.cancelledReason !== undefined,
     "exactly one coached game must be cancelled with a reason",
   );
-  const counts = await countScenarioEvents(api, adults.parent.cookie, coached);
+  const coachedOccurrences = coachedEvents.flatMap((entry) => entry.occurrences);
+  const rsvpTargets = upcomingScheduled(coachedOccurrences, seededAtMs)
+    .slice(0, RSVP_EVENTS)
+    .map((occurrence) => occurrence.id);
+  const answered = coachedOccurrences
+    .filter((occurrence) => rsvpTotal(occurrence) > 0)
+    .map((occurrence) => occurrence.id);
+  ensure(
+    step,
+    rsvpTargets.length === RSVP_EVENTS &&
+      answered.length === RSVP_EVENTS &&
+      answered.every((id) => rsvpTargets.includes(id)),
+    `RSVPs sit on ${answered.join(", ")}; expected the first upcoming ${rsvpTargets.join(", ")}`,
+  );
+  const counts = await countScenarioEvents(api, adults.parent.cookie, coached, seededAtMs);
   ensure(step, counts.rsvps >= 4, `the next two events carry ${counts.rsvps} RSVPs`);
   ensure(
     step,
@@ -596,5 +587,4 @@ export async function verifyScenarioEvents(
     familySlots.some((slot) => slot.label === FAMILY_EVENT_DUTY && slot.assignee === undefined),
     "the family event has no open Snacks slot",
   );
-  await Bun.sleep(RATE_LIMIT_REFILL_MS);
 }

@@ -63,68 +63,15 @@ interface TeamScenario extends DevScenarioTeam {
   readonly season: ScenarioSeasonWindow;
 }
 
-interface TeamListEntry {
-  readonly team?: { readonly id?: string; readonly name?: string };
-  readonly access?: string;
-  readonly seasons?: readonly {
-    readonly id?: string;
-    readonly label?: string;
-    readonly startDate?: string;
-    readonly endDate?: string;
-    readonly timeZone?: string;
-  }[];
-}
-
-async function ensureTeam(
-  api: DevScenarioEventApi,
-  ownerCookie: string,
-  teamName: string,
-  seasonLabel: string,
-): Promise<{ readonly teamId: string; readonly seasonId: string; season: ScenarioSeasonWindow }> {
-  const { teams = [] } = (await api.listTeams(ownerCookie)) as {
-    teams?: readonly TeamListEntry[];
-  };
-  const entry = teams.find(
-    (candidate) => candidate.team?.name === teamName && candidate.access === "manage",
-  );
-  const teamId = entry?.team?.id ?? (await api.createTeam(ownerCookie, teamName));
-  const existing = entry?.seasons?.find((candidate) => candidate.label === seasonLabel);
-  if (
-    existing?.id !== undefined &&
-    existing.startDate !== undefined &&
-    existing.endDate !== undefined &&
-    existing.timeZone !== undefined
-  ) {
-    return {
-      teamId,
-      seasonId: existing.id,
-      season: {
-        startDate: existing.startDate,
-        endDate: existing.endDate,
-        timeZone: existing.timeZone,
-      },
-    };
-  }
-  const window = season(seasonLabel);
-  const seasonId = await api.createSeason(ownerCookie, teamId, window);
-  ensure("seed-team", seasonId !== undefined, "season creation returned no id");
-  return { teamId, seasonId, season: window };
-}
-
-async function ensurePlayer(
+async function addPlayer(
   api: DevScenarioEventApi,
   ownerCookie: string,
   team: { readonly teamId: string; readonly seasonId: string },
   player: PlayerSeed,
   guardian?: DevScenarioIdentity,
 ): Promise<string> {
-  const roster = await api.readSeasonRoster(ownerCookie, team.teamId, team.seasonId);
-  const existing = roster.find((entry) => entry.displayName === player.displayName);
-  const playerId =
-    existing?.participantId ??
-    (await api.addPlayer(ownerCookie, team.teamId, team.seasonId, player));
-  const linked = existing?.guardians?.some((entry) => entry.displayName === guardian?.displayName);
-  if (guardian !== undefined && linked !== true) {
+  const playerId = await api.addPlayer(ownerCookie, team.teamId, team.seasonId, player);
+  if (guardian !== undefined) {
     await api.joinParent(
       ownerCookie,
       guardian.cookie,
@@ -146,10 +93,15 @@ async function createTeamScenario(
     readonly player: PlayerSeed;
   },
 ): Promise<TeamScenario> {
-  const team = await ensureTeam(api, ownerCookie, input.teamName, input.seasonLabel);
-  const playerId = await ensurePlayer(api, ownerCookie, team, input.player, member);
+  const teamId = await api.createTeam(ownerCookie, input.teamName);
+  const window = season(input.seasonLabel);
+  const seasonId = await api.createSeason(ownerCookie, teamId, window);
+  ensure("seed-team", seasonId !== undefined, "season creation returned no id");
+  const playerId = await addPlayer(api, ownerCookie, { teamId, seasonId }, input.player, member);
   return {
-    ...team,
+    teamId,
+    seasonId,
+    season: window,
     playerId,
     name: input.teamName,
     seasonLabel: input.seasonLabel,
@@ -197,6 +149,7 @@ async function verifySeededScenario(
   manifest: DevScenarioManifest,
   owner: DevScenarioIdentity,
   coachParent: DevScenarioIdentity,
+  seededAtMs: number,
 ): Promise<void> {
   const ownerCookie = owner.cookie;
   const coachParentCookie = coachParent.cookie;
@@ -247,6 +200,7 @@ async function verifySeededScenario(
     },
     coached,
     family,
+    seededAtMs,
   );
 }
 
@@ -271,8 +225,6 @@ async function seedTrainingWeek(
   team: DevScenarioTeam,
 ): Promise<number> {
   const events = scenarioSkillEvents(team.playerId, Date.now(), SCENARIO_TIME_ZONE);
-  const card = await api.readSkillCard(guardianCookie, team.teamId, team.playerId);
-  if (card.scoredSkills > 0) return events.length;
   await api.seedSkillEvents(guardianCookie, team.teamId, team.playerId, events);
   return events.length;
 }
@@ -305,15 +257,16 @@ export async function seedDevScenario(
     seasonLabel: "Family season",
     player: FAMILY_PLAYER,
   });
-  const ownerChildId = await ensurePlayer(api, owner.cookie, coachedScenario, OWNER_CHILD, owner);
-  await ensurePlayer(api, owner.cookie, coachedScenario, UNLINKED_PLAYER);
+  const ownerChildId = await addPlayer(api, owner.cookie, coachedScenario, OWNER_CHILD, owner);
+  await addPlayer(api, owner.cookie, coachedScenario, UNLINKED_PLAYER);
   await api.grantCoCoach(owner.cookie, coachedScenario.teamId, coachParent.personId);
   const coached = teamManifest(coachedScenario);
   const family = teamManifest(familyScenario);
   const posted = await seedTrainingWeek(api, coachParent.cookie, coached);
+  const seededAtMs = Date.now();
   const events = await seedScenarioEvents({
     api,
-    nowMs: Date.now(),
+    nowMs: seededAtMs,
     adults: {
       owner: { personId: owner.personId, cookie: owner.cookie },
       parent: { personId: coachParent.personId, cookie: coachParent.cookie },
@@ -345,6 +298,6 @@ export async function seedDevScenario(
 
   return {
     manifest,
-    verify: () => verifySeededScenario(api, manifest, owner, coachParent),
+    verify: () => verifySeededScenario(api, manifest, owner, coachParent, seededAtMs),
   };
 }

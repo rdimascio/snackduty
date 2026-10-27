@@ -9,7 +9,7 @@ Snackday is a Bun monorepo for a Lesto web application and a native SwiftUI iOS 
 - Format with `bun run format`; lint with `bun run lint`.
 - Run a workspace script with `bun run --filter <workspace> <script>`.
 - Boot a seeded local scenario with `bun run dev:scenario`; `bun run check:scenario` seeds, verifies, and tears it down. The scenario also posts a week of `skill.events/v0` drills ending today through the dev-only seed route, so the player card shows a positive overall and a current streak.
-- The scenario also seeds the schedule and duties, relative to today, through the same HTTP operations the app uses (`scripts/lib/dev-scenario-events.ts`): Falcons get a Tue/Thu practice series and four Saturday games (one cancelled), Snacks/Scorebook/Field setup slots claimed by each adult, and guardian RSVPs on the next two events; Comets get one event with an open Snacks slot. Every step finds before it creates, so a second seed against the same database adds nothing. The seed retries the kernel's 429 rate limit and waits for the bucket to refill after `verify()`.
+- The scenario also seeds the schedule and duties, relative to today, through the same HTTP operations the app uses (`scripts/lib/dev-scenario-events.ts`): Falcons get a Tue/Thu practice series and four Saturday games (one cancelled), Snacks/Scorebook/Field setup slots on each game that is not cancelled, Snacks on the next three practices (two claimed, one open), and guardian RSVPs on the next two events; Comets get one event with an open Snacks slot. Each start seeds a new, empty database, so the seed only creates and never looks for earlier records.
 
 ## Conventions
 

@@ -13,12 +13,8 @@ import {
   BALLPLAYER_CONTENT_SECURITY_POLICY,
   SNACKDAY_CONTENT_SECURITY_POLICY,
 } from "../apps/web/app/server/content-security-policy";
-import {
-  DevScenarioEventApi,
-  GAME_DUTIES,
-  PRACTICE_TITLE,
-  SCENARIO_GAMES,
-} from "./lib/dev-scenario-events";
+import { DevScenarioApi } from "./lib/dev-scenario-api";
+import { GAME_DUTIES, PRACTICE_TITLE, SCENARIO_GAMES } from "./lib/dev-scenario-events";
 import { seedDevScenario } from "./lib/dev-scenario-seed";
 import type { SeededDevScenario } from "./lib/dev-scenario-seed";
 
@@ -162,7 +158,7 @@ function largeRosterPlayer(index: number): string {
 }
 
 async function seedLargeRoster(baseUrl: string, seeded: SeededDevScenario): Promise<void> {
-  const api = new DevScenarioEventApi(baseUrl);
+  const api = new DevScenarioApi(baseUrl);
   const owner = await api.signIn("default");
   const { teamId, seasonId } = seeded.manifest.teams.coached;
   for (let index = 0; index < LARGE_ROSTER_SIZE; index += 1) {

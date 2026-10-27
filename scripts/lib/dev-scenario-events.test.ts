@@ -7,14 +7,16 @@ import {
   FAMILY_EVENT_TITLE,
   GAME_DUTIES,
   PRACTICE_LOCATION,
+  PRACTICE_SNACK_SLOTS,
   PRACTICE_TITLE,
+  RSVP_EVENTS,
   SCENARIO_GAMES,
   countScenarioEvents,
   scenarioEventPlan,
+  upcomingScheduled,
   upcomingWeekdays,
 } from "./dev-scenario-events";
 import type { ScenarioEventCounts } from "./dev-scenario-events";
-import { seedDevScenario } from "./dev-scenario-seed";
 import type { DevScenarioManifest } from "./dev-scenario-seed";
 
 const SATURDAY = 6;
@@ -90,14 +92,15 @@ async function totals(
   api: DevScenarioEventApi,
   cookie: string,
   manifest: DevScenarioManifest,
+  seededAtMs: number,
 ): Promise<ScenarioTotals> {
   const { coached, family } = manifest.teams;
   const { teams = [] } = await api.listTeams(cookie);
   return {
     teams: teams.length,
     coachedRoster: (await api.readSeasonRoster(cookie, coached.teamId, coached.seasonId)).length,
-    coached: await countScenarioEvents(api, cookie, coached),
-    family: await countScenarioEvents(api, cookie, family),
+    coached: await countScenarioEvents(api, cookie, coached, seededAtMs),
+    family: await countScenarioEvents(api, cookie, family, seededAtMs),
   };
 }
 
@@ -108,7 +111,8 @@ async function page(baseUrl: string, cookie: string, path: string): Promise<stri
 }
 
 describe("seeded schedule and duties", () => {
-  it("seeds idempotently and renders the events on /app/schedule and /app/duties for both personas", async () => {
+  it("seeds the events and renders them on /app/schedule and /app/duties for both personas", async () => {
+    const startedAtMs = Date.now();
     const running = await startDevScenario({ serverEnv: OFFLINE_SERVER_ENV });
     try {
       const { manifest } = running;
@@ -117,23 +121,32 @@ describe("seeded schedule and duties", () => {
       const owner = await api.signIn("default");
       const parent = await api.signIn("second-adult");
 
-      const first = await totals(api, owner.cookie, manifest);
+      const first = await totals(api, owner.cookie, manifest, startedAtMs);
       expect(first.teams).toBe(2);
       expect(first.coachedRoster).toBe(3);
       expect(first.coached.series).toBe(SCENARIO_GAMES.length + 1);
       expect(first.coached.cancelled).toBe(1);
       expect(first.coached.claimedSlots).toBe(6);
-      expect(first.coached.dutySlots).toBeGreaterThan(first.coached.claimedSlots);
+      expect(first.coached.dutySlots).toBe(
+        PRACTICE_SNACK_SLOTS + GAME_DUTIES.length * (SCENARIO_GAMES.length - 1),
+      );
       expect(first.coached.rsvps).toBe(4);
       expect(first.family).toMatchObject({ series: 1, occurrences: 1, dutySlots: 1, rsvps: 1 });
       expect(first.family.claimedSlots).toBe(0);
 
-      const again = await seedDevScenario(baseUrl);
-      await again.verify();
-      expect(again.manifest.teams).toEqual(manifest.teams);
-      expect(await totals(api, owner.cookie, manifest)).toEqual(first);
-
       const { coached, family } = manifest.teams;
+      const coachedOccurrences = (
+        await api.listSeasonEvents(owner.cookie, coached.teamId, coached.seasonId)
+      ).flatMap((entry) => entry.occurrences);
+      const firstUpcoming = upcomingScheduled(coachedOccurrences, startedAtMs)
+        .slice(0, RSVP_EVENTS)
+        .map((occurrence) => occurrence.id);
+      const answered = coachedOccurrences
+        .filter(({ attendance }) => attendance.yes + attendance.no + attendance.maybe > 0)
+        .map((occurrence) => occurrence.id);
+      expect(firstUpcoming).toHaveLength(RSVP_EVENTS);
+      expect(answered.toSorted()).toEqual(firstUpcoming.toSorted());
+
       const coachedQuery = `?team=${coached.teamId}&season=${coached.seasonId}`;
       for (const cookie of [owner.cookie, parent.cookie]) {
         const schedule = await page(baseUrl, cookie, `/app/schedule${coachedQuery}`);
