@@ -1,35 +1,10 @@
 import type { ReactNode } from "react";
 
 import { Brand } from "../../components/brand";
-
-const liveNavigation = [{ href: "/app", label: "Overview" }] as const;
-const plannedNavigation = ["Team", "Roster", "Schedule", "Duties"] as const;
+import TeamNavigation from "../../islands/team-navigation";
 
 function ProductNavigation(): ReactNode {
-  return (
-    <nav aria-label="Team workspace" className="space-y-1">
-      {liveNavigation.map((item) => (
-        <a
-          className="block rounded-lg bg-sidebar-accent px-3 py-2.5 font-semibold text-sidebar-accent-foreground"
-          href={item.href}
-          key={item.href}
-          aria-current="page"
-        >
-          {item.label}
-        </a>
-      ))}
-      {plannedNavigation.map((label) => (
-        <span
-          aria-disabled="true"
-          className="block cursor-not-allowed rounded-lg px-3 py-2.5 text-muted-foreground"
-          key={label}
-        >
-          {label}
-          <span className="sr-only"> (coming soon)</span>
-        </span>
-      ))}
-    </nav>
-  );
+  return <TeamNavigation />;
 }
 
 function ProductHeader(): ReactNode {
