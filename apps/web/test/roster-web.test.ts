@@ -239,16 +239,36 @@ async function rosterPage(
   return { status: response.status, html: await pageText(response) };
 }
 
-async function cardPage(target: App, cookie: string, participantId: string, teamId?: string) {
+async function cardPage(
+  target: App,
+  cookie: string,
+  participantId: string,
+  teamId?: string,
+  seasonId?: string,
+) {
   const response = await target.handle("GET", `/app/roster/${participantId}`, {
     headers: { cookie },
-    query: teamId === undefined ? {} : { team: teamId },
+    query: {
+      ...(teamId === undefined ? {} : { team: teamId }),
+      ...(seasonId === undefined ? {} : { season: seasonId }),
+    },
   });
   return { status: response.status, html: await pageText(response) };
 }
 
-function cardHref(teamId: string, participantId: string): string {
-  return `/app/roster/${participantId}?team=${teamId}`;
+function cardHref(teamId: string, participantId: string, seasonId?: string): string {
+  const query = seasonId === undefined ? `team=${teamId}` : `team=${teamId}&season=${seasonId}`;
+  return `/app/roster/${participantId}?${query}`;
+}
+
+function islandProps(html: string): string[] {
+  return [...html.matchAll(/<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/gu)].map(
+    (match) => match[1] ?? "",
+  );
+}
+
+function backToRosterHref(html: string): string | undefined {
+  return /href="(\/app\/roster\?[^"]*)"[^>]*>← Back to the/u.exec(html)?.[1];
 }
 
 async function rosterNames(cookie: string, teamId: string, seasonId: string): Promise<string[]> {
@@ -264,7 +284,7 @@ async function rosterNames(cookie: string, teamId: string, seasonId: string): Pr
 describe("/app/roster page", () => {
   it("shows an owner every child with age, guardians, invitations, cards and coach tools", async () => {
     const ownerCookie = await signIn(app);
-    const { teamId, casey, rowan } = await seedComets(app, ownerCookie);
+    const { teamId, seasonId, casey, rowan } = await seedComets(app, ownerCookie);
     const invited = await postAs(app, ownerCookie, `/api/teams/${teamId}/invitations`, {
       invitedRole: "adult",
       inviteeLabel: "Rowan's dad",
@@ -279,17 +299,27 @@ describe("/app/roster page", () => {
     expect(html).toContain("Coach Pitch Comets");
     expect(html).toContain("Fall 2026 · coach view");
     expect(html).toContain("Casey Kid");
-    expect(html).toContain("Age 8 · Born 2018-04-09");
+    expect(html).toContain(">Age 8</p>");
     expect(html).toContain("Rowan Kid");
-    expect(html).toContain("Age 6 · Born 2019-11-01");
+    expect(html).toContain(">Age 6</p>");
+    expect(html).not.toContain("Born");
+    expect(html).not.toContain("2018-04-09");
+    expect(html).not.toContain("2019-11-01");
+    const props = islandProps(html);
+    expect(props.some((block) => block.includes("Casey Kid"))).toBe(true);
+    for (const block of props) {
+      expect(block).not.toContain("2018-04-09");
+      expect(block).not.toContain("2019-11-01");
+      expect(block).not.toContain("birthDate");
+    }
     expect(html).toContain("Alex Guardian");
     expect(html).toContain("(caregiver)");
     expect(html).toContain("Guardian invitations: 1 invited");
     expect(html).toContain("Guardian invitations: none sent");
     expect(html).not.toContain("dad");
     expect(html).not.toContain("rowan-dad@example.test");
-    expect(html).toContain(`href="${cardHref(teamId, casey)}"`);
-    expect(html).toContain(`href="${cardHref(teamId, rowan)}"`);
+    expect(html).toContain(`href="${cardHref(teamId, casey, seasonId)}"`);
+    expect(html).toContain(`href="${cardHref(teamId, rowan, seasonId)}"`);
     expect(html).toContain('aria-label="Coach tools"');
     expect(html).toContain('aria-label="Add a player"');
     expect(html).toContain('aria-label="Import a roster"');
@@ -298,31 +328,36 @@ describe("/app/roster page", () => {
 
   it("shows a co-coach the whole roster and the coach tools", async () => {
     const ownerCookie = await signIn(app);
-    const { teamId, casey, rowan } = await seedComets(app, ownerCookie);
+    const { teamId, seasonId, casey, rowan } = await seedComets(app, ownerCookie);
     const coachCookie = await joinAsCoCoach(app, ownerCookie, teamId);
 
     const { status, html } = await rosterPage(app, coachCookie);
     expect(status).toBe(200);
     expect(html).toContain("Casey Kid");
     expect(html).toContain("Rowan Kid");
+    expect(html).toContain(">Age 8</p>");
+    expect(html).not.toContain("2018-04-09");
     expect(html).toContain("Alex Guardian");
     expect(html).toContain('aria-label="Coach tools"');
-    expect(html).toContain(`href="${cardHref(teamId, casey)}"`);
-    expect(html).toContain(`href="${cardHref(teamId, rowan)}"`);
+    expect(html).toContain(`href="${cardHref(teamId, casey, seasonId)}"`);
+    expect(html).toContain(`href="${cardHref(teamId, rowan, seasonId)}"`);
   });
 
   it("shows a parent only their own child and no coach controls", async () => {
     const ownerCookie = await signIn(app);
-    const { teamId, casey, rowan } = await seedComets(app, ownerCookie);
+    const { teamId, seasonId, casey, rowan } = await seedComets(app, ownerCookie);
     const parentCookie = await joinAsSecondAdult(app, ownerCookie, teamId, casey);
 
     const { status, html } = await rosterPage(app, parentCookie);
     expect(status).toBe(200);
     expect(html).toContain("Fall 2026 · your children");
     expect(html).toContain("Casey Kid");
-    expect(html).toContain("Age 8 · Born 2018-04-09");
+    expect(html).toContain(">Age 8</p>");
+    expect(html).not.toContain("Born");
+    expect(html).not.toContain("2018-04-09");
+    for (const block of islandProps(html)) expect(block).not.toContain("2018-04-09");
     expect(html).toContain("Second Development Adult");
-    expect(html).toContain(`href="${cardHref(teamId, casey)}"`);
+    expect(html).toContain(`href="${cardHref(teamId, casey, seasonId)}"`);
     expect(html).not.toContain("Rowan Kid");
     expect(html).not.toContain(rowan);
     expect(html).not.toContain("2019-11-01");
@@ -446,7 +481,7 @@ describe("/app/roster page", () => {
 
     const { html } = await rosterPage(cardsOff.app, ownerCookie);
     expect(html).toContain("Casey Kid");
-    expect(html).not.toContain(cardHref(teamId, casey));
+    expect(html).not.toContain(`/app/roster/${casey}`);
     expect((await cardPage(cardsOff.app, ownerCookie, casey, teamId)).status).toBe(404);
   });
 
@@ -503,6 +538,53 @@ describe("/app/roster/:participantId player card", () => {
     expect(stranger.html).not.toContain("Casey Kid");
 
     expect((await cardPage(app, ownerCookie, casey)).status).toBe(404);
+  });
+
+  it("returns to the season the card was opened from", async () => {
+    const ownerCookie = await signIn(app);
+    const fall = await seedTeam(app, ownerCookie, "Coach Pitch Comets", [
+      { displayName: "Fallon Kid", birthDate: "2018-04-09" },
+    ]);
+    const [fallon] = fall.participantIds;
+    if (fallon === undefined) throw new Error("Seed data is missing.");
+    const spring = await postAs(app, ownerCookie, `/api/teams/${fall.teamId}/seasons`, {
+      label: "Spring 2026",
+      startDate: "2026-03-01",
+      endDate: "2026-06-01",
+      timeZone: "America/Los_Angeles",
+    });
+    expect(spring.status).toBe(201);
+    const meteors = await seedTeam(app, ownerCookie, "Majors Meteors", [
+      { displayName: "Jordan Kid" },
+    ]);
+
+    const opened = await rosterPage(app, ownerCookie, { team: fall.teamId });
+    expect(opened.html).toContain("Spring 2026 · coach view");
+    expect(opened.html).not.toContain("Fallon Kid");
+
+    const fallRoster = await rosterPage(app, ownerCookie, {
+      team: fall.teamId,
+      season: fall.seasonId,
+    });
+    expect(fallRoster.html).toContain(`href="${cardHref(fall.teamId, fallon, fall.seasonId)}"`);
+
+    const card = await cardPage(app, ownerCookie, fallon, fall.teamId, fall.seasonId);
+    expect(card.status).toBe(200);
+    const back = backToRosterHref(card.html);
+    expect(back).toBe(`/app/roster?team=${fall.teamId}&season=${fall.seasonId}`);
+
+    const returned = await rosterPage(
+      app,
+      ownerCookie,
+      Object.fromEntries(new URL(back ?? "", "http://snackday.test").searchParams),
+    );
+    expect(returned.status).toBe(200);
+    expect(returned.html).toContain("Fall 2026 · coach view");
+    expect(returned.html).toContain("Fallon Kid");
+
+    const crossed = await cardPage(app, ownerCookie, fallon, fall.teamId, meteors.seasonId);
+    expect(crossed.status).toBe(200);
+    expect(backToRosterHref(crossed.html)).toBe(`/app/roster?team=${fall.teamId}`);
   });
 });
 

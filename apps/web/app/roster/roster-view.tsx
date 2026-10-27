@@ -141,8 +141,7 @@ function GuardianList({ guardians }: { guardians: RosterChild["guardians"] }): R
 }
 
 function ageLine(child: RosterChild): string {
-  const age = child.age === undefined ? "Age not on file" : `Age ${child.age}`;
-  return child.birthDate === undefined ? age : `${age} · Born ${child.birthDate}`;
+  return child.age === undefined ? "Age not on file" : `Age ${child.age}`;
 }
 
 function ChildCard({ child, canManage }: { child: RosterChild; canManage: boolean }): ReactNode {

@@ -34,7 +34,6 @@ export interface RosterInvitations {
 export interface RosterChild {
   readonly participantId: string;
   readonly displayName: string;
-  readonly birthDate?: string;
   readonly age?: number;
   readonly guardians: readonly RosterGuardian[];
   readonly invitations: RosterInvitations;
@@ -73,8 +72,9 @@ export function rosterHref(teamId: string, seasonId?: string): string {
   return `/app/roster?${query.toString()}`;
 }
 
-export function playerCardHref(teamId: string, participantId: string): string {
-  return `/app/roster/${encodeURIComponent(participantId)}?${new URLSearchParams({ team: teamId }).toString()}`;
+export function playerCardHref(teamId: string, participantId: string, seasonId: string): string {
+  const query = new URLSearchParams({ team: teamId, season: seasonId });
+  return `/app/roster/${encodeURIComponent(participantId)}?${query.toString()}`;
 }
 
 async function viewerChildren(
@@ -131,7 +131,6 @@ async function rosterChildren(
     children.push({
       participantId: entry.participantId,
       displayName: entry.displayName,
-      ...(entry.birthDate === undefined ? {} : { birthDate: entry.birthDate }),
       ...(age === undefined ? {} : { age }),
       guardians: entry.guardians.map(({ guardianId, displayName, relationship }) => ({
         guardianId,
@@ -139,7 +138,9 @@ async function rosterChildren(
         relationship,
       })),
       invitations: entry.guardianInvitations ?? { pending: 0, expired: 0, accepted: 0 },
-      ...(cardReadable ? { cardHref: playerCardHref(target.teamId, entry.participantId) } : {}),
+      ...(cardReadable
+        ? { cardHref: playerCardHref(target.teamId, entry.participantId, target.seasonId) }
+        : {}),
     });
   }
   return children;

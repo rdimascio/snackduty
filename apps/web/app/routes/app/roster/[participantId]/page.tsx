@@ -15,6 +15,7 @@ const load = async (c: Context<"/app/roster/:participantId">): Promise<PlayerCar
   if (services === undefined) return { state: "signed-out" };
   return loadPlayerCardPage(services, lessonServicesFrom(c), c.header("cookie"), {
     teamId: c.query("team"),
+    seasonId: c.query("season"),
     participantId: c.param("participantId"),
   });
 };
