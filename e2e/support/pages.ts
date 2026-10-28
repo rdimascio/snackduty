@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
 import type { Locator, Page } from "playwright-core";
 
-import { SEED_CHILDREN, SEED_TEAMS } from "../../apps/web/app/dev/seed-personas";
+import { SEED_CHILDREN, SEED_PERSONAS, SEED_TEAMS } from "../../apps/web/app/dev/seed-personas";
 import type { Scenario } from "./scenario";
 
 export const FALCONS = SEED_TEAMS.coached;
@@ -115,6 +115,38 @@ export function slotAssignee(scenario: Scenario, slotId: string): string | null 
   );
   if (row === undefined) throw new Error(`no duty slot ${slotId}`);
   return row.assignee_person_id;
+}
+
+export async function openFresh(
+  session: { open(path: string, expectedStatus?: number): Promise<unknown>; page: Page },
+  path: string,
+): Promise<string> {
+  await session.open(path);
+  await expectHydrated(session.page);
+  await expectNoSkeleton(session.page);
+  return mainText(session.page);
+}
+
+export function button(page: Page, name: string | RegExp): Locator {
+  return main(page).getByRole("button", { name, exact: typeof name === "string" });
+}
+
+export async function expectNoButton(page: Page, name: string | RegExp): Promise<void> {
+  expect(`${String(name)}: ${await button(page, name).count()}`).toBe(`${String(name)}: 0`);
+}
+
+export async function waitForStatus(page: Page, text: string | RegExp): Promise<void> {
+  await main(page)
+    .locator('[role="status"], [role="alert"]')
+    .filter({ hasText: text })
+    .first()
+    .waitFor({ state: "visible", timeout: 10_000 });
+}
+
+export function persona(key: string): (typeof SEED_PERSONAS)[number] {
+  const found = SEED_PERSONAS.find((candidate) => candidate.key === key);
+  if (found === undefined) throw new Error(`no seeded persona ${key}`);
+  return found;
 }
 
 export function localDatePlus(days: number, timeZone = "America/Phoenix"): string {

@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
 import { expect } from "bun:test";
 import type { BrowserContext, Page, Response } from "playwright-core";
 
+import { SEED_TIME_ZONE } from "../../apps/web/app/dev/seed-personas";
 import type { SeedPersonaKey } from "../../apps/web/app/dev/seed-personas";
 import type { Brand, Scenario } from "./scenario";
 
@@ -12,6 +15,8 @@ const VIOLATION_BINDING = "snackdayE2eCspViolation";
 const LESTO_LAYOUT_STYLE = "display:contents";
 const LESTO_LAYOUT_STYLE_HASH = `sha256-${createHash("sha256").update(LESTO_LAYOUT_STYLE).digest("base64")}`;
 const NEUTRAL_PATH = "/styles.css";
+const ARTIFACTS_DIR = process.env["E2E_ARTIFACTS_DIR"];
+let artifactCount = 0;
 const FAILED_RESOURCE = /^Failed to load resource: the server responded with a status of (\d{3})/u;
 
 export interface ApiReply {
@@ -77,7 +82,14 @@ export async function openSession(
   brand: Brand = "snackday",
 ): Promise<RoleSession> {
   const origin = scenario.origin(brand);
-  const context = await scenario.browser.newContext({ baseURL: origin });
+  const context = await scenario.browser.newContext({
+    baseURL: origin,
+    locale: "en-US",
+    timezoneId: SEED_TIME_ZONE,
+  });
+  if (ARTIFACTS_DIR !== undefined) {
+    await context.tracing.start({ screenshots: true, snapshots: true });
+  }
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   const page = await context.newPage();
   const found: string[] = [];
@@ -182,6 +194,26 @@ export async function openSession(
   return session;
 }
 
+async function keepArtifacts(session: RoleSession, error: unknown): Promise<void> {
+  if (ARTIFACTS_DIR === undefined) return;
+  artifactCount += 1;
+  const stem = join(
+    ARTIFACTS_DIR,
+    `${Date.now()}-${artifactCount}-${session.brand}-${session.role}`,
+  );
+  await mkdir(ARTIFACTS_DIR, { recursive: true });
+  await session.page.screenshot({ path: `${stem}.png`, fullPage: true }).catch(() => undefined);
+  await session.context.tracing.stop({ path: `${stem}.zip` }).catch(() => undefined);
+  await Bun.write(
+    `${stem}.txt`,
+    [
+      `url: ${session.page.url()}`,
+      `error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      ...session.problems(),
+    ].join("\n"),
+  );
+}
+
 export async function asRole(
   scenario: Scenario,
   role: Role,
@@ -193,6 +225,9 @@ export async function asRole(
     await run(session);
     await session.page.waitForTimeout(150);
     expect(session.problems()).toEqual([]);
+  } catch (error) {
+    await keepArtifacts(session, error);
+    throw error;
   } finally {
     await session.close();
   }
