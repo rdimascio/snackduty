@@ -214,6 +214,21 @@ function cometsInvitation(scenario: Scenario, label: string) {
   )[0];
 }
 
+function cometsRole(scenario: Scenario, personId: string): string | undefined {
+  return scenario.query<{ role: string }>(
+    "SELECT role FROM adult_memberships WHERE team_id = ? AND person_id = ? AND status = 'active'",
+    COMETS.teamId,
+    personId,
+  )[0]?.role;
+}
+
+function cometsSeasonRow(scenario: Scenario): Record<string, unknown> | undefined {
+  return scenario.query<Record<string, unknown>>(
+    "SELECT * FROM seasons WHERE id = ?",
+    COMETS.seasonId,
+  )[0];
+}
+
 function cometsSeasons(scenario: Scenario, label: string): number {
   return scenario.query(
     "SELECT id FROM seasons WHERE team_id = ? AND label = ?",
@@ -523,6 +538,64 @@ describe("team as second-team guardian on the Comets (second-team-guardian)", ()
     });
     expect(cometsSeasons(scenario(), seasonLabel)).toBe(1);
     expect(cometsInvitation(scenario(), label)?.status).toBe("revoked");
+  });
+
+  test("server refuses a Comets lesson age band to a guardian (403 `team owner permission required`), and the Comets owner's same call sets it: proves the season lessons guard", async () => {
+    const ageBand = teamApi(COMETS.teamId, `/seasons/${COMETS.seasonId}/lesson-age-band`);
+    const band = { lessonAgeBand: { min: 7, max: 9 } };
+    const before = cometsSeasonRow(scenario());
+    expect(before?.["lesson_age_band"]).toBeNull();
+
+    await asRole(scenario(), "second-team-guardian", async (session) => {
+      const reply = await refused(session, "PUT", ageBand, band, [403]);
+      expect(JSON.parse(reply.text)).toEqual({ error: "team owner permission required" });
+    });
+    expect(cometsSeasonRow(scenario())).toEqual(before);
+
+    await asRole(scenario(), "default", async (session) => {
+      expect((await session.api("PUT", ageBand, band)).status).toBe(200);
+    });
+    const after = cometsSeasonRow(scenario());
+    expect(JSON.parse(String(after?.["lesson_age_band"]))).toEqual(band.lessonAgeBand);
+  });
+
+  test("server refuses Comets co-coach grant and revoke to a guardian, on another adult and on themself (404), and the Comets owner's same calls change the role: proves the owner guard", async () => {
+    const secondAdult = persona("second-adult").personId;
+    const guardian = persona("second-team-guardian").personId;
+    const roleApi = (personId: string, action: "grant" | "revoke") =>
+      teamApi(COMETS.teamId, `/adult-members/${personId}/co-coach/${action}`);
+    const ownerCall = async (personId: string, action: "grant" | "revoke") => {
+      await asRole(scenario(), "default", async (session) => {
+        expect((await session.api("POST", roleApi(personId, action))).status).toBe(200);
+      });
+    };
+    const guardianRefused = async (personId: string, action: "grant" | "revoke") => {
+      await asRole(scenario(), "second-team-guardian", async (session) => {
+        await refused(session, "POST", roleApi(personId, action), undefined, [404]);
+      });
+    };
+    expect(cometsRole(scenario(), secondAdult)).toBe("adult");
+    expect(cometsRole(scenario(), guardian)).toBe("adult");
+
+    await guardianRefused(secondAdult, "grant");
+    expect(cometsRole(scenario(), secondAdult)).toBe("adult");
+    await ownerCall(secondAdult, "grant");
+    expect(cometsRole(scenario(), secondAdult)).toBe("coach");
+
+    await guardianRefused(secondAdult, "revoke");
+    expect(cometsRole(scenario(), secondAdult)).toBe("coach");
+    await ownerCall(secondAdult, "revoke");
+    expect(cometsRole(scenario(), secondAdult)).toBe("adult");
+
+    await guardianRefused(guardian, "grant");
+    expect(cometsRole(scenario(), guardian)).toBe("adult");
+    await ownerCall(guardian, "grant");
+    expect(cometsRole(scenario(), guardian)).toBe("coach");
+
+    await guardianRefused(guardian, "revoke");
+    expect(cometsRole(scenario(), guardian)).toBe("coach");
+    await ownerCall(guardian, "revoke");
+    expect(cometsRole(scenario(), guardian)).toBe("adult");
   });
 });
 
