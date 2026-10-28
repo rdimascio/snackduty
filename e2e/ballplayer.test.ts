@@ -55,8 +55,16 @@ async function signInFromPanel(session: RoleSession, role: BallplayerRole): Prom
       ),
     SIGN_IN_BUTTONS[role],
   );
-  await Promise.all([session.page.waitForURL(/\/app$/u), choice.click()]);
-  await session.page.waitForLoadState("load");
+  const pathIs = (url: string, path: string) => new URL(url).pathname === path;
+  const signedIn = session.page.waitForResponse((reply) => pathIs(reply.url(), "/api/dev/sign-in"));
+  const reloaded = session.page.waitForResponse(
+    (reply) => reply.request().isNavigationRequest() && pathIs(reply.url(), "/app"),
+  );
+  const signedInPageLoaded = session.page.waitForEvent("load");
+  await choice.click();
+  expect((await signedIn).status()).toBe(200);
+  expect((await reloaded).status()).toBe(200);
+  await signedInPageLoaded;
 }
 
 async function signOutFromApp(session: RoleSession): Promise<void> {
