@@ -1,11 +1,10 @@
 import type { ReactNode } from "react";
 
-import { notFound } from "@lesto/web";
-
 import { EmptyState } from "../components/states/empty-state";
 import RosterAddParticipant from "../islands/roster-add-participant";
 import RosterImport from "../islands/roster-import";
 import RosterLinkGuardian from "../islands/roster-link-guardian";
+import { NotFoundState } from "../routes/not-found";
 import { rosterHref } from "./roster-data";
 import type {
   RosterChild,
@@ -288,6 +287,6 @@ function TeamRoster(data: TeamData): ReactNode {
 export function RosterPage(data: RosterPageData): ReactNode {
   if (data.state === "signed-out") return <SignedOut />;
   if (data.state === "no-team") return <NoTeam />;
-  if (data.state === "not-found") notFound();
+  if (data.state === "not-found") return <NotFoundState />;
   return <TeamRoster {...data} />;
 }

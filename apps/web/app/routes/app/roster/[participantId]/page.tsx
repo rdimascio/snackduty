@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { notFound } from "@lesto/web";
 import type { Context, PageDef } from "@lesto/web";
 
 import { EmptyState } from "../../../../components/states/empty-state";
@@ -9,19 +8,22 @@ import { lessonServicesFrom } from "../../../../lessons/lessons";
 import { loadPlayerCardPage } from "../../../../roster/player-card-data";
 import type { PlayerCardPageData } from "../../../../roster/player-card-data";
 import { PlayerCardList } from "../../../../skills/player-card";
+import { NotFoundState } from "../../../not-found";
 
 const load = async (c: Context<"/app/roster/:participantId">): Promise<PlayerCardPageData> => {
   const services = appServices(c);
   if (services === undefined) return { state: "signed-out" };
-  return loadPlayerCardPage(services, lessonServicesFrom(c), c.header("cookie"), {
+  const data = await loadPlayerCardPage(services, lessonServicesFrom(c), c.header("cookie"), {
     teamId: c.query("team"),
     seasonId: c.query("season"),
     participantId: c.param("participantId"),
   });
+  if (data.state === "not-found") c.status(404);
+  return data;
 };
 
 function PlayerCardPage(data: PlayerCardPageData): ReactNode {
-  if (data.state === "not-found") notFound();
+  if (data.state === "not-found") return <NotFoundState />;
   if (data.state === "signed-out") {
     return (
       <div>
