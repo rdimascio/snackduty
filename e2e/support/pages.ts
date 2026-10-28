@@ -132,6 +132,13 @@ export function dateSpellings(isoDate: string): string[] {
     ...BIRTH_DATE_STYLES.map((dateStyle) =>
       new Intl.DateTimeFormat("en-US", { dateStyle, timeZone: "UTC" }).format(instant),
     ),
+    new Intl.DateTimeFormat("en-US", { timeZone: "UTC" }).format(instant),
+    new Intl.DateTimeFormat("en-US", {
+      month: "2-digit",
+      day: "2-digit",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(instant),
   ];
 }
 

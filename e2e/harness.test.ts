@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 
 import { BlockedRequestError, createOfflineFetch } from "./support/offline-fetch";
+import { dateSpellings } from "./support/pages";
 import { startScenario, useScenario } from "./support/scenario";
 import type { ScenarioSteps } from "./support/scenario";
 import { openSession } from "./support/session";
@@ -25,6 +26,19 @@ function redirectServer() {
     },
   });
 }
+
+describe("harness: dateSpellings", () => {
+  test("lists every en-US spelling of one birth date", () => {
+    expect(dateSpellings("2018-03-14")).toEqual([
+      "2018-03-14",
+      "March 14, 2018",
+      "Mar 14, 2018",
+      "3/14/18",
+      "3/14/2018",
+      "03/14/2018",
+    ]);
+  });
+});
 
 describe("harness: a loopback URL that redirects outside fails the test", () => {
   const scenario = useScenario();
