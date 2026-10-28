@@ -84,13 +84,12 @@ export async function startScenario(options: ScenarioOptions = {}): Promise<Scen
   const scratch = await mkdtemp(join(tmpdir(), "snackday-e2e-"));
   const databasePath = join(scratch, "scenario.db");
   await seedDatabase(databasePath);
-  if (options.extraSql !== undefined) {
-    const database = new Database(databasePath);
-    try {
-      database.exec(options.extraSql);
-    } finally {
-      database.close();
-    }
+  const seeded = new Database(databasePath);
+  try {
+    if (options.extraSql !== undefined) seeded.exec(options.extraSql);
+    seeded.exec("PRAGMA journal_mode = WAL");
+  } finally {
+    seeded.close();
   }
   const server = await bootServer(databasePath);
   const browser = await chromium.launch({ headless: true });
