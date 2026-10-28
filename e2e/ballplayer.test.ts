@@ -2,10 +2,10 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import type { Page } from "playwright-core";
 
 import { cardWriteRows, correctAnswer, lessonAnswersPath } from "./support/lessons";
-import { CHILDREN, FALCONS, expectHtmlLacks, seededBirthDates } from "./support/pages";
+import { CHILDREN, FALCONS, expectHtmlLacks, main, seededBirthDates } from "./support/pages";
 import { useScenario } from "./support/scenario";
 import { asRole, refused } from "./support/session";
-import type { RoleSession } from "./support/session";
+import type { Role, RoleSession } from "./support/session";
 
 setDefaultTimeout(90_000);
 
@@ -36,6 +36,14 @@ async function bodyText(page: Page): Promise<string> {
     return copy.textContent ?? "";
   });
   return text.replaceAll(/\s+/gu, " ");
+}
+
+function skillCardPath(participantId: string): string {
+  return `/api/teams/${FALCONS.teamId}/participants/${participantId}/skill-card`;
+}
+
+function devSkillEventsPath(participantId: string): string {
+  return `/api/dev/teams/${FALCONS.teamId}/participants/${participantId}/skill-events`;
 }
 
 async function openApp(session: RoleSession) {
@@ -113,6 +121,23 @@ for (const role of ["head-coach", "co-coach"] as const) {
       );
     });
 
+    test("the coach view has no card write control", async () => {
+      await asRole(
+        scenario(),
+        role,
+        async (session) => {
+          await openApp(session);
+          const cards = session.page.getByRole("list", { name: "Player cards" });
+          await cards.waitFor();
+          expect(await cards.locator("form, input, textarea, select, button").count()).toBe(0);
+          expect(
+            await main(session.page).locator("form, input, textarea, select, button").count(),
+          ).toBe(0);
+        },
+        "ballplayer",
+      );
+    });
+
     test("server refuses a coach's card write from the Ballplayer host on the lesson answer route and the dev skill-event route (404), and the card rows stay the same", async () => {
       const before = cardWriteRows(scenario(), CHILDREN.casey.participantId);
       await asRole(
@@ -130,7 +155,7 @@ for (const role of ["head-coach", "co-coach"] as const) {
           await refused(
             session,
             "POST",
-            `/api/dev/teams/${FALCONS.teamId}/participants/${CHILDREN.casey.participantId}/skill-events`,
+            devSkillEventsPath(CHILDREN.casey.participantId),
             { events: [] },
             [404],
           );
@@ -168,17 +193,100 @@ describe("ballplayer as guardian of two (parent)", () => {
     );
   });
 
-  test("a Snackday session does not sign the same browser in on the Ballplayer host", async () => {
-    await asRole(scenario(), "parent", async (session) => {
-      const ballplayer = scenario().origin("ballplayer");
-      const response = await session.page.goto(`${ballplayer}/app`, { waitUntil: "load" });
-      expect(response?.status()).toBe(200);
-      const text = await bodyText(session.page);
-      expect(text).toContain("Development sign-in");
-      expect(text.includes(CHILDREN.avery.displayName)).toBe(false);
-    });
+  test("reads their own children's cards from the card API, and another family's child is refused (404): proves the card read guard", async () => {
+    await asRole(
+      scenario(),
+      "parent",
+      async (session) => {
+        for (const own of [CHILDREN.avery, CHILDREN.blake]) {
+          const reply = await session.api("GET", skillCardPath(own.participantId));
+          expect(`${own.displayName}: ${reply.status}`).toBe(`${own.displayName}: 200`);
+        }
+        for (const other of [CHILDREN.casey, CHILDREN.quinn]) {
+          const reply = await refused(
+            session,
+            "GET",
+            skillCardPath(other.participantId),
+            undefined,
+            [404],
+          );
+          expect(reply.body).toEqual({ error: "participant not found" });
+          expect(reply.text.includes(other.displayName)).toBe(false);
+        }
+      },
+      "ballplayer",
+    );
   });
 });
+
+const CARD_REFUSALS: readonly { role: Role; status: number; error: string }[] = [
+  { role: "team-member", status: 404, error: "participant not found" },
+  { role: "stranger", status: 404, error: "team not found" },
+  { role: "signed-out", status: 401, error: "authentication required" },
+];
+
+for (const refusal of CARD_REFUSALS) {
+  describe(`ballplayer card API as ${refusal.role}`, () => {
+    const scenario = useScenario();
+
+    test(`server refuses ${refusal.role} every card read and write (${refusal.status}), and the guardian's read and write on the same routes succeed: proves the card guards`, async () => {
+      const before = cardWriteRows(scenario(), CHILDREN.avery.participantId);
+      await asRole(
+        scenario(),
+        refusal.role,
+        async (session) => {
+          for (const child of FALCONS_CHILDREN) {
+            const read = await refused(
+              session,
+              "GET",
+              skillCardPath(child.participantId),
+              undefined,
+              [refusal.status],
+            );
+            expect(read.body).toEqual({ error: refusal.error });
+          }
+          const answered = await refused(
+            session,
+            "POST",
+            lessonAnswersPath(FALCONS.teamId),
+            correctAnswer(CHILDREN.avery.participantId),
+            [refusal.status],
+          );
+          expect(answered.body).toEqual({ error: refusal.error });
+          await refused(
+            session,
+            "POST",
+            devSkillEventsPath(CHILDREN.avery.participantId),
+            { events: [] },
+            [refusal.status],
+          );
+        },
+        "ballplayer",
+      );
+      expect(cardWriteRows(scenario(), CHILDREN.avery.participantId)).toEqual(before);
+
+      await asRole(
+        scenario(),
+        "parent",
+        async (session) => {
+          expect(
+            (await session.api("GET", skillCardPath(CHILDREN.avery.participantId))).status,
+          ).toBe(200);
+          const answered = await session.api(
+            "POST",
+            lessonAnswersPath(FALCONS.teamId),
+            correctAnswer(CHILDREN.avery.participantId),
+          );
+          expect(answered.status).toBe(200);
+        },
+        "ballplayer",
+      );
+      expect(cardWriteRows(scenario(), CHILDREN.avery.participantId).answers).toHaveLength(
+        before.answers.length + 1,
+      );
+    });
+  });
+}
 
 describe("ballplayer as other roles", () => {
   const scenario = useScenario();

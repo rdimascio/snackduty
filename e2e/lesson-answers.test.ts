@@ -123,6 +123,37 @@ describe("lesson answers: the production card write refuses every adult who is n
 describe("lesson answers: a guardian answers for their own child (parent)", () => {
   const scenario = useScenario();
 
+  test("answers for their second child, and the same write for another family's child or a child on another team is refused (404): proves the guardian write guard", async () => {
+    const blakeBefore = cardWriteRows(scenario(), CHILDREN.blake.participantId);
+    const others = [CHILDREN.casey, CHILDREN.quinn] as const;
+    const othersBefore = others.map((child) => cardWriteRows(scenario(), child.participantId));
+    await asRole(scenario(), "parent", async (session) => {
+      for (const other of others) {
+        const reply = await refused(
+          session,
+          "POST",
+          ANSWERS,
+          correctAnswer(other.participantId),
+          [404],
+        );
+        expect(reply.body).toEqual({ error: "participant not found" });
+      }
+      const reply = await session.api("POST", ANSWERS, correctAnswer(CHILDREN.blake.participantId));
+      expect(reply.status).toBe(200);
+    });
+    expect(others.map((child) => cardWriteRows(scenario(), child.participantId))).toEqual(
+      othersBefore,
+    );
+    expect(cardWriteRows(scenario(), CHILDREN.blake.participantId).answers).toEqual([
+      ...blakeBefore.answers,
+      expect.objectContaining({
+        quiz_id: FIXTURE_LESSON.quizId,
+        outcome: "correct",
+        recorded_by_person_id: persona("parent").personId,
+      }),
+    ]);
+  });
+
   test("the answer and its skill event are stored, and a fresh load shows the answer", async () => {
     const before = cardWriteRows(scenario(), CHILDREN.avery.participantId);
     expect(before.answers).toEqual([]);

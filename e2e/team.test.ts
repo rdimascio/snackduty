@@ -163,6 +163,80 @@ async function refuseOwnerOnlyTeamWrites(session: RoleSession, statuses: readonl
   );
 }
 
+async function createSeasonFromPage(scenario: Scenario, session: RoleSession, label: string) {
+  await openFresh(session, teamPage());
+  await button(session.page, "Create a season").click();
+  const form = main(session.page).getByRole("form", { name: "Create a season" });
+  await form.getByLabel("Season name").fill(label);
+  await form.getByLabel("Start date").fill(localDatePlus(150));
+  await form.getByLabel("End date").fill(localDatePlus(240));
+  await form.getByLabel("Time zone").fill("America/Phoenix");
+  await Promise.all([
+    session.page.waitForURL(/season=/u),
+    form.getByRole("button", { name: "Create season" }).click(),
+  ]);
+  const created = scenario.query<{ id: string }>(
+    "SELECT id FROM seasons WHERE team_id = ? AND label = ?",
+    FALCONS.teamId,
+    label,
+  );
+  expect(created).toHaveLength(1);
+  expect(new URL(session.page.url()).searchParams.get("season")).toBe(created[0]?.id ?? "");
+  await openFresh(session, `${teamPage()}&season=${created[0]?.id ?? ""}`);
+  const switcher = main(session.page).getByRole("navigation", { name: "Switch season" });
+  expect(await switcher.locator('a[aria-current="page"]').innerText()).toBe(label);
+  await switcher.getByText(FALCONS.seasonLabel).waitFor();
+}
+
+function feedRevokePath(teamId: string): string {
+  return teamApi(teamId, "/calendar-feed/revoke");
+}
+
+async function refuseParentFeedRevoke(scenario: Scenario, role: Role, statuses: number[]) {
+  const parent = persona("parent").personId;
+  expect(activeFeeds(scenario, FALCONS.teamId, parent)).toBe(1);
+  await asRole(scenario, role, async (session) => {
+    await refused(session, "POST", feedRevokePath(FALCONS.teamId), undefined, statuses);
+  });
+  expect(activeFeeds(scenario, FALCONS.teamId, parent)).toBe(1);
+  await asRole(scenario, "parent", async (session) => {
+    const reply = await session.api("POST", feedRevokePath(FALCONS.teamId));
+    expect(reply.status).toBe(200);
+  });
+  expect(activeFeeds(scenario, FALCONS.teamId, parent)).toBe(0);
+}
+
+function cometsInvitation(scenario: Scenario, label: string) {
+  return scenario.query<{ id: string; status: string; token_hash: string }>(
+    "SELECT id, status, token_hash FROM invitations WHERE team_id = ? AND invitee_label = ?",
+    COMETS.teamId,
+    label,
+  )[0];
+}
+
+function cometsRole(scenario: Scenario, personId: string): string | undefined {
+  return scenario.query<{ role: string }>(
+    "SELECT role FROM adult_memberships WHERE team_id = ? AND person_id = ? AND status = 'active'",
+    COMETS.teamId,
+    personId,
+  )[0]?.role;
+}
+
+function cometsSeasonRow(scenario: Scenario): Record<string, unknown> | undefined {
+  return scenario.query<Record<string, unknown>>(
+    "SELECT * FROM seasons WHERE id = ?",
+    COMETS.seasonId,
+  )[0];
+}
+
+function cometsSeasons(scenario: Scenario, label: string): number {
+  return scenario.query(
+    "SELECT id FROM seasons WHERE team_id = ? AND label = ?",
+    COMETS.teamId,
+    label,
+  ).length;
+}
+
 const SEASON_INPUT = {
   label: "Refused season",
   startDate: localDatePlus(30),
@@ -193,19 +267,30 @@ describe("team as owner (head-coach)", () => {
     });
   });
 
-  test("the owner row has no role control and the server refuses to change an owner's role (409)", async () => {
+  test("the owner row has no role control and the server refuses to grant or revoke the owner's own role (409), while the owner's revoke of the co-coach succeeds: proves the owner guard", async () => {
+    const owner = persona("head-coach").personId;
+    const before = membershipRole(scenario(), owner);
     await asRole(scenario(), "head-coach", async (session) => {
       await openFresh(session, teamPage());
       await expectNoButton(session.page, /Hana Headcoach/u);
-      await refused(
-        session,
+      for (const change of ["grant", "revoke"]) {
+        await refused(
+          session,
+          "POST",
+          teamApi(FALCONS.teamId, `/adult-members/${owner}/co-coach/${change}`),
+          undefined,
+          [409],
+        );
+      }
+      expect(membershipRole(scenario(), owner)).toBe(before);
+      const control = await session.api(
         "POST",
-        teamApi(FALCONS.teamId, `/adult-members/${persona("head-coach").personId}/co-coach/grant`),
-        undefined,
-        [409],
+        teamApi(FALCONS.teamId, `/adult-members/${persona("co-coach").personId}/co-coach/revoke`),
       );
-      expect(membershipRole(scenario(), persona("head-coach").personId)).not.toBe("coach");
+      expect(control.status).toBe(200);
     });
+    expect(membershipRole(scenario(), owner)).toBe(before);
+    expect(membershipRole(scenario(), persona("co-coach").personId)).toBe("adult");
   });
 
   test("sends, resends and revokes an invitation, and a fresh load shows each change", async () => {
@@ -267,8 +352,20 @@ describe("team as owner (head-coach)", () => {
     await asRole(scenario(), "team-member", async (session) => {
       await session.open(`${path.pathname}${path.search}${path.hash}`);
       session.allowFailedResponse(404, "/api/invitations/accept");
-      await button(session.page, "Accept invitation").click();
-      await session.page.waitForTimeout(500);
+      const [accepted] = await Promise.all([
+        session.page.waitForResponse(
+          (reply) => new URL(reply.url()).pathname === "/api/invitations/accept",
+        ),
+        button(session.page, "Accept invitation").click(),
+      ]);
+      expect(accepted.status()).toBe(404);
+      await refused(
+        session,
+        "POST",
+        "/api/invitations/accept",
+        { token: path.hash.slice(1) },
+        [404],
+      );
       expect(await main(session.page).getByText("Invitation accepted").count()).toBe(0);
       expect(invitationRow(scenario(), label)?.status).toBe("pending");
     });
@@ -292,29 +389,9 @@ describe("team as owner (head-coach)", () => {
   });
 
   test("creates a season, and a fresh load selects it and lists both seasons", async () => {
-    await asRole(scenario(), "head-coach", async (session) => {
-      await openFresh(session, teamPage());
-      await button(session.page, "Create a season").click();
-      const form = main(session.page).getByRole("form", { name: "Create a season" });
-      await form.getByLabel("Season name").fill("E2E Spring");
-      await form.getByLabel("Start date").fill(localDatePlus(150));
-      await form.getByLabel("End date").fill(localDatePlus(240));
-      await form.getByLabel("Time zone").fill("America/Phoenix");
-      await Promise.all([
-        session.page.waitForURL(/season=/u),
-        form.getByRole("button", { name: "Create season" }).click(),
-      ]);
-      const created = scenario().query<{ id: string }>(
-        "SELECT id FROM seasons WHERE team_id = ? AND label = 'E2E Spring'",
-        FALCONS.teamId,
-      );
-      expect(created).toHaveLength(1);
-      expect(new URL(session.page.url()).searchParams.get("season")).toBe(created[0]?.id ?? "");
-      await openFresh(session, `${teamPage()}&season=${created[0]?.id ?? ""}`);
-      const switcher = main(session.page).getByRole("navigation", { name: "Switch season" });
-      expect(await switcher.locator('a[aria-current="page"]').innerText()).toBe("E2E Spring");
-      await switcher.getByText(FALCONS.seasonLabel).waitFor();
-    });
+    await asRole(scenario(), "head-coach", (session) =>
+      createSeasonFromPage(scenario(), session, "E2E Spring"),
+    );
   });
 });
 
@@ -344,6 +421,12 @@ describe("team as co-coach (co-coach)", () => {
   test("calendar feed: creates, copies, rotates and revokes the co-coach's own link", async () => {
     await asRole(scenario(), "co-coach", (session) =>
       feedLifecycle(scenario(), session, FALCONS.teamId),
+    );
+  });
+
+  test("creates a season, and a fresh load selects it and lists both seasons", async () => {
+    await asRole(scenario(), "co-coach", (session) =>
+      createSeasonFromPage(scenario(), session, "E2E Cocoach Spring"),
     );
   });
 });
@@ -400,6 +483,122 @@ describe("team as second-team guardian (second-team-guardian)", () => {
   });
 });
 
+describe("team as second-team guardian on the Comets (second-team-guardian)", () => {
+  const scenario = useScenario();
+  const label = "E2E Comets Invitee";
+  const seasonLabel = "E2E Comets Spring";
+  const invitations = teamApi(COMETS.teamId, "/invitations");
+  const season = { ...SEASON_INPUT, label: seasonLabel };
+
+  test("server refuses a Comets season create and every Comets invitation call to a guardian (404), and the Comets owner's same calls succeed: proves the manage and owner guards", async () => {
+    await asRole(scenario(), "default", async (session) => {
+      const sent = await session.api("POST", invitations, {
+        invitedRole: "adult",
+        inviteeLabel: label,
+        recipientBinding: { kind: "verified_email", email: "e2e-comets@snackday.test" },
+      });
+      expect(sent.status).toBe(201);
+    });
+    const invitation = cometsInvitation(scenario(), label);
+    if (invitation === undefined) throw new Error("the Comets owner sent no invitation");
+
+    await asRole(scenario(), "second-team-guardian", async (session) => {
+      await refused(session, "POST", teamApi(COMETS.teamId, "/seasons"), season, [404]);
+      await refused(session, "GET", invitations, undefined, [404]);
+      await refused(
+        session,
+        "POST",
+        invitations,
+        {
+          invitedRole: "adult",
+          inviteeLabel: "Refused Comets invitee",
+          recipientBinding: { kind: "verified_email", email: "refused-comets@snackday.test" },
+        },
+        [404],
+      );
+      await refused(session, "POST", `${invitations}/${invitation.id}/resend`, {}, [404]);
+      await refused(session, "POST", `${invitations}/${invitation.id}/revoke`, undefined, [404]);
+    });
+    expect(cometsSeasons(scenario(), seasonLabel)).toBe(0);
+    expect(cometsInvitation(scenario(), "Refused Comets invitee")).toBeUndefined();
+    expect(cometsInvitation(scenario(), label)).toEqual(invitation);
+
+    await asRole(scenario(), "default", async (session) => {
+      expect((await session.api("POST", teamApi(COMETS.teamId, "/seasons"), season)).status).toBe(
+        201,
+      );
+      const listed = await session.api("GET", invitations);
+      expect(listed.status).toBe(200);
+      expect(listed.text).toContain(label);
+      const resent = await session.api("POST", `${invitations}/${invitation.id}/resend`, {});
+      expect(resent.status).toBe(200);
+      expect(cometsInvitation(scenario(), label)?.token_hash).not.toBe(invitation.token_hash);
+      const revoked = await session.api("POST", `${invitations}/${invitation.id}/revoke`);
+      expect(revoked.status).toBe(200);
+    });
+    expect(cometsSeasons(scenario(), seasonLabel)).toBe(1);
+    expect(cometsInvitation(scenario(), label)?.status).toBe("revoked");
+  });
+
+  test("server refuses a Comets lesson age band to a guardian (403 `team owner permission required`), and the Comets owner's same call sets it: proves the season lessons guard", async () => {
+    const ageBand = teamApi(COMETS.teamId, `/seasons/${COMETS.seasonId}/lesson-age-band`);
+    const band = { lessonAgeBand: { min: 7, max: 9 } };
+    const before = cometsSeasonRow(scenario());
+    expect(before?.["lesson_age_band"]).toBeNull();
+
+    await asRole(scenario(), "second-team-guardian", async (session) => {
+      const reply = await refused(session, "PUT", ageBand, band, [403]);
+      expect(JSON.parse(reply.text)).toEqual({ error: "team owner permission required" });
+    });
+    expect(cometsSeasonRow(scenario())).toEqual(before);
+
+    await asRole(scenario(), "default", async (session) => {
+      expect((await session.api("PUT", ageBand, band)).status).toBe(200);
+    });
+    const after = cometsSeasonRow(scenario());
+    expect(JSON.parse(String(after?.["lesson_age_band"]))).toEqual(band.lessonAgeBand);
+  });
+
+  test("server refuses Comets co-coach grant and revoke to a guardian, on another adult and on themself (404), and the Comets owner's same calls change the role: proves the owner guard", async () => {
+    const secondAdult = persona("second-adult").personId;
+    const guardian = persona("second-team-guardian").personId;
+    const roleApi = (personId: string, action: "grant" | "revoke") =>
+      teamApi(COMETS.teamId, `/adult-members/${personId}/co-coach/${action}`);
+    const ownerCall = async (personId: string, action: "grant" | "revoke") => {
+      await asRole(scenario(), "default", async (session) => {
+        expect((await session.api("POST", roleApi(personId, action))).status).toBe(200);
+      });
+    };
+    const guardianRefused = async (personId: string, action: "grant" | "revoke") => {
+      await asRole(scenario(), "second-team-guardian", async (session) => {
+        await refused(session, "POST", roleApi(personId, action), undefined, [404]);
+      });
+    };
+    expect(cometsRole(scenario(), secondAdult)).toBe("adult");
+    expect(cometsRole(scenario(), guardian)).toBe("adult");
+
+    await guardianRefused(secondAdult, "grant");
+    expect(cometsRole(scenario(), secondAdult)).toBe("adult");
+    await ownerCall(secondAdult, "grant");
+    expect(cometsRole(scenario(), secondAdult)).toBe("coach");
+
+    await guardianRefused(secondAdult, "revoke");
+    expect(cometsRole(scenario(), secondAdult)).toBe("coach");
+    await ownerCall(secondAdult, "revoke");
+    expect(cometsRole(scenario(), secondAdult)).toBe("adult");
+
+    await guardianRefused(guardian, "grant");
+    expect(cometsRole(scenario(), guardian)).toBe("adult");
+    await ownerCall(guardian, "grant");
+    expect(cometsRole(scenario(), guardian)).toBe("coach");
+
+    await guardianRefused(guardian, "revoke");
+    expect(cometsRole(scenario(), guardian)).toBe("coach");
+    await ownerCall(guardian, "revoke");
+    expect(cometsRole(scenario(), guardian)).toBe("adult");
+  });
+});
+
 describe("team as adult member (team-member)", () => {
   const scenario = useScenario();
 
@@ -437,6 +636,10 @@ describe("team as stranger (stranger)", () => {
       await refused(session, "POST", teamApi(FALCONS.teamId, "/calendar-feed"), undefined, [404]);
       await refuseOwnerOnlyTeamWrites(session, [404]);
     });
+  });
+
+  test("server refuses a Falcons feed revoke to a stranger (404), and the parent's own revoke on the same route succeeds: proves the team membership guard", async () => {
+    await refuseParentFeedRevoke(scenario(), "stranger", [404]);
   });
 
   test("a stranger with a seeded token cannot redeem a different adult's invitation (404)", async () => {
@@ -483,5 +686,9 @@ describe("team as signed-out visitor", () => {
         [401],
       );
     });
+  });
+
+  test("server answers 401 to a feed revoke without a session, and the parent's own revoke on the same route succeeds: proves the session guard", async () => {
+    await refuseParentFeedRevoke(scenario(), signedOut, [401]);
   });
 });

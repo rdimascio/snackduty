@@ -13,6 +13,7 @@ import type { Brand, Scenario } from "./scenario";
 export type Role = SeedPersonaKey | "signed-out";
 
 const VIOLATION_BINDING = "snackdayE2eCspViolation";
+const SETTLED_MARKER = "settled";
 const LESTO_LAYOUT_STYLE = "display:contents";
 const LESTO_LAYOUT_STYLE_HASH = `sha256-${createHash("sha256").update(LESTO_LAYOUT_STYLE).digest("base64")}`;
 const NEUTRAL_PATH = "/styles.css";
@@ -36,6 +37,7 @@ export interface RoleSession {
   reload(): Promise<Response>;
   api(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<ApiReply>;
   allowFailedResponse(status: number, path: string | RegExp): void;
+  settle(): Promise<void>;
   problems(): readonly string[];
   close(): Promise<void>;
 }
@@ -87,6 +89,7 @@ export async function openSession(
     baseURL: origin,
     locale: "en-US",
     timezoneId: SEED_TIME_ZONE,
+    serviceWorkers: "block",
   });
   if (ARTIFACTS_DIR !== undefined) {
     await context.tracing.start({ screenshots: true, snapshots: true });
@@ -97,6 +100,17 @@ export async function openSession(
   const allowed: AllowedFailure[] = [];
   const serverBlockedBefore = scenario.blockedRequests().length;
 
+  context.on("request", (request) => {
+    const url = request.url();
+    if (isLoopback(url) || url === FIXTURE_POSTER_URL) return;
+    const from = request.redirectedFrom()?.url();
+    found.push(
+      from === undefined
+        ? `blocked non-loopback request: ${url}`
+        : `blocked non-loopback redirect: ${from} -> ${url}`,
+    );
+  });
+
   await context.route(
     () => true,
     async (route) => {
@@ -105,7 +119,6 @@ export async function openSession(
       if (url === FIXTURE_POSTER_URL) {
         return route.fulfill({ path: FIXTURE_POSTER_FILE, contentType: "image/png" });
       }
-      found.push(`blocked non-loopback request: ${url}`);
       return route.abort("blockedbyclient");
     },
   );
@@ -201,6 +214,21 @@ export async function openSession(
     allowFailedResponse(status, path) {
       allowed.push({ status, path });
     },
+    async settle() {
+      if (page.isClosed()) return;
+      await page.waitForLoadState("load");
+      await page.evaluate(
+        ({ binding, marker }) =>
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, 0);
+          }).then(() =>
+            (window as unknown as Record<string, (d: string, l: boolean) => Promise<void>>)[
+              binding
+            ]?.(marker, true),
+          ),
+        { binding: VIOLATION_BINDING, marker: SETTLED_MARKER },
+      );
+    },
     problems: () => [
       ...found,
       ...scenario
@@ -244,7 +272,7 @@ export async function asRole(
   const session = await openSession(scenario, role, brand);
   try {
     await run(session);
-    await session.page.waitForTimeout(150);
+    await session.settle();
     expect(session.problems()).toEqual([]);
   } catch (error) {
     await keepArtifacts(session, error);
