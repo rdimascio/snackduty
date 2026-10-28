@@ -1,0 +1,212 @@
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
+import type { Page } from "playwright-core";
+
+import { CHILDREN, FALCONS, expectHtmlLacks, seededBirthDates } from "./support/pages";
+import { useScenario } from "./support/scenario";
+import { asRole, refused } from "./support/session";
+import type { RoleSession } from "./support/session";
+
+setDefaultTimeout(90_000);
+
+const READ_ONLY_LABEL =
+  "Cards for players you coach are read only. Only a player's guardian can add to their card.";
+const FALCONS_CHILDREN = [CHILDREN.avery, CHILDREN.blake, CHILDREN.casey] as const;
+
+const SIGN_IN_BUTTONS = {
+  parent: "Sign in as Pat Parent (guardian)",
+  "head-coach": "Sign in as Hana Headcoach (head coach)",
+  "co-coach": "Sign in as Cole Cocoach (co-coach)",
+} as const;
+
+type BallplayerRole = keyof typeof SIGN_IN_BUTTONS;
+
+async function cardNames(page: Page): Promise<string[]> {
+  const labels = await page
+    .getByRole("list", { name: "Player cards" })
+    .locator('[aria-label^="Player card for "]')
+    .evaluateAll((cards) => cards.map((card) => card.getAttribute("aria-label") ?? ""));
+  return labels.map((label) => label.replace("Player card for ", "")).toSorted();
+}
+
+async function bodyText(page: Page): Promise<string> {
+  const text = await page.locator("body").evaluate((body) => {
+    const copy = body.cloneNode(true) as HTMLElement;
+    for (const script of copy.querySelectorAll("script, style")) script.remove();
+    return copy.textContent ?? "";
+  });
+  return text.replaceAll(/\s+/gu, " ");
+}
+
+async function openApp(session: RoleSession) {
+  const response = await session.open("/app");
+  expect(response.headers()["cache-control"]).toBe("private, no-store");
+  await session.page.waitForLoadState("networkidle");
+  return response;
+}
+
+async function signInFromPanel(session: RoleSession, role: BallplayerRole): Promise<void> {
+  await openApp(session);
+  expect(await bodyText(session.page)).toContain("Development sign-in");
+  const choice = session.page.getByRole("button", { name: SIGN_IN_BUTTONS[role], exact: true });
+  await session.page.waitForFunction(
+    (name) =>
+      [...document.querySelectorAll("button")].some(
+        (candidate) => candidate.textContent === name && !candidate.disabled,
+      ),
+    SIGN_IN_BUTTONS[role],
+  );
+  await Promise.all([session.page.waitForURL(/\/app$/u), choice.click()]);
+  await session.page.waitForLoadState("load");
+}
+
+async function signOutFromApp(session: RoleSession): Promise<void> {
+  const [cookie] = (await session.context.cookies()).filter((entry) =>
+    entry.domain.includes("ballplayer.localhost"),
+  );
+  if (cookie === undefined) throw new Error("no Ballplayer session cookie");
+  await Promise.all([
+    session.page.waitForURL((url) => url.pathname === "/"),
+    session.page.getByRole("button", { name: "Sign out", exact: true }).click(),
+  ]);
+  await openApp(session);
+  expect(await bodyText(session.page)).toContain("Development sign-in");
+  await session.context.addCookies([cookie]);
+  await refused(session, "GET", "/api/session", undefined, [401]);
+}
+
+for (const role of ["head-coach", "co-coach"] as const) {
+  describe(`ballplayer as coach (${role})`, () => {
+    const scenario = useScenario();
+
+    test("signs in from the /app panel, sees a read-only card for every rostered child, and signs out", async () => {
+      await asRole(
+        scenario(),
+        "signed-out",
+        async (session) => {
+          await signInFromPanel(session, role);
+          const response = await openApp(session);
+          expect(response.status()).toBe(200);
+          expect(await cardNames(session.page)).toEqual(
+            FALCONS_CHILDREN.map((child) => child.displayName).toSorted(),
+          );
+          expect(await bodyText(session.page)).toContain(READ_ONLY_LABEL);
+          await expectHtmlLacks(session.page, [
+            CHILDREN.quinn.displayName,
+            CHILDREN.jordan.displayName,
+            ...seededBirthDates(scenario()),
+          ]);
+          await signOutFromApp(session);
+        },
+        "ballplayer",
+      );
+    });
+
+    test("server refuses a coach's card write from the Ballplayer host (404): proves the guardian-only card write guard", async () => {
+      await asRole(
+        scenario(),
+        role,
+        async (session) => {
+          await refused(
+            session,
+            "POST",
+            `/api/dev/teams/${FALCONS.teamId}/participants/${CHILDREN.casey.participantId}/skill-events`,
+            { events: [] },
+            [404],
+          );
+        },
+        "ballplayer",
+      );
+    });
+  });
+}
+
+describe("ballplayer as guardian of two (parent)", () => {
+  const scenario = useScenario();
+
+  test("signs in from the /app panel, sees only their two children's cards with no read-only label, and signs out", async () => {
+    await asRole(
+      scenario(),
+      "signed-out",
+      async (session) => {
+        await signInFromPanel(session, "parent");
+        await openApp(session);
+        expect(await cardNames(session.page)).toEqual(
+          [CHILDREN.avery.displayName, CHILDREN.blake.displayName].toSorted(),
+        );
+        const text = await bodyText(session.page);
+        expect(text.includes(READ_ONLY_LABEL)).toBe(false);
+        expect(text).toContain("Signed in as Pat Parent");
+        await expectHtmlLacks(session.page, [
+          CHILDREN.casey.displayName,
+          ...seededBirthDates(scenario()),
+        ]);
+        await signOutFromApp(session);
+      },
+      "ballplayer",
+    );
+  });
+
+  test("a Snackday session does not sign the same browser in on the Ballplayer host", async () => {
+    await asRole(scenario(), "parent", async (session) => {
+      const ballplayer = scenario().origin("ballplayer");
+      const response = await session.page.goto(`${ballplayer}/app`, { waitUntil: "load" });
+      expect(response?.status()).toBe(200);
+      const text = await bodyText(session.page);
+      expect(text).toContain("Development sign-in");
+      expect(text.includes(CHILDREN.avery.displayName)).toBe(false);
+    });
+  });
+});
+
+describe("ballplayer as other roles", () => {
+  const scenario = useScenario();
+
+  test("the second-team guardian sees only Quinn's card", async () => {
+    await asRole(
+      scenario(),
+      "second-team-guardian",
+      async (session) => {
+        await openApp(session);
+        expect(await cardNames(session.page)).toEqual([CHILDREN.quinn.displayName]);
+      },
+      "ballplayer",
+    );
+  });
+
+  for (const role of ["team-member", "stranger"] as const) {
+    test(`${role} sees no card and no child name`, async () => {
+      await asRole(
+        scenario(),
+        role,
+        async (session) => {
+          await openApp(session);
+          expect(await bodyText(session.page)).toContain("No player cards yet");
+          await expectHtmlLacks(
+            session.page,
+            Object.values(CHILDREN).map((child) => child.displayName),
+          );
+        },
+        "ballplayer",
+      );
+    });
+  }
+
+  test("a signed-out visitor sees only the sign-in panel, and /dev/sign-in is a 404 on this host", async () => {
+    await asRole(
+      scenario(),
+      "signed-out",
+      async (session) => {
+        await openApp(session);
+        const text = await bodyText(session.page);
+        for (const label of Object.values(SIGN_IN_BUTTONS)) expect(text).toContain(label);
+        await expectHtmlLacks(
+          session.page,
+          Object.values(CHILDREN).map((child) => child.displayName),
+        );
+        await session.open("/dev/sign-in", 404);
+        await session.open("/app/roster", 404);
+      },
+      "ballplayer",
+    );
+  });
+});

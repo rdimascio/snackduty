@@ -9,6 +9,17 @@ Snackday is a Bun monorepo for a Lesto web application and a native SwiftUI iOS 
 - Format with `bun run format`; lint with `bun run lint`.
 - Run a workspace script with `bun run --filter <workspace> <script>`.
 - Boot a seeded local scenario with `bun run dev:scenario`; it prints the `/dev/sign-in` link and is ready in about a second. `bun run check:scenario` seeds, verifies every role over HTTP, and tears it down.
+- Run the browser end-to-end suite with `bun run e2e` (or `bun run e2e e2e/duties.test.ts` for one file). It needs Chromium for `playwright-core`; install it once with `bunx playwright-core install chromium`.
+
+## End-to-end suite
+
+- `e2e/` drives the real app in headless Chromium as every seeded role. One file per area: `navigation`, `team`, `roster`, `schedule`, `duties`, `ballplayer`, `csp`. One `describe` per role.
+- `scripts/e2e.ts` builds the client bundle, then runs `bun test ./e2e/`. Each `describe` calls `useScenario()` (`e2e/support/scenario.ts`): it seeds a fresh SQLite file with the SQL seed, boots `apps/web/test/support/csp-scenario-server.ts` on a free port, and launches Chromium. Tests in one `describe` share that server and run in order.
+- `asRole(scenario, role, run, brand?)` (`e2e/support/session.ts`) opens a fresh browser context signed in through `POST /api/dev/sign-in`, and fails the test on any CSP violation except Lesto's `data-lesto-layout` wrapper style, any 429, any page error and any console error. An expected 4xx must be declared with `session.open(path, status)`, `refused(...)` or `session.allowFailedResponse(...)`.
+- Every action test asserts the server state after the click: it reads the SQLite file (`scenario.query`) and reloads the page. Every negative test calls the API from the page with that role's cookie through `refused(...)` and names the guard it proves.
+- A seeded email is a label, not a verified identity. `e2e/team.test.ts` covers an email-bound invitation by inserting a `verified_identity_emails` row for the `default` adult in its own scenario; the stranger's seeded invitation is bound to the person, so it needs none.
+- Known app bugs stay as `test.failing` tests named `known bug: …`. When a fix lands, the test starts to pass, `bun test` reports it, and the `failing` marker must go.
+- With `E2E_ARTIFACTS_DIR` set (`bun run e2e` sets `.artifacts/e2e`), a failing test saves a Playwright trace, a full-page screenshot and its problems there. CI uploads that folder on failure.
 
 ## Dev seed and roles
 
@@ -56,7 +67,7 @@ Snackday is a Bun monorepo for a Lesto web application and a native SwiftUI iOS 
 - Open Ballplayer locally: run `bun run --filter web dev`, then open `http://ballplayer.localhost:<port>/`.
 - Every response from the app handler carries a strict Content-Security-Policy on both brands, from `apps/web/app/server/content-security-policy.ts`: `BALLPLAYER_CONTENT_SECURITY_POLICY` on the Ballplayer host and `SNACKDAY_CONTENT_SECURITY_POLICY` on every other host. Every directive is `'self'` or `'none'`; the only other origin is `REEL_MEDIA_ORIGIN` (lesson posters), in Snackday's `img-src` only. Production applies it once, outermost, in `openRuntimeApplication` (`runtime/application.ts`), around the remote safety policy, release and asset wrappers; dev applies it with `secureBrands` in `lesto.app.ts`; the Cloudflare Worker (`worker.ts`) applies it with `withBrandSecurityFetch` around both the `ASSETS` binding and the app handler. Never rewrite the HTML body to satisfy the policy. Lesto's `[data-lesto-layout]` wrapper still carries an inline `style="display:contents"`; the policy blocks it and `app/styles/app.css` sets that display instead. It is the only inline style allowed until `@lesto/web` emits the wrapper without one. Island state stays in `type="application/json"` blocks, which the policy does not execute. Responses the `@lesto/runtime` transport writes itself (`/health`, `/readyz`, and its own 400, 413, 500 and 503 answers) and dev-server assets (`/styles.css`, `/@lesto-dev/*`) are outside the app handler and carry no policy.
 - The policy protects minors on both brands. Do not loosen it (no new source or origin, `unsafe-*`, `data:`, `*`, hash, nonce, or removed directive) without Ryan's explicit yes. A page that needs a script or style gets it from a file on this origin.
-- `lesto dev` appends inline live-reload and AI-overlay scripts and opens its HMR websocket on a second port, so the policy blocks them on every host in dev. `bun run check:csp-browser` builds the client, applies the SQL seed plus a 60-player roster, serves the app handler without those dev tools, and fails on any CSP violation except the blocked layout wrapper style on `/`, `/features`, `/dev/sign-in`, `/app`, `/app/schedule` and `/app/duties` (as `head-coach` and `parent` each), `/invite` and the Ballplayer home.
+- `lesto dev` appends inline live-reload and AI-overlay scripts and opens its HMR websocket on a second port, so the policy blocks them on every host in dev. `bun run e2e` serves the app handler without those dev tools and fails on any CSP violation except the blocked layout wrapper style, on every page it opens as every role. `e2e/csp.test.ts` also checks the exact policy header on both brands, the lesson poster from `REEL_MEDIA_ORIGIN`, and a 60-player roster that streams past React's first chunk.
 
 ## Repository layout
 

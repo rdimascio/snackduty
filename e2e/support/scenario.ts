@@ -13,6 +13,7 @@ import { seedDatabase } from "../../apps/web/app/dev/seed-database";
 const WEB_ROOT = fileURLToPath(new URL("../../apps/web/", import.meta.url));
 const SERVER_ENTRY = join(WEB_ROOT, "test", "support", "csp-scenario-server.ts");
 const SERVER_READY_TIMEOUT_MS = 30_000;
+const DATABASE_BUSY_TIMEOUT_MS = 5_000;
 
 export const BALLPLAYER_HOST = "ballplayer.localhost";
 
@@ -96,6 +97,7 @@ export async function startScenario(options: ScenarioOptions = {}): Promise<Scen
   const withDatabase = <T>(use: (database: Database) => T): T => {
     const database = new Database(databasePath);
     try {
+      database.exec(`PRAGMA busy_timeout = ${DATABASE_BUSY_TIMEOUT_MS}`);
       return use(database);
     } finally {
       database.close();
