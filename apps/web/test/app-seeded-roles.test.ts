@@ -6,6 +6,7 @@ import { applySeed } from "../app/dev/seed-database";
 import { SEED_CHILDREN, SEED_TEAMS, SEED_TIME_ZONE } from "../app/dev/seed-personas";
 import type { SeedPersonaKey } from "../app/dev/seed-personas";
 import { registerDevSignIn } from "../app/dev/sign-in";
+import { staticLessonCatalog } from "../app/lessons/catalog";
 import { createApplication } from "../app/lib/server/composition";
 import { identityServices } from "../app/lib/server/identity";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
@@ -16,6 +17,7 @@ type Handle = Awaited<ReturnType<typeof createApp>>["handle"];
 
 const sameOrigin = { "sec-fetch-site": "same-origin" };
 const NOT_FOUND_TEXT = "That page isn't on the roster";
+const seedNow = new Date();
 
 let handle: Handle;
 let close: () => void;
@@ -29,15 +31,16 @@ beforeAll(async () => {
     sql: opened.db,
     db,
     sessions,
-    clock: Date.now,
+    clock: () => seedNow.getTime(),
     mode: "development",
     developmentSignIn: true,
     inviteDelivery: devInviteDeliverer(),
+    lessons: { enabled: true, catalog: staticLessonCatalog([]) },
   });
   await registerRuntimePages(config.app);
   const app = registerDevSignIn(config.app, { enabled: true, db, sessions });
   handle = (await createApp({ ...config, app })).handle;
-  await applySeed(opened.db);
+  await applySeed(opened.db, { now: seedNow });
   seededBirthDates = (await opened.db
     .prepare(
       "SELECT people.display_name AS name, participants.birth_date AS birthDate FROM participants JOIN people ON people.id = participants.person_id WHERE participants.birth_date IS NOT NULL",
@@ -77,18 +80,20 @@ function executableInlineScripts(html: string): string[] {
 }
 
 describe("the /app overview roster for coaches", () => {
-  const avery = { name: SEED_CHILDREN.avery.displayName, birthDate: "2018-04-10" };
+  const averyName = SEED_CHILDREN.avery.displayName;
 
   for (const persona of ["head-coach", "co-coach"] as const) {
     it(`shows ${persona} each child's age and no birth date`, async () => {
       const { status, html } = await page(await signIn(persona), "/app");
       expect(status).toBe(200);
       expect(html).toContain(SEED_TEAMS.coached.name);
-      expect(seededBirthDates).toContainEqual(avery);
 
-      const today = localDateIn(Date.now(), SEED_TIME_ZONE);
+      const today = localDateIn(seedNow.getTime(), SEED_TIME_ZONE);
+      const avery = seededBirthDates.find((child) => child.name === averyName);
+      expect(avery).toBeDefined();
+      expect(html).toContain(`Age ${ageOn(avery?.birthDate ?? "", today)}`);
       const coached = seededBirthDates.filter((child) => html.includes(child.name));
-      expect(coached.map((child) => child.name)).toContain(avery.name);
+      expect(coached.map((child) => child.name)).toContain(averyName);
       for (const child of coached) {
         expect(html).toContain(`Age ${ageOn(child.birthDate, today)}`);
       }
@@ -102,11 +107,7 @@ describe("the /app overview roster for coaches", () => {
 describe("pages for a team the signed-in adult is not on", () => {
   const falcons = SEED_TEAMS.coached.teamId;
 
-  for (const path of [
-    "/app/roster",
-    "/app/duties",
-    `/app/roster/${SEED_CHILDREN.avery.participantId}`,
-  ]) {
+  for (const path of ["/app/roster", "/app/duties"]) {
     it(`answers the stranger a rendered 404 page for ${path}?team=${falcons}`, async () => {
       const { status, html } = await page(await signIn("stranger"), path, { team: falcons });
       expect(status).toBe(404);
@@ -116,6 +117,40 @@ describe("pages for a team the signed-in adult is not on", () => {
       expect(html).not.toContain('aria-busy="true"');
       expect(html).not.toContain(SEED_TEAMS.coached.name);
       expect(html).not.toContain(SEED_CHILDREN.avery.displayName);
+    });
+  }
+});
+
+describe("a Falcons player card for adults who may not read it", () => {
+  const falcons = SEED_TEAMS.coached;
+  const cardPath = `/app/roster/${SEED_CHILDREN.avery.participantId}`;
+
+  it("shows the head coach Avery's card", async () => {
+    const { status, html } = await page(await signIn("head-coach"), cardPath, {
+      team: falcons.teamId,
+    });
+    expect(status).toBe(200);
+    expect(html).toContain(SEED_CHILDREN.avery.displayName);
+    expect(html).toContain(falcons.name);
+  });
+
+  for (const persona of ["stranger", "second-team-guardian"] as const) {
+    it(`answers ${persona} a rendered 404 page with no team or child data`, async () => {
+      const { status, html } = await page(await signIn(persona), cardPath, {
+        team: falcons.teamId,
+      });
+      expect(status).toBe(404);
+      expect(html).toContain(NOT_FOUND_TEXT);
+      expect(executableInlineScripts(html)).toEqual([]);
+      expect(html).not.toContain("data-stck");
+      expect(html).not.toContain('aria-busy="true"');
+      for (const id of [falcons.teamId, falcons.seasonId, SEED_CHILDREN.avery.participantId]) {
+        expect(html).not.toContain(id);
+      }
+      expect(html).not.toContain(falcons.name);
+      for (const child of Object.values(SEED_CHILDREN)) {
+        expect(html).not.toContain(child.displayName);
+      }
     });
   }
 });
