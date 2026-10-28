@@ -8,6 +8,7 @@ import {
   cardPath,
   expectHtmlLacks,
   expectNoButton,
+  localDatePlus,
   main,
   mainText,
   openFresh,
@@ -47,6 +48,19 @@ function guardianNames(scenario: Scenario, participantId: string): string[] {
       participantId,
     )
     .map((row) => `${row.display_name} (${row.relationship})`);
+}
+
+function seededAge(scenario: Scenario, participantId: string): number {
+  const [row] = scenario.query<{ birth_date: string }>(
+    "SELECT birth_date FROM participants WHERE id = ?",
+    participantId,
+  );
+  if (row === undefined) throw new Error(`no birth date for ${participantId}`);
+  const [bornYear, bornMonth, bornDay] = row.birth_date.split("-").map(Number);
+  const [year, month, day] = localDatePlus(0).split("-").map(Number);
+  const hadBirthday =
+    (month ?? 0) > (bornMonth ?? 0) || (month === bornMonth && (day ?? 0) >= (bornDay ?? 0));
+  return (year ?? 0) - (bornYear ?? 0) - (hadBirthday ? 0 : 1);
 }
 
 function skillEventCount(scenario: Scenario, participantId: string): number {
@@ -421,17 +435,23 @@ describe("roster: no birth date on any signed-in page", () => {
     });
   }
 
-  for (const role of ["head-coach", "co-coach", "parent", "second-team-guardian"] as const) {
-    test.failing(
-      `known bug: the /app overview prints a child's birth date to ${role}`,
-      async () => {
-        await asRole(scenario(), role, async (session) => {
-          await openFresh(session, "/app");
-          expect(await mainText(session.page)).not.toContain("Born ");
-          await expectHtmlLacks(session.page, seededBirthDates(scenario()));
-        });
-      },
-    );
+  const overviewChild = {
+    "head-coach": CHILDREN.avery,
+    "co-coach": CHILDREN.avery,
+    parent: CHILDREN.avery,
+    "second-team-guardian": CHILDREN.quinn,
+  } as const;
+
+  for (const [role, child] of Object.entries(overviewChild)) {
+    test(`the /app overview shows ${role} ${child.displayName}'s age and no birth date`, async () => {
+      await asRole(scenario(), role as Role, async (session) => {
+        const text = await openFresh(session, "/app");
+        expect(text).toContain(child.displayName);
+        expect(text).toContain(`Age ${seededAge(scenario(), child.participantId)}`);
+        expect(text).not.toContain("Born ");
+        await expectHtmlLacks(session.page, seededBirthDates(scenario()));
+      });
+    });
   }
 
   for (const role of ["team-member"] as const) {

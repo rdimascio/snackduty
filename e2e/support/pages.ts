@@ -93,6 +93,36 @@ export async function expectHtmlLacks(page: Page, needles: readonly string[]): P
   for (const needle of needles) expect(html.includes(needle) ? needle : "").toBe("");
 }
 
+export const NOT_FOUND_TITLE = "That page isn't on the roster";
+export const NOT_FOUND_DESCRIPTION = "The page may have moved, or the address may be incomplete.";
+const LESTO_DEV_OVERLAY_SCRIPT_IDS = new Set(["__lesto_dev_overlay__", "__lesto_ai_overlay__"]);
+
+function scriptAttribute(attributes: string, name: string): string | undefined {
+  return new RegExp(`\\b${name}\\s*=\\s*["']?([^"'\\s>]+)`, "iu").exec(attributes)?.[1];
+}
+
+export function appInlineScripts(html: string): string[] {
+  return [...html.matchAll(/<script\b([^>]*)>/giu)]
+    .filter(([, attributes = ""]) => {
+      if (scriptAttribute(attributes, "src") !== undefined) return false;
+      if (scriptAttribute(attributes, "type")?.toLowerCase() === "application/json") return false;
+      return !LESTO_DEV_OVERLAY_SCRIPT_IDS.has(scriptAttribute(attributes, "id") ?? "");
+    })
+    .map(([tag]) => tag);
+}
+
+export async function expectRenderedNotFound(page: Page, html: string): Promise<void> {
+  await main(page)
+    .getByRole("heading", { level: 1, name: NOT_FOUND_TITLE })
+    .waitFor({ state: "visible", timeout: 10_000 });
+  await expectVisibleText(page, NOT_FOUND_DESCRIPTION);
+  await expectNoSkeleton(page);
+  expect(html.includes('aria-busy="true"')).toBe(false);
+  expect(html.includes("data-stck")).toBe(false);
+  expect(await page.locator("[data-stck]").count()).toBe(0);
+  expect(appInlineScripts(html)).toEqual([]);
+}
+
 export function seededBirthDates(scenario: Scenario): string[] {
   return scenario
     .query<{ birth_date: string }>(

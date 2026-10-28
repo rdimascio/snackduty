@@ -11,6 +11,7 @@ import {
   expectAbsentText,
   expectHydrated,
   expectNoSkeleton,
+  expectRenderedNotFound,
   expectVisibleText,
   main,
   mainText,
@@ -254,26 +255,15 @@ describe("navigation: a stranger cannot open another team by id", () => {
   for (const path of [
     `/app/roster?team=${FALCONS.teamId}&season=${FALCONS.seasonId}`,
     `/app/duties?team=${FALCONS.teamId}&season=${FALCONS.seasonId}`,
+    cardPath(CHILDREN.avery.participantId),
   ]) {
-    test.failing(
-      `known bug: ${path.split("?")[0]} answers 404 but stays on its loading skeleton for the stranger`,
-      async () => {
-        await asRole(scenario(), "stranger", async (session) => {
-          await session.open(path, 404);
-          await expectNoSkeleton(session.page);
-          await main(session.page).getByRole("heading").first().waitFor({ timeout: 2_000 });
+    for (const role of ["stranger", "second-team-guardian"] as const) {
+      test(`${path.split("?")[0]} renders the shared not-found page to ${role} with no skeleton, stack or app inline script`, async () => {
+        await asRole(scenario(), role, async (session) => {
+          const response = await session.open(path, 404);
+          await expectRenderedNotFound(session.page, await response.text());
         });
-      },
-    );
-
-    test.failing(
-      `known bug: the ${path.split("?")[0]} 404 for the stranger carries a server stack in data-stck`,
-      async () => {
-        await asRole(scenario(), "stranger", async (session) => {
-          await session.open(path, 404);
-          expect(await session.page.locator("[data-stck]").count()).toBe(0);
-        });
-      },
-    );
+      });
+    }
   }
 });
