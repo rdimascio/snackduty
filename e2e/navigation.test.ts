@@ -265,5 +265,15 @@ describe("navigation: a stranger cannot open another team by id", () => {
         });
       },
     );
+
+    test.failing(
+      `known bug: the ${path.split("?")[0]} 404 for the stranger carries a server stack in data-stck`,
+      async () => {
+        await asRole(scenario(), "stranger", async (session) => {
+          await session.open(path, 404);
+          expect(await session.page.locator("[data-stck]").count()).toBe(0);
+        });
+      },
+    );
   }
 });
