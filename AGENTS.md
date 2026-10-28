@@ -9,7 +9,7 @@ Snackday is a Bun monorepo for a Lesto web application and a native SwiftUI iOS 
 - Format with `bun run format`; lint with `bun run lint`.
 - Run a workspace script with `bun run --filter <workspace> <script>`.
 - Boot a seeded local scenario with `bun run dev:scenario`; it prints the `/dev/sign-in` link and is ready in about a second. `bun run check:scenario` seeds, verifies every role over HTTP, and tears it down.
-- Run the browser end-to-end suite with `bun run e2e` (or `bun run e2e e2e/duties.test.ts` for one file). It needs Chromium for `playwright-core`; install it once with `bunx playwright-core install chromium`.
+- Run the browser end-to-end suite with `bun run e2e` (or `bun run e2e e2e/duties.test.ts` for one file). It needs Chromium for `playwright-core`; install it once with `bunx playwright-core install chromium`. It also needs Bun 1.4.2 or later: Bun 1.3.5 drops Playwright's browser connection mid-run, so `scripts/e2e.ts` refuses it. On Bun 1.3.5, run `bunx bun@1.4.2 scripts/e2e.ts`. The CI e2e job pins Bun 1.4.2; every other job keeps the repo's 1.3.5.
 
 ## End-to-end suite
 

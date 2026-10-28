@@ -51,7 +51,7 @@ async function firstLine(stream: ReadableStream<Uint8Array>): Promise<string> {
 
 async function bootServer(databasePath: string) {
   const child = Bun.spawn({
-    cmd: ["bun", SERVER_ENTRY],
+    cmd: [process.execPath, SERVER_ENTRY],
     cwd: WEB_ROOT,
     env: {
       ...process.env,
