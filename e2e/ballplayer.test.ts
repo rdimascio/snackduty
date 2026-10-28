@@ -44,6 +44,10 @@ async function openApp(session: RoleSession) {
   return response;
 }
 
+function pathIs(url: string, path: string): boolean {
+  return new URL(url).pathname === path;
+}
+
 async function signInFromPanel(session: RoleSession, role: BallplayerRole): Promise<void> {
   await openApp(session);
   expect(await bodyText(session.page)).toContain("Development sign-in");
@@ -55,7 +59,6 @@ async function signInFromPanel(session: RoleSession, role: BallplayerRole): Prom
       ),
     SIGN_IN_BUTTONS[role],
   );
-  const pathIs = (url: string, path: string) => new URL(url).pathname === path;
   const signedIn = session.page.waitForResponse((reply) => pathIs(reply.url(), "/api/dev/sign-in"));
   const reloaded = session.page.waitForResponse(
     (reply) => reply.request().isNavigationRequest() && pathIs(reply.url(), "/app"),

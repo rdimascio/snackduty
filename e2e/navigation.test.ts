@@ -13,7 +13,6 @@ import {
   expectNoSkeleton,
   expectRenderedNotFound,
   expectVisibleText,
-  main,
   mainText,
 } from "./support/pages";
 import { useScenario } from "./support/scenario";
