@@ -323,6 +323,8 @@ describe("duties race: two adults claim one open slot", () => {
       expect([first.status, second.status].toSorted()).toEqual([200, 409]);
       const winner = first.status === 200 ? "co-coach" : "team-member";
       expect(slotAssignee(scenario(), SLOTS.hawksFieldSetup)).toBe(persona(winner).personId);
+      expect(coCoach.problems()).toEqual([]);
+      expect(member.problems()).toEqual([]);
     } finally {
       await coCoach.close();
       await member.close();

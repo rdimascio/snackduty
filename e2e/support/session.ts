@@ -7,6 +7,7 @@ import type { BrowserContext, Page, Response } from "playwright-core";
 
 import { SEED_TIME_ZONE } from "../../apps/web/app/dev/seed-personas";
 import type { SeedPersonaKey } from "../../apps/web/app/dev/seed-personas";
+import { FIXTURE_POSTER_FILE, FIXTURE_POSTER_URL, isLoopback } from "./reel-fixture";
 import type { Brand, Scenario } from "./scenario";
 
 export type Role = SeedPersonaKey | "signed-out";
@@ -94,6 +95,20 @@ export async function openSession(
   const page = await context.newPage();
   const found: string[] = [];
   const allowed: AllowedFailure[] = [];
+  const serverBlockedBefore = scenario.blockedRequests().length;
+
+  await context.route(
+    () => true,
+    async (route) => {
+      const url = route.request().url();
+      if (isLoopback(url)) return route.continue();
+      if (url === FIXTURE_POSTER_URL) {
+        return route.fulfill({ path: FIXTURE_POSTER_FILE, contentType: "image/png" });
+      }
+      found.push(`blocked non-loopback request: ${url}`);
+      return route.abort("blockedbyclient");
+    },
+  );
 
   await page.exposeBinding(VIOLATION_BINDING, (_source, detail: string, layout: boolean) => {
     if (!layout) found.push(`CSP violation: ${detail}`);
@@ -186,7 +201,13 @@ export async function openSession(
     allowFailedResponse(status, path) {
       allowed.push({ status, path });
     },
-    problems: () => [...found],
+    problems: () => [
+      ...found,
+      ...scenario
+        .blockedRequests()
+        .slice(serverBlockedBefore)
+        .map((url) => `server blocked non-loopback request: ${url}`),
+    ],
     async close() {
       await context.close();
     },

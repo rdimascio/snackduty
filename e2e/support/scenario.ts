@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ import type { Browser } from "playwright-core";
 import { seedDatabase } from "../../apps/web/app/dev/seed-database";
 
 const WEB_ROOT = fileURLToPath(new URL("../../apps/web/", import.meta.url));
-const SERVER_ENTRY = join(WEB_ROOT, "test", "support", "csp-scenario-server.ts");
+const SERVER_ENTRY = fileURLToPath(new URL("./offline-scenario-server.ts", import.meta.url));
 const SERVER_READY_TIMEOUT_MS = 30_000;
 const DATABASE_BUSY_TIMEOUT_MS = 5_000;
 
@@ -30,6 +31,7 @@ export interface Scenario {
   origin(brand?: Brand): string;
   query<T>(sql: string, ...params: (string | number | null)[]): T[];
   execute(sql: string): void;
+  blockedRequests(): readonly string[];
   stop(): Promise<void>;
 }
 
@@ -49,13 +51,27 @@ async function firstLine(stream: ReadableStream<Uint8Array>): Promise<string> {
   }
 }
 
-async function bootServer(databasePath: string) {
+function readBlockedRequests(logPath: string): string[] {
+  let text: string;
+  try {
+    text = readFileSync(logPath, "utf8");
+  } catch {
+    return [];
+  }
+  return text
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => (JSON.parse(line) as { url: string }).url);
+}
+
+async function bootServer(databasePath: string, blockedLog: string) {
   const child = Bun.spawn({
     cmd: [process.execPath, SERVER_ENTRY],
     cwd: WEB_ROOT,
     env: {
       ...process.env,
       LESTO_DB: databasePath,
+      E2E_BLOCKED_REQUESTS_LOG: blockedLog,
       SNACKDAY_DEV_SIGN_IN: "true",
       SNACKDAY_LESSON_OF_THE_WEEK: "true",
       SNACKDAY_RUNTIME_MODE: "development",
@@ -91,7 +107,8 @@ export async function startScenario(options: ScenarioOptions = {}): Promise<Scen
   } finally {
     seeded.close();
   }
-  const server = await bootServer(databasePath);
+  const blockedLog = join(scratch, "blocked-requests.jsonl");
+  const server = await bootServer(databasePath, blockedLog);
   const browser = await chromium.launch({ headless: true });
   const withDatabase = <T>(use: (database: Database) => T): T => {
     const database = new Database(databasePath);
@@ -113,6 +130,7 @@ export async function startScenario(options: ScenarioOptions = {}): Promise<Scen
     query: <T>(sql: string, ...params: (string | number | null)[]) =>
       withDatabase((database) => database.query(sql).all(...params) as T[]),
     execute: (sql) => withDatabase((database) => database.exec(sql)),
+    blockedRequests: () => readBlockedRequests(blockedLog),
     stop: async () => {
       await browser.close();
       await server.stop();
