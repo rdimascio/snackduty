@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { notFound } from "@lesto/web";
 import type { Context, PageDef, PageProps } from "@lesto/web";
 
 import { EmptyState } from "../../../components/states/empty-state";
@@ -9,19 +8,22 @@ import { loadDutiesPage } from "../../../duties/duties-data";
 import type { DutiesPageData, SeasonChoice } from "../../../duties/duties-data";
 import DutiesBoardIsland from "../../../islands/duties-board";
 import { appServices } from "../../../lib/server/app-services";
+import { NotFoundState } from "../../not-found";
 
 function selectionValue(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed === undefined || trimmed === "" ? undefined : trimmed;
 }
 
-const load = (c: Context<"/app/duties">): Promise<DutiesPageData> => {
+const load = async (c: Context<"/app/duties">): Promise<DutiesPageData> => {
   const teamId = selectionValue(c.query("team"));
   const seasonId = selectionValue(c.query("season"));
-  return loadDutiesPage(appServices(c), c.header("cookie"), {
+  const data = await loadDutiesPage(appServices(c), c.header("cookie"), {
     ...(teamId === undefined ? {} : { teamId }),
     ...(seasonId === undefined ? {} : { seasonId }),
   });
+  if (data.state === "not-found") c.status(404);
+  return data;
 };
 
 function DutiesIntro({ title, lede }: { title: string; lede: string }): ReactNode {
@@ -57,7 +59,7 @@ function SeasonSwitcher({ choices }: { choices: readonly SeasonChoice[] }): Reac
 }
 
 function Duties(data: PageProps<typeof load>): ReactNode {
-  if (data.state === "not-found") notFound();
+  if (data.state === "not-found") return <NotFoundState />;
 
   if (data.state === "signed-out") {
     return (
