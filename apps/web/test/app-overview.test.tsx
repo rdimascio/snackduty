@@ -5,6 +5,7 @@ import type { PageProps } from "@lesto/web";
 import { renderToStaticMarkup as render } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
+import { ageOn, localDateIn } from "../app/roster/age";
 import appPage from "../app/routes/app/page";
 
 process.env.LESTO_DB = ":memory:";
@@ -147,6 +148,10 @@ async function joinAsSecondAdult(
   return memberCookie;
 }
 
+function ageLine(birthDate: string): string {
+  return `Age ${ageOn(birthDate, localDateIn(Date.now(), "America/Los_Angeles"))}`;
+}
+
 type Loaded = PageProps<NonNullable<typeof appPage.load>>;
 
 async function loadOverview(cookie?: string): Promise<Loaded> {
@@ -178,7 +183,10 @@ describe("/app overview loader", () => {
     expect(html).toContain("T-Ball Tigers");
     expect(html).toContain("Spring 2026");
     expect(html).toContain("Casey Kid");
-    expect(html).toContain("Born 2018-04-09");
+    expect(html).toContain(ageLine("2018-04-09"));
+    expect(html).not.toContain("2018-04-09");
+    expect(html).not.toContain("Born");
+    expect(JSON.stringify(loaded)).not.toContain("birthDate");
     expect(html).toContain("Alex Guardian");
     expect(html).toContain("parent");
     expect(html).toContain("Bailey Guardian");
@@ -198,7 +206,9 @@ describe("/app overview loader", () => {
     expect(html).toContain("T-Ball Tigers");
     expect(html).toContain("Spring 2026");
     expect(html).toContain("Casey Kid");
-    expect(html).not.toContain("Born 2018-04-09");
+    expect(html).toContain("Age not on file");
+    expect(html).not.toContain(ageLine("2018-04-09"));
+    expect(html).not.toContain("2018-04-09");
     expect(html).not.toContain("Alex Guardian");
     expect(html).not.toContain("Bailey Guardian");
     expect(html).not.toContain("No guardians on file yet");
@@ -228,10 +238,12 @@ describe("/app overview loader", () => {
 
     const html = render(<appPage.component {...await loadOverview(guardianCookie)} />);
     expect(html).toContain("Casey Kid");
-    expect(html).toContain("Born 2018-04-09");
+    expect(html).toContain(ageLine("2018-04-09"));
     expect(html).toContain("Second Development Adult");
     expect(html).toContain("Rowan Teammate");
-    expect(html).not.toContain("Born 2019-05-14");
+    expect(html).toContain("Age not on file");
+    expect(html).not.toContain("2018-04-09");
+    expect(html).not.toContain("2019-05-14");
   });
 
   it("shows a child's guardian invitation counts without the inviter's label", async () => {

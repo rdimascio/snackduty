@@ -10,10 +10,13 @@ import type { RosterEntry } from "../../lib/server/team-reads";
 import { LessonOfTheWeekCard } from "../../lessons/lesson-card";
 import type { LessonCardProps } from "../../lessons/lesson-card";
 import { lessonServicesFrom, loadLessonCard } from "../../lessons/lessons";
+import { ageOn, localDateIn } from "../../roster/age";
 import { PlayerCardSection } from "../../skills/player-card-section";
 import type { PlayerCardEntry } from "../../skills/player-card-section";
 import { loadPlayerCards } from "../../skills/skill-card";
 import type { PlayerCard } from "../../skills/skill-card";
+
+type OverviewChild = Omit<RosterEntry, "birthDate"> & { readonly age?: number };
 
 type OverviewData =
   | { readonly state: "signed-out" }
@@ -22,7 +25,7 @@ type OverviewData =
       readonly state: "team";
       readonly teamName: string;
       readonly seasonLabel: string | undefined;
-      readonly roster: readonly RosterEntry[];
+      readonly roster: readonly OverviewChild[];
       readonly lesson?: LessonCardProps;
       readonly playerCards?: readonly PlayerCardEntry[];
     };
@@ -48,7 +51,7 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
   if (first === undefined) return { state: "no-team" };
 
   const season = first.seasons[0];
-  const roster =
+  const entries =
     season === undefined
       ? []
       : await loadRoster(
@@ -61,6 +64,8 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
           },
           services.clock,
         );
+  const today = season === undefined ? "" : localDateIn(services.clock(), season.timeZone);
+  const roster = entries.map((entry) => overviewChild(entry, today));
   const lessons = lessonServicesFrom(c);
   const card =
     lessons === undefined
@@ -80,9 +85,15 @@ const load = async (c: Context<"/app">): Promise<OverviewData> => {
   };
 };
 
+function overviewChild(entry: RosterEntry, today: string): OverviewChild {
+  const { birthDate, ...visible } = entry;
+  const age = birthDate === undefined ? undefined : ageOn(birthDate, today);
+  return age === undefined ? visible : { ...visible, age };
+}
+
 function answerPlayers(
   progress: readonly { readonly participantId: string }[],
-  roster: readonly RosterEntry[],
+  roster: readonly OverviewChild[],
 ) {
   return progress.map((entry, index) => ({
     participantId: entry.participantId,
@@ -180,7 +191,7 @@ function InvitationStatus({
   );
 }
 
-function RosterSection({ roster }: { roster: readonly RosterEntry[] }): ReactNode {
+function RosterSection({ roster }: { roster: readonly OverviewChild[] }): ReactNode {
   if (roster.length === 0) {
     return (
       <EmptyState
@@ -198,9 +209,9 @@ function RosterSection({ roster }: { roster: readonly RosterEntry[] }): ReactNod
           key={entry.participantId}
         >
           <p className="text-xl font-bold">{entry.displayName}</p>
-          {entry.birthDate === undefined ? null : (
-            <p className="mt-1 text-sm text-muted-foreground">Born {entry.birthDate}</p>
-          )}
+          <p className="mt-1 text-sm text-muted-foreground">
+            {entry.age === undefined ? "Age not on file" : `Age ${entry.age}`}
+          </p>
           {entry.guardianInvitations === undefined ? null : (
             <>
               <GuardianList guardians={entry.guardians} />
@@ -222,7 +233,7 @@ function TeamOverview({
 }: {
   lesson: LessonCardProps | undefined;
   playerCards: readonly PlayerCardEntry[] | undefined;
-  roster: readonly RosterEntry[];
+  roster: readonly OverviewChild[];
   seasonLabel: string | undefined;
   teamName: string;
 }): ReactNode {

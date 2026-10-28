@@ -9,12 +9,14 @@ import { RosterPage } from "../../../roster/roster-view";
 const load = async (c: Context<"/app/roster">): Promise<RosterPageData> => {
   const services = appServices(c);
   if (services === undefined) return { state: "signed-out" };
-  return loadRosterPage(
+  const data = await loadRosterPage(
     services,
     c.header("cookie"),
     { teamId: c.query("team"), seasonId: c.query("season") },
     lessonServicesFrom(c) !== undefined,
   );
+  if (data.state === "not-found") c.status(404);
+  return data;
 };
 
 const page: PageDef<"/app/roster", RosterPageData> = {

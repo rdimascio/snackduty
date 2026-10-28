@@ -570,7 +570,12 @@ async function verifySignedInAppPage(base: string, cookie: string): Promise<void
       `guardian relationship "${relationship}" not rendered`,
     );
   }
-  ensure(step, rendered.includes(`Born ${CHILD.birthDate}`), "participant birth date not rendered");
+  ensure(
+    step,
+    !html.includes(CHILD.birthDate),
+    "signed-in /app HTML leaks the participant birth date",
+  );
+  ensure(step, /Age \d+/.test(rendered), "participant age not rendered");
   const scanned = withoutLestoDevTooling(html).toLowerCase();
   for (const forbidden of FORBIDDEN_APP_HTML) {
     ensure(
