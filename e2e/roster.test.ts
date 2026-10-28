@@ -242,7 +242,7 @@ describe("roster as owner (head-coach)", () => {
     });
   });
 
-  test("server refuses a coach's skill-event write to a child's card (404): proves the guardian-only card write guard", async () => {
+  test("server refuses a coach's write to a child's card through the dev skill-event route (404); lesson-answers.test.ts covers the production write", async () => {
     const before = skillEventCount(scenario(), CHILDREN.avery.participantId);
     await asRole(scenario(), "head-coach", async (session) => {
       await refused(
@@ -272,7 +272,7 @@ describe("roster as co-coach (co-coach)", () => {
     );
   });
 
-  test("server refuses a co-coach's skill-event write to a child's card (404): proves the guardian-only card write guard", async () => {
+  test("server refuses a co-coach's write to a child's card through the dev skill-event route (404); lesson-answers.test.ts covers the production write", async () => {
     const before = skillEventCount(scenario(), CHILDREN.blake.participantId);
     await asRole(scenario(), "co-coach", async (session) => {
       await refused(

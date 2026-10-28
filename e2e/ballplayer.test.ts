@@ -1,6 +1,7 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import type { Page } from "playwright-core";
 
+import { cardWriteRows, correctAnswer, lessonAnswersPath } from "./support/lessons";
 import { CHILDREN, FALCONS, expectHtmlLacks, seededBirthDates } from "./support/pages";
 import { useScenario } from "./support/scenario";
 import { asRole, refused } from "./support/session";
@@ -112,11 +113,20 @@ for (const role of ["head-coach", "co-coach"] as const) {
       );
     });
 
-    test("server refuses a coach's card write from the Ballplayer host (404): proves the guardian-only card write guard", async () => {
+    test("server refuses a coach's card write from the Ballplayer host on the lesson answer route and the dev skill-event route (404), and the card rows stay the same", async () => {
+      const before = cardWriteRows(scenario(), CHILDREN.casey.participantId);
       await asRole(
         scenario(),
         role,
         async (session) => {
+          const answered = await refused(
+            session,
+            "POST",
+            lessonAnswersPath(FALCONS.teamId),
+            correctAnswer(CHILDREN.casey.participantId),
+            [404],
+          );
+          expect(answered.body).toEqual({ error: "participant not found" });
           await refused(
             session,
             "POST",
@@ -127,6 +137,7 @@ for (const role of ["head-coach", "co-coach"] as const) {
         },
         "ballplayer",
       );
+      expect(cardWriteRows(scenario(), CHILDREN.casey.participantId)).toEqual(before);
     });
   });
 }
