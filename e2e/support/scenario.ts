@@ -17,6 +17,10 @@ const SERVER_READY_TIMEOUT_MS = 30_000;
 const DATABASE_BUSY_TIMEOUT_MS = 5_000;
 
 export const BALLPLAYER_HOST = "ballplayer.localhost";
+const UNREACHABLE_PROXY = {
+  server: "http://127.0.0.1:9",
+  bypass: `127.0.0.1,localhost,[::1],*.localhost,${BALLPLAYER_HOST}`,
+};
 
 export type Brand = "snackday" | "ballplayer";
 
@@ -96,9 +100,7 @@ async function bootServer(databasePath: string, blockedLog: string) {
   return { port, stop };
 }
 
-export async function startScenario(options: ScenarioOptions = {}): Promise<Scenario> {
-  const scratch = await mkdtemp(join(tmpdir(), "snackday-e2e-"));
-  const databasePath = join(scratch, "scenario.db");
+async function seedScenario(databasePath: string, options: ScenarioOptions): Promise<void> {
   await seedDatabase(databasePath);
   const seeded = new Database(databasePath);
   try {
@@ -107,9 +109,50 @@ export async function startScenario(options: ScenarioOptions = {}): Promise<Scen
   } finally {
     seeded.close();
   }
+}
+
+export interface ScenarioSteps {
+  readonly seed: (databasePath: string, options: ScenarioOptions) => Promise<void>;
+  readonly boot: typeof bootServer;
+  readonly launch: () => Promise<Browser>;
+}
+
+const DEFAULT_STEPS: ScenarioSteps = {
+  seed: seedScenario,
+  boot: bootServer,
+  launch: () => chromium.launch({ headless: true, proxy: UNREACHABLE_PROXY }),
+};
+
+export async function startScenario(
+  options: ScenarioOptions = {},
+  steps: ScenarioSteps = DEFAULT_STEPS,
+): Promise<Scenario> {
+  const scratch = await mkdtemp(join(tmpdir(), "snackday-e2e-"));
+  const removeScratch = () => rm(scratch, { recursive: true, force: true });
+  const databasePath = join(scratch, "scenario.db");
   const blockedLog = join(scratch, "blocked-requests.jsonl");
-  const server = await bootServer(databasePath, blockedLog);
-  const browser = await chromium.launch({ headless: true });
+  let server: Awaited<ReturnType<typeof bootServer>> | undefined;
+  let browser: Browser | undefined;
+  try {
+    await steps.seed(databasePath, options);
+    server = await steps.boot(databasePath, blockedLog);
+    browser = await steps.launch();
+  } catch (error) {
+    await browser?.close().catch(() => undefined);
+    await server?.stop().catch(() => undefined);
+    await removeScratch();
+    throw error;
+  }
+  return scenarioHandle(scratch, databasePath, blockedLog, server, browser);
+}
+
+function scenarioHandle(
+  scratch: string,
+  databasePath: string,
+  blockedLog: string,
+  server: Awaited<ReturnType<typeof bootServer>>,
+  browser: Browser,
+): Scenario {
   const withDatabase = <T>(use: (database: Database) => T): T => {
     const database = new Database(databasePath);
     try {
@@ -132,9 +175,15 @@ export async function startScenario(options: ScenarioOptions = {}): Promise<Scen
     execute: (sql) => withDatabase((database) => database.exec(sql)),
     blockedRequests: () => readBlockedRequests(blockedLog),
     stop: async () => {
-      await browser.close();
-      await server.stop();
-      await rm(scratch, { recursive: true, force: true });
+      try {
+        await browser.close();
+      } finally {
+        try {
+          await server.stop();
+        } finally {
+          await rm(scratch, { recursive: true, force: true });
+        }
+      }
     },
   };
 }

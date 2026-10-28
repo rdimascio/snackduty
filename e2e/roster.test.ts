@@ -6,6 +6,7 @@ import {
   FALCONS,
   button,
   cardPath,
+  dateSpellings,
   expectHtmlLacks,
   expectNoButton,
   localDatePlus,
@@ -26,6 +27,13 @@ const ROSTER_PAGE = `/app/roster?team=${FALCONS.teamId}&season=${FALCONS.seasonI
 const COMETS_ROSTER_PAGE = `/app/roster?team=${COMETS.teamId}&season=${COMETS.seasonId}`;
 const SEASON_API = `/api/teams/${FALCONS.teamId}/seasons/${FALCONS.seasonId}`;
 const FALCONS_CHILDREN = [CHILDREN.avery, CHILDREN.blake, CHILDREN.casey] as const;
+
+interface RosterApiEntry {
+  readonly participantId: string;
+  readonly birthDate?: string;
+  readonly guardians: readonly { readonly displayName: string }[];
+  readonly guardianInvitations?: unknown;
+}
 
 function skillEventsPath(participantId: string): string {
   return `/api/dev/teams/${FALCONS.teamId}/participants/${participantId}/skill-events`;
@@ -88,8 +96,94 @@ async function addPlayer(scenario: Scenario, session: RoleSession, name: string)
   const text = await openFresh(session, ROSTER_PAGE);
   const card = await rosterCard(session, name);
   expect(await card.innerText()).toMatch(/Age \d+/u);
-  expect(text.includes("2018-03-14")).toBe(false);
-  await expectHtmlLacks(session.page, ["2018-03-14"]);
+  for (const spelling of dateSpellings("2018-03-14")) expect(text.includes(spelling)).toBe(false);
+  await expectHtmlLacks(session.page, dateSpellings("2018-03-14"));
+}
+
+async function importCsv(scenario: Scenario, session: RoleSession, prefix: string) {
+  const [casey] = scenario.query<{ birth_date: string }>(
+    "SELECT birth_date FROM participants WHERE id = ?",
+    CHILDREN.casey.participantId,
+  );
+  const csv = [
+    "child_name,birth_date,guardian1_name,guardian1_relationship",
+    `${prefix} One,2018-04-01,${prefix} Ida,parent`,
+    `${prefix} Two,,,`,
+    `${prefix} Bad,2018-13-45,,`,
+    `${CHILDREN.casey.displayName},${casey?.birth_date ?? ""},,`,
+  ].join("\n");
+  await openFresh(session, ROSTER_PAGE);
+  const form = main(session.page).getByRole("form", { name: "Import a roster" });
+  await form.getByLabel("Or paste the rows").fill(csv);
+  await form.getByRole("button", { name: "Preview import" }).click();
+  await waitForStatus(
+    session.page,
+    /2 ready · 1 already on the roster · 0 repeated · 1 need a fix/u,
+  );
+  const previewText = await form.getByRole("table", { name: "Import preview" }).innerText();
+  expect(previewText).toContain(`${prefix} One`);
+  expect(previewText).toContain("Hidden until fixed");
+  expect(previewText).toContain("Needs a fix");
+  expect(previewText.includes(`${prefix} Bad`)).toBe(false);
+  expect(rosterNames(scenario)).not.toContain(`${prefix} One`);
+
+  await Promise.all([
+    session.page.waitForEvent("load"),
+    form.getByRole("button", { name: "Import 2 players" }).click(),
+  ]);
+  const text = await openFresh(session, ROSTER_PAGE);
+  expect(text).toContain(`${prefix} One`);
+  expect(text).toContain(`${prefix} Two`);
+  expect(text).toContain(`${prefix} Ida (parent)`);
+  expect(text.includes(`${prefix} Bad`)).toBe(false);
+  await expectHtmlLacks(session.page, dateSpellings("2018-04-01"));
+  const names = rosterNames(scenario);
+  expect(names).toContain(`${prefix} One`);
+  expect(names).toContain(`${prefix} Two`);
+  expect(names).not.toContain(`${prefix} Bad`);
+  expect(names.filter((name) => name === CHILDREN.casey.displayName)).toHaveLength(1);
+}
+
+async function linkGuardian(scenario: Scenario, session: RoleSession, guardian: string) {
+  await openFresh(session, ROSTER_PAGE);
+  const card = await rosterCard(session, CHILDREN.casey.displayName);
+  await card.getByText("Link a guardian", { exact: true }).click();
+  const form = card.getByRole("form", {
+    name: `Link a guardian to ${CHILDREN.casey.displayName}`,
+  });
+  await form.getByLabel("Guardian name").fill(guardian);
+  await form.getByLabel("Relationship").selectOption("caregiver");
+  await Promise.all([
+    session.page.waitForEvent("load"),
+    form.getByRole("button", { name: "Link guardian" }).click(),
+  ]);
+  await openFresh(session, ROSTER_PAGE);
+  expect(await (await rosterCard(session, CHILDREN.casey.displayName)).innerText()).toContain(
+    `${guardian} (caregiver)`,
+  );
+  expect(guardianNames(scenario, CHILDREN.casey.participantId)).toContain(
+    `${guardian} (caregiver)`,
+  );
+}
+
+function skillCardPath(participantId: string, teamId: string = FALCONS.teamId): string {
+  return `/api/teams/${teamId}/participants/${participantId}/skill-card`;
+}
+
+async function refuseCardRead(scenario: Scenario, role: Role, status: number, error: string) {
+  await asRole(scenario, role, async (session) => {
+    for (const child of FALCONS_CHILDREN) {
+      const reply = await refused(session, "GET", skillCardPath(child.participantId), undefined, [
+        status,
+      ]);
+      expect(reply.body).toEqual({ error });
+      expect(reply.text.includes(child.displayName)).toBe(false);
+    }
+  });
+  await asRole(scenario, "parent", async (session) => {
+    const reply = await session.api("GET", skillCardPath(CHILDREN.avery.participantId));
+    expect(reply.status).toBe(200);
+  });
 }
 
 async function expectReadOnlyCard(session: RoleSession, participantId: string, name: string) {
@@ -163,73 +257,14 @@ describe("roster as owner (head-coach)", () => {
   });
 
   test("previews a CSV with a bad row and a known child, imports only the good rows, and a fresh load lists them", async () => {
-    const [casey] = scenario().query<{ birth_date: string }>(
-      "SELECT birth_date FROM participants WHERE id = ?",
-      CHILDREN.casey.participantId,
+    await asRole(scenario(), "head-coach", (session) =>
+      importCsv(scenario(), session, "E2E Import"),
     );
-    const csv = [
-      "child_name,birth_date,guardian1_name,guardian1_relationship",
-      "E2E Import One,2018-04-01,Ida One,parent",
-      "E2E Import Two,,,",
-      "E2E Import Bad,2018-13-45,,",
-      `${CHILDREN.casey.displayName},${casey?.birth_date ?? ""},,`,
-    ].join("\n");
-    await asRole(scenario(), "head-coach", async (session) => {
-      await openFresh(session, ROSTER_PAGE);
-      const form = main(session.page).getByRole("form", { name: "Import a roster" });
-      await form.getByLabel("Or paste the rows").fill(csv);
-      await form.getByRole("button", { name: "Preview import" }).click();
-      await waitForStatus(
-        session.page,
-        /2 ready · 1 already on the roster · 0 repeated · 1 need a fix/u,
-      );
-      const preview = form.getByRole("table", { name: "Import preview" });
-      const previewText = await preview.innerText();
-      expect(previewText).toContain("E2E Import One");
-      expect(previewText).toContain("Hidden until fixed");
-      expect(previewText).toContain("Needs a fix");
-      expect(previewText.includes("E2E Import Bad")).toBe(false);
-      expect(rosterNames(scenario())).not.toContain("E2E Import One");
-
-      await Promise.all([
-        session.page.waitForEvent("load"),
-        form.getByRole("button", { name: "Import 2 players" }).click(),
-      ]);
-      const text = await openFresh(session, ROSTER_PAGE);
-      expect(text).toContain("E2E Import One");
-      expect(text).toContain("E2E Import Two");
-      expect(text).toContain("Ida One (parent)");
-      expect(text.includes("E2E Import Bad")).toBe(false);
-      await expectHtmlLacks(session.page, ["2018-04-01"]);
-    });
-    const names = rosterNames(scenario());
-    expect(names).toContain("E2E Import One");
-    expect(names).toContain("E2E Import Two");
-    expect(names).not.toContain("E2E Import Bad");
-    expect(names.filter((name) => name === CHILDREN.casey.displayName)).toHaveLength(1);
   });
 
   test("links a guardian to a child, and a fresh load lists the guardian", async () => {
-    await asRole(scenario(), "head-coach", async (session) => {
-      await openFresh(session, ROSTER_PAGE);
-      const card = await rosterCard(session, CHILDREN.casey.displayName);
-      await card.getByText("Link a guardian", { exact: true }).click();
-      const form = card.getByRole("form", {
-        name: `Link a guardian to ${CHILDREN.casey.displayName}`,
-      });
-      await form.getByLabel("Guardian name").fill("E2E Linked Guardian");
-      await form.getByLabel("Relationship").selectOption("caregiver");
-      await Promise.all([
-        session.page.waitForEvent("load"),
-        form.getByRole("button", { name: "Link guardian" }).click(),
-      ]);
-      await openFresh(session, ROSTER_PAGE);
-      expect(await (await rosterCard(session, CHILDREN.casey.displayName)).innerText()).toContain(
-        "E2E Linked Guardian (caregiver)",
-      );
-    });
-    expect(guardianNames(scenario(), CHILDREN.casey.participantId)).toContain(
-      "E2E Linked Guardian (caregiver)",
+    await asRole(scenario(), "head-coach", (session) =>
+      linkGuardian(scenario(), session, "E2E Linked Guardian"),
     );
   });
 
@@ -272,6 +307,18 @@ describe("roster as co-coach (co-coach)", () => {
     );
   });
 
+  test("previews a CSV, imports only the good rows, and a fresh load lists them", async () => {
+    await asRole(scenario(), "co-coach", (session) =>
+      importCsv(scenario(), session, "E2E Cocoach Import"),
+    );
+  });
+
+  test("links a guardian to a child, and a fresh load lists the guardian", async () => {
+    await asRole(scenario(), "co-coach", (session) =>
+      linkGuardian(scenario(), session, "E2E Cocoach Guardian"),
+    );
+  });
+
   test("server refuses a co-coach's write to a child's card through the dev skill-event route (404); lesson-answers.test.ts covers the production write", async () => {
     const before = skillEventCount(scenario(), CHILDREN.blake.participantId);
     await asRole(scenario(), "co-coach", async (session) => {
@@ -307,10 +354,15 @@ describe("roster as guardian of two (parent)", () => {
     });
   });
 
-  test("opens their own child's card, and another child's card answers 404 with no name: proves the card read guard", async () => {
+  test("opens their own children's cards, and another child's card answers 404 with no name: proves the card read guard", async () => {
     await asRole(scenario(), "parent", async (session) => {
-      const text = await openFresh(session, cardPath(CHILDREN.avery.participantId));
-      expect(text).toContain(CHILDREN.avery.displayName);
+      for (const own of [CHILDREN.avery, CHILDREN.blake]) {
+        const text = await openFresh(session, cardPath(own.participantId));
+        expect(text).toContain(own.displayName);
+        await main(session.page).locator('section[aria-label="Player card"]').waitFor();
+        const reply = await session.api("GET", skillCardPath(own.participantId));
+        expect(`${own.displayName}: ${reply.status}`).toBe(`${own.displayName}: 200`);
+      }
       await session.open(cardPath(CHILDREN.casey.participantId), 404);
       await expectHtmlLacks(session.page, [CHILDREN.casey.displayName]);
       await refused(
@@ -321,14 +373,26 @@ describe("roster as guardian of two (parent)", () => {
     });
   });
 
-  test("the roster API gives a guardian private fields for their own children only", async () => {
+  test("the roster API lists exactly Avery, Blake and Casey, with private fields for Avery and Blake only", async () => {
     await asRole(scenario(), "parent", async (session) => {
       const reply = await session.api("GET", `${SEASON_API}/roster`);
       expect(reply.status).toBe(200);
-      const roster = (reply.body as { roster: { participantId: string; birthDate?: string }[] })
-        .roster;
-      const casey = roster.find((entry) => entry.participantId === CHILDREN.casey.participantId);
+      const roster = (reply.body as { roster: RosterApiEntry[] }).roster;
+      expect(roster.map((entry) => entry.participantId).toSorted()).toEqual(
+        FALCONS_CHILDREN.map((child) => child.participantId).toSorted(),
+      );
+      const entry = (participantId: string) =>
+        roster.find((candidate) => candidate.participantId === participantId);
+      const casey = entry(CHILDREN.casey.participantId);
       expect(casey?.birthDate).toBeUndefined();
+      expect(casey?.guardians).toEqual([]);
+      expect(casey?.guardianInvitations).toBeUndefined();
+      for (const own of [CHILDREN.avery, CHILDREN.blake]) {
+        const row = entry(own.participantId);
+        expect(`${own.displayName}: ${typeof row?.birthDate}`).toBe(`${own.displayName}: string`);
+        expect(row?.guardians.map((guardian) => guardian.displayName)).toContain("Pat Parent");
+        expect(row?.guardianInvitations).toBeDefined();
+      }
     });
   });
 
@@ -356,6 +420,84 @@ describe("roster as second-team guardian (second-team-guardian)", () => {
       await refuseRosterWrites(session, [404]);
     });
     expectNoRefusedWrites(scenario());
+  });
+});
+
+describe("roster as second-team guardian on the Comets (second-team-guardian)", () => {
+  const scenario = useScenario();
+  const cometsSeason = `/api/teams/${COMETS.teamId}/seasons/${COMETS.seasonId}`;
+
+  function cometsRosterNames(): string[] {
+    return scenario()
+      .query<{ display_name: string }>(
+        "SELECT people.display_name FROM memberships JOIN participants ON participants.id = memberships.member_participant_id JOIN people ON people.id = participants.person_id WHERE memberships.team_id = ? AND memberships.status = 'active' ORDER BY people.display_name",
+        COMETS.teamId,
+      )
+      .map((row) => row.display_name);
+  }
+
+  test("server refuses add, import preview, import and guardian link on the Comets to a guardian (404), and the Comets owner's same calls succeed: proves the roster manage guard", async () => {
+    const before = cometsRosterNames();
+    const quinnGuardians = guardianNames(scenario(), CHILDREN.quinn.participantId);
+    await asRole(scenario(), "second-team-guardian", async (session) => {
+      await refused(
+        session,
+        "POST",
+        `${cometsSeason}/participants`,
+        { displayName: "Refused Comet" },
+        [404],
+      );
+      await refused(
+        session,
+        "POST",
+        `${cometsSeason}/roster/import/preview`,
+        { csv: "child_name\nRefused Comet Import\n" },
+        [404],
+      );
+      await refused(
+        session,
+        "POST",
+        `${cometsSeason}/roster/import`,
+        { rows: [{ displayName: "Refused Comet Import", guardians: [] }] },
+        [404],
+      );
+      await refused(
+        session,
+        "POST",
+        `/api/participants/${CHILDREN.quinn.participantId}/guardians`,
+        { displayName: "Refused Comet Guardian", relationship: "parent" },
+        [404],
+      );
+    });
+    expect(cometsRosterNames()).toEqual(before);
+    expect(guardianNames(scenario(), CHILDREN.quinn.participantId)).toEqual(quinnGuardians);
+
+    await asRole(scenario(), "default", async (session) => {
+      const added = await session.api("POST", `${cometsSeason}/participants`, {
+        displayName: "E2E Owner Comet",
+      });
+      expect(added.status).toBe(201);
+      const preview = await session.api("POST", `${cometsSeason}/roster/import/preview`, {
+        csv: "child_name\nE2E Owner Comet Import\n",
+      });
+      expect(preview.status).toBe(200);
+      const imported = await session.api("POST", `${cometsSeason}/roster/import`, {
+        rows: [{ displayName: "E2E Owner Comet Import", guardians: [] }],
+      });
+      expect(imported.status).toBe(201);
+      const linked = await session.api(
+        "POST",
+        `/api/participants/${CHILDREN.quinn.participantId}/guardians`,
+        { displayName: "E2E Owner Comet Guardian", relationship: "parent" },
+      );
+      expect(linked.status).toBe(201);
+    });
+    expect(cometsRosterNames()).toEqual(
+      [...before, "E2E Owner Comet", "E2E Owner Comet Import"].toSorted(),
+    );
+    expect(guardianNames(scenario(), CHILDREN.quinn.participantId)).toContain(
+      "E2E Owner Comet Guardian (parent)",
+    );
   });
 });
 
@@ -389,6 +531,10 @@ describe("roster as adult member (team-member)", () => {
 describe("roster as stranger (stranger)", () => {
   const scenario = useScenario();
 
+  test("server refuses every Falcons card API read to a stranger (404), and the guardian's read on the same route succeeds: proves the team membership guard", async () => {
+    await refuseCardRead(scenario(), "stranger", 404, "team not found");
+  });
+
   test("server refuses the Falcons roster read and every roster write to a stranger (404)", async () => {
     await asRole(scenario(), "stranger", async (session) => {
       await refused(session, "GET", `${SEASON_API}/roster`, undefined, [404]);
@@ -410,6 +556,10 @@ describe("roster as signed-out visitor", () => {
       expect(await mainText(session.page)).toContain("Signed out");
       await expectHtmlLacks(session.page, [CHILDREN.avery.displayName]);
     });
+  });
+
+  test("server answers 401 to every card API read without a session, and the guardian's read on the same route succeeds: proves the session guard", async () => {
+    await refuseCardRead(scenario(), signedOut, 401, "authentication required");
   });
 });
 

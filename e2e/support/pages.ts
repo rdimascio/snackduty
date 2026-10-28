@@ -123,12 +123,24 @@ export async function expectRenderedNotFound(page: Page, html: string): Promise<
   expect(appInlineScripts(html)).toEqual([]);
 }
 
+const BIRTH_DATE_STYLES = ["long", "medium", "short"] as const;
+
+export function dateSpellings(isoDate: string): string[] {
+  const instant = new Date(`${isoDate}T12:00:00Z`);
+  return [
+    isoDate,
+    ...BIRTH_DATE_STYLES.map((dateStyle) =>
+      new Intl.DateTimeFormat("en-US", { dateStyle, timeZone: "UTC" }).format(instant),
+    ),
+  ];
+}
+
 export function seededBirthDates(scenario: Scenario): string[] {
   return scenario
     .query<{ birth_date: string }>(
       "SELECT birth_date FROM participants WHERE birth_date IS NOT NULL",
     )
-    .map((row) => row.birth_date);
+    .flatMap((row) => dateSpellings(row.birth_date));
 }
 
 export function practiceOccurrences(scenario: Scenario): { id: string; local_date: string }[] {

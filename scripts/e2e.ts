@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WEB_ROOT = join(ROOT, "apps", "web");
 const ARTIFACTS_DIR = join(ROOT, ".artifacts", "e2e");
-const TEST_TIMEOUT_MS = 180_000;
 
 async function run(cmd: string[], cwd: string, env: Record<string, string> = {}): Promise<number> {
   const child = Bun.spawn({
@@ -48,13 +47,7 @@ if (built !== 0) {
 }
 
 const tested = await run(
-  [
-    process.execPath,
-    "test",
-    "--timeout",
-    String(TEST_TIMEOUT_MS),
-    ...(targets.length === 0 ? ["./e2e/"] : targets),
-  ],
+  [process.execPath, "test", ...(targets.length === 0 ? ["./e2e/"] : targets)],
   ROOT,
   { E2E_ARTIFACTS_DIR: ARTIFACTS_DIR },
 );

@@ -120,6 +120,96 @@ async function cancelPractice(scenario: Scenario, session: RoleSession): Promise
   }
 }
 
+async function createGame(scenario: Scenario, session: RoleSession, title: string) {
+  const duty = `${title} Snacks`;
+  await openFresh(session, NEW_EVENT_PAGE);
+  const form = main(session.page).getByRole("form", { name: "Create event" });
+  await form.getByLabel("Title").fill(title);
+  await form.getByLabel("Type").selectOption("game");
+  await form.getByLabel(/Location/u).fill("E2E Field");
+  await form.getByLabel("Date", { exact: true }).fill(localDatePlus(4));
+  await form.getByLabel("Starts").fill("18:00");
+  await form.getByLabel("Ends", { exact: true }).fill("19:30");
+  await form.getByLabel("Add a snack duty for families to claim").check();
+  await form.getByLabel("Duty name").fill(duty);
+  await Promise.all([
+    session.page.waitForURL(/\/app\/schedule\/events\//u),
+    form.getByRole("button", { name: "Create event" }).click(),
+  ]);
+  await session.page.waitForLoadState("load");
+  const detail = await openFresh(session, session.page.url());
+  expect(detail).toContain(title);
+  expect(detail).toContain("6:00 PM – 7:30 PM");
+  expect(detail).toContain(duty);
+  const list = await openFresh(session, SCHEDULE_PAGE);
+  expect(list).toContain(title);
+  const [series] = scenario.query<{ id: string; duration_minutes: number }>(
+    "SELECT id, duration_minutes FROM event_series WHERE title = ?",
+    title,
+  );
+  expect(series?.duration_minutes).toBe(90);
+  expect(
+    scenario.query(
+      "SELECT duty_slots.id FROM duty_slots JOIN event_occurrences ON event_occurrences.id = duty_slots.occurrence_id WHERE event_occurrences.series_id = ? AND duty_slots.label = ?",
+      series?.id ?? "",
+      duty,
+    ),
+  ).toHaveLength(1);
+}
+
+async function editPracticeSeries(scenario: Scenario, session: RoleSession, title: string) {
+  await openFresh(session, seriesEditPath(SERIES.practice));
+  const form = main(session.page).getByRole("form", { name: "Edit event series" });
+  await form.getByLabel("Title").fill(title);
+  await form.getByLabel("Starts").fill("22:00");
+  await form.getByLabel("Ends", { exact: true }).fill("01:00");
+  await form.getByLabel("Ends the next day").check();
+  await Promise.all([
+    session.page.waitForEvent("load"),
+    form.getByRole("button", { name: "Save series" }).click(),
+  ]);
+  const next = practiceOccurrences(scenario)[0];
+  if (next === undefined) throw new Error("no practice left");
+  const text = await openFresh(session, eventPath(next.id));
+  expect(text).toContain(title);
+  expect(text).toContain("10:00 PM – 1:00 AM");
+  await openFresh(session, seriesEditPath(SERIES.practice));
+  const reopened = main(session.page).getByRole("form", { name: "Edit event series" });
+  expect(await reopened.getByLabel("Ends the next day").isChecked()).toBe(true);
+  expect(seriesRow(scenario, SERIES.practice)).toEqual({
+    title,
+    local_time: "22:00",
+    duration_minutes: 180,
+  });
+}
+
+function attendancePath(occurrenceId: string, teamId: string = FALCONS.teamId): string {
+  return teamApi(teamId, `/occurrences/${occurrenceId}/attendance`);
+}
+
+async function refuseRsvp(scenario: Scenario, role: Role, status: number, error: string) {
+  const before = attendanceStatus(scenario, OCCURRENCES.hawks, CHILDREN.avery.participantId);
+  await asRole(scenario, role, async (session) => {
+    const reply = await refused(
+      session,
+      "POST",
+      attendancePath(OCCURRENCES.hawks),
+      { participantId: CHILDREN.avery.participantId, status: "yes" },
+      [status],
+    );
+    expect(reply.body).toMatchObject({ error });
+  });
+  expect(attendanceStatus(scenario, OCCURRENCES.hawks, CHILDREN.avery.participantId)).toBe(before);
+  await asRole(scenario, "parent", async (session) => {
+    const reply = await session.api("POST", attendancePath(OCCURRENCES.hawks), {
+      participantId: CHILDREN.avery.participantId,
+      status: "maybe",
+    });
+    expect(reply.status).toBe(200);
+  });
+  expect(attendanceStatus(scenario, OCCURRENCES.hawks, CHILDREN.avery.participantId)).toBe("maybe");
+}
+
 async function exportCsv(session: RoleSession): Promise<void> {
   const reply = await session.api("GET", EXPORT_PAGE);
   expect(reply.status).toBe(200);
@@ -188,40 +278,9 @@ describe("schedule as owner (head-coach)", () => {
   });
 
   test("creates a one-time game with a snack duty, and a fresh load lists it", async () => {
-    const date = localDatePlus(4);
-    await asRole(scenario(), "head-coach", async (session) => {
-      await openFresh(session, NEW_EVENT_PAGE);
-      const form = main(session.page).getByRole("form", { name: "Create event" });
-      await form.getByLabel("Title").fill("E2E Scrimmage");
-      await form.getByLabel("Type").selectOption("game");
-      await form.getByLabel(/Location/u).fill("E2E Field");
-      await form.getByLabel("Date", { exact: true }).fill(date);
-      await form.getByLabel("Starts").fill("18:00");
-      await form.getByLabel("Ends", { exact: true }).fill("19:30");
-      await form.getByLabel("Add a snack duty for families to claim").check();
-      await form.getByLabel("Duty name").fill("E2E Snacks");
-      await Promise.all([
-        session.page.waitForURL(/\/app\/schedule\/events\//u),
-        form.getByRole("button", { name: "Create event" }).click(),
-      ]);
-      await session.page.waitForLoadState("load");
-      const detail = await openFresh(session, session.page.url());
-      expect(detail).toContain("E2E Scrimmage");
-      expect(detail).toContain("6:00 PM – 7:30 PM");
-      expect(detail).toContain("E2E Snacks");
-      const list = await openFresh(session, SCHEDULE_PAGE);
-      expect(list).toContain("E2E Scrimmage");
-    });
-    const [series] = scenario().query<{ id: string; duration_minutes: number }>(
-      "SELECT id, duration_minutes FROM event_series WHERE title = 'E2E Scrimmage'",
+    await asRole(scenario(), "head-coach", (session) =>
+      createGame(scenario(), session, "E2E Scrimmage"),
     );
-    expect(series?.duration_minutes).toBe(90);
-    expect(
-      scenario().query(
-        "SELECT duty_slots.id FROM duty_slots JOIN event_occurrences ON event_occurrences.id = duty_slots.occurrence_id WHERE event_occurrences.series_id = ? AND duty_slots.label = 'E2E Snacks'",
-        series?.id ?? "",
-      ),
-    ).toHaveLength(1);
   });
 
   test("cancels one practice date, and a fresh load shows only that date cancelled", async () => {
@@ -233,31 +292,9 @@ describe("schedule as owner (head-coach)", () => {
   });
 
   test("edits the practice series to end the next day, and a fresh load shows the new times", async () => {
-    await asRole(scenario(), "head-coach", async (session) => {
-      await openFresh(session, seriesEditPath(SERIES.practice));
-      const form = main(session.page).getByRole("form", { name: "Edit event series" });
-      await form.getByLabel("Title").fill("E2E Late Practice");
-      await form.getByLabel("Starts").fill("22:00");
-      await form.getByLabel("Ends", { exact: true }).fill("01:00");
-      await form.getByLabel("Ends the next day").check();
-      await Promise.all([
-        session.page.waitForEvent("load"),
-        form.getByRole("button", { name: "Save series" }).click(),
-      ]);
-      const next = practiceOccurrences(scenario())[0];
-      if (next === undefined) throw new Error("no practice left");
-      const text = await openFresh(session, eventPath(next.id));
-      expect(text).toContain("E2E Late Practice");
-      expect(text).toContain("10:00 PM – 1:00 AM");
-      await openFresh(session, seriesEditPath(SERIES.practice));
-      const reopened = main(session.page).getByRole("form", { name: "Edit event series" });
-      expect(await reopened.getByLabel("Ends the next day").isChecked()).toBe(true);
-    });
-    expect(seriesRow(scenario(), SERIES.practice)).toEqual({
-      title: "E2E Late Practice",
-      local_time: "22:00",
-      duration_minutes: 180,
-    });
+    await asRole(scenario(), "head-coach", (session) =>
+      editPracticeSeries(scenario(), session, "E2E Late Practice"),
+    );
   });
 
   test("edits a one-time game's title and location, and a fresh load shows them", async () => {
@@ -287,6 +324,18 @@ describe("schedule as co-coach (co-coach)", () => {
 
   test("exports the schedule as CSV", async () => {
     await asRole(scenario(), "co-coach", exportCsv);
+  });
+
+  test("creates a one-time game with a snack duty, and a fresh load lists it", async () => {
+    await asRole(scenario(), "co-coach", (session) =>
+      createGame(scenario(), session, "E2E Cocoach Scrimmage"),
+    );
+  });
+
+  test("edits the practice series to end the next day, and a fresh load shows the new times", async () => {
+    await asRole(scenario(), "co-coach", (session) =>
+      editPracticeSeries(scenario(), session, "E2E Cocoach Practice"),
+    );
   });
 });
 
@@ -331,6 +380,28 @@ describe("schedule as guardian of two (parent)", () => {
     expect(attendanceStatus(scenario(), OCCURRENCES.hawks, CHILDREN.avery.participantId)).toBe(
       "yes",
     );
+  });
+
+  test("RSVPs for their second child, and a fresh load shows the answer", async () => {
+    const before = attendanceStatus(scenario(), OCCURRENCES.owls, CHILDREN.blake.participantId);
+    await asRole(scenario(), "parent", async (session) => {
+      await openFresh(session, eventPath(OCCURRENCES.owls));
+      const choice = before === "no" ? "Going" : "Not going";
+      await main(session.page)
+        .getByRole("group", { name: `RSVP for ${CHILDREN.blake.displayName}` })
+        .getByRole("button", { name: choice, exact: true })
+        .click();
+      await waitForStatus(session.page, /Blake/u);
+      await openFresh(session, eventPath(OCCURRENCES.owls));
+      expect(
+        await main(session.page)
+          .getByRole("group", { name: `RSVP for ${CHILDREN.blake.displayName}` })
+          .getByRole("button", { name: choice, exact: true })
+          .getAttribute("aria-pressed"),
+      ).toBe("true");
+    });
+    const after = attendanceStatus(scenario(), OCCURRENCES.owls, CHILDREN.blake.participantId);
+    expect(after).toBe(before === "no" ? "yes" : "no");
   });
 
   test("server refuses an RSVP for another family's child (403/404): proves the own-child RSVP guard", async () => {
@@ -428,6 +499,91 @@ describe("schedule as second-team guardian (second-team-guardian)", () => {
   });
 });
 
+describe("schedule as second-team guardian on the Comets (second-team-guardian)", () => {
+  const scenario = useScenario();
+  const cometsExport = `/app/schedule/export?team=${COMETS.teamId}&season=${COMETS.seasonId}`;
+  const clinicSeries = "event_series_seed_comets_clinic";
+  const cometsEvent = { ...REFUSED_EVENT, title: "Refused Comets event" };
+
+  function cometsSeriesTitle(): string | undefined {
+    return seriesRow(scenario(), clinicSeries)?.title;
+  }
+
+  test("server refuses event create, series edit, cancel and the CSV export on the Comets to a guardian, and the Comets owner's same calls succeed: proves the schedule manage and export guards", async () => {
+    const title = cometsSeriesTitle();
+    await asRole(scenario(), "second-team-guardian", async (session) => {
+      await refused(
+        session,
+        "POST",
+        teamApi(COMETS.teamId, `/seasons/${COMETS.seasonId}/events`),
+        cometsEvent,
+        [404],
+      );
+      await refused(
+        session,
+        "POST",
+        teamApi(COMETS.teamId, `/events/${clinicSeries}/update`),
+        { ...cometsEvent, title: "Refused Comets edit" },
+        [404],
+      );
+      await refused(
+        session,
+        "POST",
+        teamApi(COMETS.teamId, `/occurrences/${OCCURRENCES.clinic}/cancel`),
+        { reason: "Refused Comets cancel" },
+        [404],
+      );
+      await session.open(cometsExport, 403);
+      const reply = await refused(session, "GET", cometsExport, undefined, [403]);
+      expect(reply.text.includes(CSV_HEADER)).toBe(false);
+    });
+    expect(
+      scenario().query("SELECT id FROM event_series WHERE title = ?", cometsEvent.title),
+    ).toHaveLength(0);
+    expect(cometsSeriesTitle()).toBe(title);
+    expect(occurrenceStatus(scenario(), OCCURRENCES.clinic)).toBe("scheduled");
+
+    await asRole(scenario(), "default", async (session) => {
+      const exported = await session.api("GET", cometsExport);
+      expect(exported.status).toBe(200);
+      expect(exported.text.replace(/^\uFEFF/u, "")).toStartWith(CSV_HEADER);
+      expect(exported.text).toContain(SEED_SCHEDULE.secondTeamEventTitle);
+      const created = await session.api(
+        "POST",
+        teamApi(COMETS.teamId, `/seasons/${COMETS.seasonId}/events`),
+        { ...cometsEvent, title: "E2E Owner Comets event" },
+      );
+      expect(created.status).toBe(201);
+      const edited = await session.api(
+        "POST",
+        teamApi(COMETS.teamId, `/events/${clinicSeries}/update`),
+        { ...cometsEvent, title: "E2E Owner Comets clinic" },
+      );
+      expect(edited.status).toBe(200);
+      const [occurrence] = scenario().query<{ id: string }>(
+        "SELECT id FROM event_occurrences WHERE series_id = ? AND status = 'scheduled'",
+        clinicSeries,
+      );
+      const cancelled = await session.api(
+        "POST",
+        teamApi(COMETS.teamId, `/occurrences/${occurrence?.id ?? ""}/cancel`),
+        { reason: "E2E owner cancel" },
+      );
+      expect(cancelled.status).toBe(200);
+    });
+    expect(
+      scenario().query("SELECT id FROM event_series WHERE title = 'E2E Owner Comets event'"),
+    ).toHaveLength(1);
+    expect(cometsSeriesTitle()).toBe("E2E Owner Comets clinic");
+    expect(
+      scenario().query(
+        "SELECT id FROM event_occurrences WHERE series_id = ? AND status = 'cancelled' AND cancelled_reason = 'E2E owner cancel'",
+        clinicSeries,
+      ),
+    ).toHaveLength(1);
+  });
+});
+
 describe("schedule as adult member (team-member)", () => {
   const scenario = useScenario();
 
@@ -461,6 +617,10 @@ describe("schedule as adult member (team-member)", () => {
 describe("schedule as stranger (stranger)", () => {
   const scenario = useScenario();
 
+  test("server refuses a stranger's RSVP for a Falcons child (404), and the guardian's RSVP on the same route succeeds: proves the team membership guard", async () => {
+    await refuseRsvp(scenario(), "stranger", 404, "team not found");
+  });
+
   test("server refuses every Falcons schedule call and page to a stranger (404)", async () => {
     await asRole(scenario(), "stranger", async (session) => {
       await refused(session, "GET", teamApi(FALCONS.teamId, "/events"), undefined, [404]);
@@ -485,5 +645,9 @@ describe("schedule as signed-out visitor", () => {
       await expectHtmlLacks(session.page, [SEED_SCHEDULE.gameTitles[0]]);
     });
     expectNoCoachWrites(scenario());
+  });
+
+  test("server answers 401 to an RSVP without a session, and the guardian's RSVP on the same route succeeds: proves the session guard", async () => {
+    await refuseRsvp(scenario(), signedOut, 401, "authentication required");
   });
 });

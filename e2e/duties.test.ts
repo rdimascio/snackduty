@@ -81,6 +81,31 @@ async function claimAndRelease(
   expect(await slotState(session, eventTitle, label)).toBe("open");
 }
 
+function releasePath(occurrenceId: string, slotId: string): string {
+  return slotsApi(FALCONS.teamId, occurrenceId, `/${slotId}/release`);
+}
+
+async function refuseRelease(
+  scenario: Scenario,
+  role: Role,
+  holder: Exclude<Role, "signed-out">,
+  occurrenceId: string,
+  slotId: string,
+  statuses: readonly number[],
+) {
+  const held = persona(holder).personId;
+  expect(slotAssignee(scenario, slotId)).toBe(held);
+  await asRole(scenario, role, async (session) => {
+    await refused(session, "POST", releasePath(occurrenceId, slotId), undefined, statuses);
+  });
+  expect(slotAssignee(scenario, slotId)).toBe(held);
+  await asRole(scenario, holder, async (session) => {
+    const reply = await session.api("POST", releasePath(occurrenceId, slotId));
+    expect(reply.status).toBe(200);
+  });
+  expect(slotAssignee(scenario, slotId)).toBeNull();
+}
+
 async function refuseCoachDutyWrites(
   session: RoleSession,
   statuses: readonly number[],
@@ -171,6 +196,17 @@ describe("duties as owner (head-coach)", () => {
     });
   });
 
+  test("server refuses the owner's release of a slot another adult holds (409), and the holder's own release succeeds: proves the holder guard", async () => {
+    await refuseRelease(
+      scenario(),
+      "head-coach",
+      "team-member",
+      OCCURRENCES.owls,
+      SLOTS.owlsSnacks,
+      [409],
+    );
+  });
+
   test("reassigns a slot another adult claimed, and a fresh load shows the new holder", async () => {
     const coCoach = persona("co-coach");
     await asRole(scenario(), "head-coach", async (session) => {
@@ -190,6 +226,12 @@ describe("duties as owner (head-coach)", () => {
 
 describe("duties as co-coach (co-coach)", () => {
   const scenario = useScenario();
+
+  test("claims and releases an open slot, and a fresh load shows each change", async () => {
+    await asRole(scenario(), "co-coach", (session) =>
+      claimAndRelease(scenario(), session, DUTIES_PAGE, OWLS, "Scorebook", SLOTS.owlsScorebook),
+    );
+  });
 
   test("adds, assigns and unassigns a slot, and a fresh load shows each change", async () => {
     const parent = persona("parent");
@@ -299,6 +341,8 @@ describe("duties race: two adults claim one open slot", () => {
       expect(await slotRow(member, OWLS, "Scorebook").innerText()).toContain(
         `Claimed by ${persona("parent").displayName}`,
       );
+      await parent.settle();
+      await member.settle();
       expect(parent.problems()).toEqual([]);
       expect(member.problems()).toEqual([]);
     } finally {
@@ -323,6 +367,8 @@ describe("duties race: two adults claim one open slot", () => {
       expect([first.status, second.status].toSorted()).toEqual([200, 409]);
       const winner = first.status === 200 ? "co-coach" : "team-member";
       expect(slotAssignee(scenario(), SLOTS.hawksFieldSetup)).toBe(persona(winner).personId);
+      await coCoach.settle();
+      await member.settle();
       expect(coCoach.problems()).toEqual([]);
       expect(member.problems()).toEqual([]);
     } finally {
@@ -364,6 +410,35 @@ describe("duties as second-team guardian (second-team-guardian)", () => {
   });
 });
 
+describe("duties as second-team guardian on the Comets (second-team-guardian)", () => {
+  const scenario = useScenario();
+  const clinicSlots = slotsApi(COMETS.teamId, OCCURRENCES.clinic);
+  const assignment = `${clinicSlots}/${SLOTS.clinicSnacks}/assignment`;
+  const guardian = persona("second-team-guardian").personId;
+
+  test("server refuses add, assign and unassign on the Comets to a guardian (404), and the Comets owner's same calls succeed: proves the duty manage guard", async () => {
+    await asRole(scenario(), "second-team-guardian", async (session) => {
+      await refused(session, "POST", clinicSlots, { label: "Refused Comets slot" }, [404]);
+      await refused(session, "POST", assignment, { assigneePersonId: guardian }, [404]);
+      await refused(session, "POST", assignment, { assigneePersonId: null }, [404]);
+    });
+    expect(slotsOn(scenario(), OCCURRENCES.clinic, "Refused Comets slot")).toBe(0);
+    expect(slotAssignee(scenario(), SLOTS.clinicSnacks)).toBeNull();
+
+    await asRole(scenario(), "default", async (session) => {
+      const added = await session.api("POST", clinicSlots, { label: "E2E Owner Comets slot" });
+      expect(added.status).toBe(201);
+      const assigned = await session.api("POST", assignment, { assigneePersonId: guardian });
+      expect(assigned.status).toBe(200);
+      expect(slotAssignee(scenario(), SLOTS.clinicSnacks)).toBe(guardian);
+      const unassigned = await session.api("POST", assignment, { assigneePersonId: null });
+      expect(unassigned.status).toBe(200);
+    });
+    expect(slotsOn(scenario(), OCCURRENCES.clinic, "E2E Owner Comets slot")).toBe(1);
+    expect(slotAssignee(scenario(), SLOTS.clinicSnacks)).toBeNull();
+  });
+});
+
 describe("duties as adult member (team-member)", () => {
   const scenario = useScenario();
 
@@ -382,6 +457,17 @@ describe("duties as adult member (team-member)", () => {
   test("server refuses add, assign and unassign to an adult member (404): proves the duty manage guard", async () => {
     await asRole(scenario(), "team-member", (session) => refuseCoachDutyWrites(session, [404]));
     expectNoCoachDutyWrites(scenario());
+  });
+
+  test("server refuses an adult member's release of a slot another adult holds (409), and the holder's own release succeeds: proves the holder guard", async () => {
+    await refuseRelease(
+      scenario(),
+      "team-member",
+      "parent",
+      OCCURRENCES.hawks,
+      SLOTS.hawksSnacks,
+      [409],
+    );
   });
 });
 
@@ -402,6 +488,17 @@ describe("duties as stranger (stranger)", () => {
     });
     expectNoCoachDutyWrites(scenario());
   });
+
+  test("server refuses a stranger's release of a Falcons slot (404), and the holder's own release succeeds: proves the team membership guard", async () => {
+    await refuseRelease(
+      scenario(),
+      "stranger",
+      "team-member",
+      OCCURRENCES.owls,
+      SLOTS.owlsSnacks,
+      [404],
+    );
+  });
 });
 
 describe("duties as signed-out visitor", () => {
@@ -421,5 +518,16 @@ describe("duties as signed-out visitor", () => {
       await refuseCoachDutyWrites(session, [401]);
     });
     expectNoCoachDutyWrites(scenario());
+  });
+
+  test("server answers 401 to a release without a session, and the holder's own release succeeds: proves the session guard", async () => {
+    await refuseRelease(
+      scenario(),
+      signedOut,
+      "team-member",
+      OCCURRENCES.owls,
+      SLOTS.owlsSnacks,
+      [401],
+    );
   });
 });
