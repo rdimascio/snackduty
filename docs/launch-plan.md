@@ -60,7 +60,7 @@ Blockers 1–4 and 6 gate both paths. Blocker 5 gates only the iOS path.
 ### Decisions needed before work starts
 
 1. **Path — decided 2026-11-07: web pilot first.**
-2. **Host — open.** The runtime (`runtime/server.ts`) is a long-running Bun server that starts the invitation outbox worker in process, and it already supports TLS PostgreSQL. `@lesto/deploy@0.2.0` targets AWS and Cloudflare only. The candidates:
+2. **Host — decided 2026-11-07: a managed container host running the Bun server, with managed PostgreSQL.** The specific provider is still open. The runtime (`runtime/server.ts`) is a long-running Bun server that starts the invitation outbox worker in process, and it already supports TLS PostgreSQL. `@lesto/deploy@0.2.0` targets AWS and Cloudflare only. The candidates:
    - The existing AWS graph (EC2 + RDS, about $62–67/month per `aws-staging-costs.md`, many attended prerequisites, never applied).
    - A managed container host running the Bun server, with managed PostgreSQL. No Lesto deploy target exists for it.
    - Vercel with managed PostgreSQL. It needs a custom Lesto request adapter and a scheduled job to drain the outbox, because a serverless function does not keep the in-process worker alive. No Lesto deploy target exists for it.
