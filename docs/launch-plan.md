@@ -20,6 +20,75 @@ This revision supersedes the earlier email-led sequence. Coach-created practice 
 
 The source audit below describes the original commit, not the status of subsequent local implementation. Release claims still require production/native evidence.
 
+## Current state and path to first users — November 7, 2026
+
+Audited `origin/main` at `1ace419` (PR #30). This section supersedes sections 1 and 8 as the current release picture. The sections below it remain dated September evidence.
+
+### Where the work has gone since September 17
+
+- PRs #9–#30 built the **web** product: schedule with RSVP, attendance and CSV export (#22); roster with add, CSV import, guardian links and player cards (#23); duties (#19); team page and invitations (#21); lesson of the week and lesson answers (#9, #10); the skill engine and player cards (#11–#14); the Ballplayer brand on its own host (#17, #20); strict CSP on both brands (#18, #24); the SQL dev seed with one sign-in per role (#26, #27); and a browser e2e suite for every seeded role (#29, #30).
+- `apps/ios` has no commits since `9f548e7` (2026-09-17). The native coordination journey from PR #5 is the latest native work.
+- `apps/web/runtime`, the AWS graph and the launch docs have no release-path changes since 2026-09-17. `stagingVerified` is still false.
+- `docs/launch-backlog.json` still lists SD-001…SD-008, SD-010, SD-011, SD-027 and SD-029 as `in_progress` from September. Only SD-031 is `done`. The statuses are stale and need a per-task review against merged PRs.
+
+The repository now has a usable web coordination product that runs only locally. The September plan put the native TestFlight beta first (R1). The October work did not follow that order.
+
+### What blocks a real user today
+
+| #   | Blocker                                | Evidence on `1ace419`                                                                                                                                                                                                                                     | Needed to clear it                                                                                                                                      |
+| --- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **No host runs the product**           | `wrangler.jsonc` binds only `ASSETS`; `worker.ts` registers four pages and no app services or database. The AWS Alchemy graph was never applied (`aws-staging-readiness.md`: expired session, no AMI, no account verification).                           | A choice of host, then one deployed runtime with a persistent database, HTTPS hostname, backups and alerts.                                             |
+| 2   | **No web sign-in for real adults**     | `identity-providers.ts` implements only `devPersonaProvider`. `session-routes.ts` exposes `/api/auth/apple/challenge` and `/api/auth/apple/sign-in` for the native client. No web page signs in a real adult, and no Services ID or redirect flow exists. | A web sign-in flow: Apple web redirect (Services ID, `form_post`, no third-party script under the CSP) or an email link.                                |
+| 3   | **Invitations cannot be delivered**    | `runtime/delivery.ts` `unavailableInviteDeliverer()` rejects every delivery; invitation create and resend return 503 in the remote runtime.                                                                                                               | One email provider adapter behind `RuntimeApplicationAdapters.inviteDelivery`, a verified sender domain, and a retry receipt from the persisted outbox. |
+| 4   | **No production configuration exists** | `runtime/config.ts` requires `SNACKDAY_PUBLIC_BASE_URL`, `SNACKDAY_APPLE_CLIENT_ID`, and `LESTO_DB` or `DATABASE_URL`. None has a chosen value.                                                                                                           | A domain, an Apple client ID (if Apple sign-in is kept), and the database location.                                                                     |
+| 5   | **No native release** (iOS path only)  | No signed archive, no paid-team evidence, no app icon, no TestFlight upload (section 9 runbook is unexecuted).                                                                                                                                            | Apple Developer Program team, bundle registration, signing, and TestFlight review.                                                                      |
+| 6   | **Child-data and operations gates**    | No privacy policy or deletion flow (SD-013 `planned`); no live log, alert, backup-restore or rollback receipt.                                                                                                                                            | A published privacy policy and deletion path before real rosters; one restore drill on the chosen host.                                                 |
+
+Blockers 1–4 and 6 gate both paths. Blocker 5 gates only the iOS path.
+
+### Two paths to first users
+
+|                    | Web pilot first (recommended)                         | iOS TestFlight first (September plan)                                             |
+| ------------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Product surface    | The web pages merged in #19–#30                       | The native journey from #5; no native roster, duties or team UI parity            |
+| Extra blockers     | None beyond 1–4 and 6                                 | Blocker 5, plus native catch-up with the web features                             |
+| External lead time | Domain and email sender verification (typically days) | Apple program enrollment and TestFlight external review (typically days to weeks) |
+| Pilot              | Owner's team in a browser, invite by email link       | Owner's team on physical devices                                                  |
+
+**Recommendation:** pilot on the web with the owner's team. Keep iOS behind the web pilot. The October work already moved the product to the web, and the native path adds the longest external lead time.
+
+### Decisions needed before work starts
+
+1. **Path — decided 2026-11-07: web pilot first.**
+2. **Host — open.** The runtime (`runtime/server.ts`) is a long-running Bun server that starts the invitation outbox worker in process, and it already supports TLS PostgreSQL. `@lesto/deploy@0.2.0` targets AWS and Cloudflare only. The candidates:
+   - The existing AWS graph (EC2 + RDS, about $62–67/month per `aws-staging-costs.md`, many attended prerequisites, never applied).
+   - A managed container host running the Bun server, with managed PostgreSQL. No Lesto deploy target exists for it.
+   - Vercel with managed PostgreSQL. It needs a custom Lesto request adapter and a scheduled job to drain the outbox, because a serverless function does not keep the in-process worker alive. No Lesto deploy target exists for it.
+   - The Cloudflare Worker cannot serve the product without a database port.
+
+   Infrastructure changes must follow the sibling Lesto repository guides; `../crack` is not present on this machine, so read it before choosing.
+
+3. **Web sign-in — decided 2026-11-07: email link.** It reuses the provider needed for blocker 3 and yields a provider-verified email, which invitations already bind to.
+4. **Domain and sender:** the production hostname and the sending domain for invitation email.
+5. **Brand at launch:** Snackday only, or Snackday and Ballplayer together. Ballplayer adds a second hostname and certificate.
+
+### Execution order (web pilot)
+
+| Step | Work                                                                                               | Exit check                                                                                        | Size estimate                   |
+| ---- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------- |
+| W0   | Make decisions 1–5; refresh `launch-backlog.json` statuses against merged PRs                      | Backlog statuses match `origin/main`                                                              | Hours, plus owner time          |
+| W1   | Web sign-in for real adults (decision 3) with session restore and logout                           | e2e signs in a non-dev adult on the remote runtime config; `SNACKDAY_DEV_SIGN_IN` stays forbidden | 2–4 days                        |
+| W2   | Email provider adapter for invitations and sign-in links; verified sender                          | An invitation reaches a real inbox; a forced failure retries from the outbox without a duplicate  | 2–3 days, plus DNS verification |
+| W3   | Deploy the runtime to the chosen host with HTTPS, persistent database, backups, logs and one alert | `/readyz` passes on the public hostname; one backup restores into a fresh instance                | 2–5 days (AWS at the high end)  |
+| W4   | Privacy policy, account and child deletion, and a support contact                                  | A guardian deletes a child and the roster, cards and logs hold no remaining child data            | 2–4 days                        |
+| W5   | Owner's-team pilot                                                                                 | One full recurring week per the pilot success criteria in section 8                               | 1 week                          |
+
+The estimates assume the agent-driven pace of PRs #19–#30 (twelve PRs merged between 2026-10-27 and 2026-10-28) and prompt owner decisions. They are not commitments. Owner decisions, DNS and provider verification set the real start date. W1, W2 and W4 can run in parallel; W3 depends on the host decision. On this basis, the first real coach can sign in about **two to three weeks** after decisions 1–5 are made.
+
+### What this refresh did not verify
+
+No cloud account, domain, Apple account or email provider was inspected. No deployment, build or live test ran. All findings come from source on `1ace419` and the committed docs.
+
 ## 1. What exists and what blocks release
 
 The source contains a meaningful local foundation. It is not a functioning production app awaiting only signing.
