@@ -25,8 +25,8 @@ The runtime fails closed:
 - Invitation create/resend returns 503 until email is configured
   (`SNACKDAY_EMAIL_FROM`, `RESEND_API_KEY` and `SNACKDAY_INVITATION_OUTBOX_KEY`).
   It never reports a memory-only delivery as success.
-- Email-link sign-in (`/sign-in`, `POST /api/auth/email/start` and
-  `/api/auth/email/verify`) answers 503 until email is configured. Apple sign-in
+- Email-link sign-in (`/sign-in`, `POST /api/auth/email/start`, `/preview` and
+  `/verify`) answers 503 until email is configured. Apple sign-in
   is enabled only when `SNACKDAY_APPLE_CLIENT_ID` is set.
 - Calendar bearer-token routes remain withheld until every upstream proxy log is
   configured and verified to avoid request paths. Set

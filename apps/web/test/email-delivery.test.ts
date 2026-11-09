@@ -2,7 +2,7 @@ import { isPermanentFailure } from "@lesto/queue";
 import { describe, expect, it } from "vitest";
 
 import { recordingEmailTransport } from "../app/lib/server/email";
-import { emailInviteDeliverer } from "../app/lib/server/invite-email";
+import { emailInviteDeliverer, quotedEmailName } from "../app/lib/server/invite-email";
 import type { InviteDelivery } from "../app/lib/server/invite-delivery";
 import { resendEmailTransport, TransientEmailError } from "../runtime/resend-email";
 
@@ -108,6 +108,14 @@ describe("email invite deliverer", () => {
     ]);
     expect(transport.messages[0]?.text).toContain("https://staging.snackduty.test/invite#token");
     expect(deliverer.currentLink("invitation_1")).toBeUndefined();
+  });
+
+  it("keeps user-typed names on one quoted line with no live links", () => {
+    expect(quotedEmailName("Falcons\r\nClick here: https://evil.example/login")).toBe(
+      '"Falcons Click here: evil․example/login"',
+    );
+    expect(quotedEmailName("St. Mary's 10U")).toBe(`"St. Mary's 10U"`);
+    expect(quotedEmailName("x".repeat(200))).toHaveLength(82);
   });
 
   it("fails permanently when the recipient has no verified address", async () => {

@@ -18,12 +18,15 @@ export const appleSignInInputSchema = z.strictObject({
 });
 export const emailSignInStartInputSchema = z.strictObject({
   email: z.email().trim().toLowerCase().max(320),
-  displayName: z.string().trim().min(1).max(200).optional(),
-  adultConsent: z.literal(true),
 });
 export const emailSignInStartedSchema = z.strictObject({ sent: z.literal(true) });
+const emailSignInToken = z.string().regex(/^[0-9a-f]{64}$/u);
+export const emailSignInPreviewInputSchema = z.strictObject({ token: emailSignInToken });
+export const emailSignInPreviewSchema = z.strictObject({ maskedEmail: z.string().min(1) });
 export const emailSignInVerifyInputSchema = z.strictObject({
-  token: z.string().regex(/^[0-9a-f]{64}$/u),
+  token: emailSignInToken,
+  displayName: z.string().trim().min(1).max(200).optional(),
+  adultConsent: z.literal(true),
 });
 export const signedOutSchema = z.strictObject({ signedOut: z.literal(true) });
 export const apiErrorSchema = z.object({ error: z.string().min(1) });

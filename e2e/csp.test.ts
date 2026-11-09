@@ -101,7 +101,7 @@ describe("csp: public pages", () => {
 
   test("the email sign-in page shows its form or a dead-link notice and raises no violation", async () => {
     await asRole(scenario(), "signed-out", async (session) => {
-      session.allowFailedResponse(401, "/api/auth/email/verify");
+      session.allowFailedResponse(401, "/api/auth/email/preview");
       await expectPolicy(session, "/sign-in");
       await expectHydrated(session.page);
       await session.page.getByRole("form", { name: "Sign in with email" }).waitFor();

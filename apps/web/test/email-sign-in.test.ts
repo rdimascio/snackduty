@@ -12,6 +12,7 @@ import {
 } from "../app/lib/server/email-sign-in";
 import { VERIFIED_SESSION_COOKIE } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
+import { INVITATIONS_PER_TEAM_PER_WINDOW } from "../app/lib/server/invitations";
 import { openRuntimeApplication } from "../runtime";
 import type { RuntimeConfiguration } from "../runtime";
 
@@ -88,14 +89,14 @@ async function signIn(
   email: string,
   displayName?: string,
 ) {
-  const started = await post(runtime, "/api/auth/email/start", {
-    email,
+  const started = await post(runtime, "/api/auth/email/start", { email });
+  expect(started.status).toBe(202);
+  const token = linkToken(transport.messages.at(-1), "/sign-in");
+  const verified = await post(runtime, "/api/auth/email/verify", {
+    token,
     ...(displayName === undefined ? {} : { displayName }),
     adultConsent: true,
   });
-  expect(started.status).toBe(202);
-  const token = linkToken(transport.messages.at(-1), "/sign-in");
-  const verified = await post(runtime, "/api/auth/email/verify", { token });
   expect(verified.status).toBe(200);
   return { cookie: sessionCookie(verified.headers["Set-Cookie"]), token };
 }
@@ -114,7 +115,7 @@ describe("email-link sign-in", () => {
     expect(session.status).toBe(200);
     expect(JSON.parse(session.body)).toMatchObject({ person: { displayName: "Casey Coach" } });
 
-    const reused = await post(runtime, "/api/auth/email/verify", { token });
+    const reused = await post(runtime, "/api/auth/email/verify", { token, adultConsent: true });
     expect(reused.status).toBe(401);
     await runtime.close();
   });
@@ -139,22 +140,22 @@ describe("email-link sign-in", () => {
   it("rejects an expired link", async () => {
     const transport = recordingEmailTransport();
     const { runtime, advance } = await openRuntime(transport);
-    await post(runtime, "/api/auth/email/start", {
-      email: "late@example.test",
-      adultConsent: true,
-    });
+    await post(runtime, "/api/auth/email/start", { email: "late@example.test" });
     const token = linkToken(transport.messages[0], "/sign-in");
 
     advance(EMAIL_SIGN_IN_TTL_MS);
 
-    expect((await post(runtime, "/api/auth/email/verify", { token })).status).toBe(401);
+    expect((await post(runtime, "/api/auth/email/preview", { token })).status).toBe(401);
+    expect(
+      (await post(runtime, "/api/auth/email/verify", { token, adultConsent: true })).status,
+    ).toBe(401);
     await runtime.close();
   });
 
   it("stops sending after the per-address limit but answers the same way", async () => {
     const transport = recordingEmailTransport();
     const { runtime, advance } = await openRuntime(transport);
-    const request = { email: "busy@example.test", adultConsent: true };
+    const request = { email: "busy@example.test" };
 
     for (let attempt = 0; attempt <= EMAIL_SIGN_IN_LIMIT_PER_WINDOW; attempt += 1) {
       expect((await post(runtime, "/api/auth/email/start", request)).status).toBe(202);
@@ -167,18 +168,33 @@ describe("email-link sign-in", () => {
     await runtime.close();
   });
 
-  it("requires adult consent", async () => {
-    const { runtime } = await openRuntime();
+  it("names the account before sign-in and takes consent only from the link holder", async () => {
+    const transport = recordingEmailTransport();
+    const { runtime } = await openRuntime(transport);
+    await post(runtime, "/api/auth/email/start", { email: "pat@example.test" });
+    const token = linkToken(transport.messages[0], "/sign-in");
 
+    const preview = await post(runtime, "/api/auth/email/preview", { token });
+    expect(JSON.parse(preview.body)).toEqual({ maskedEmail: "p***@example.test" });
     await expect(
-      post(runtime, "/api/auth/email/start", { email: "kid@example.test" }),
+      post(runtime, "/api/auth/email/start", {
+        email: "pat@example.test",
+        displayName: "Requester Name",
+        adultConsent: true,
+      }),
     ).rejects.toMatchObject({ code: "WEB_VALIDATION_FAILED" });
+    await expect(post(runtime, "/api/auth/email/verify", { token })).rejects.toMatchObject({
+      code: "WEB_VALIDATION_FAILED",
+    });
+
+    const verified = await post(runtime, "/api/auth/email/verify", { token, adultConsent: true });
+    expect(verified.status).toBe(200);
     await runtime.close();
   });
 
   it("answers 503 when the provider fails or no provider is configured", async () => {
     const failing = await openRuntime({ send: () => Promise.reject(new Error("down")) });
-    const request = { email: "coach@example.test", adultConsent: true };
+    const request = { email: "coach@example.test" };
     expect((await post(failing.runtime, "/api/auth/email/start", request)).status).toBe(503);
     await failing.runtime.close();
 
@@ -212,8 +228,9 @@ describe("invitation email delivery", () => {
 
     const invitation = transport.messages.at(-1);
     expect(invitation?.to).toBe("helper@example.test");
-    expect(invitation?.subject).toBe("Join Falcons on Snackday");
-    expect(invitation?.text).toContain("Olive Owner invited you to join Falcons");
+    expect(invitation?.subject).toBe("Your Snackday team invitation");
+    expect(invitation?.text).toContain('Team: "Falcons"');
+    expect(invitation?.text).toContain('Invited by: "Olive Owner"');
     expect(invitation?.text).not.toContain("Assistant coach");
     const inviteToken = linkToken(invitation, "/invite");
 
@@ -228,6 +245,34 @@ describe("invitation email delivery", () => {
     );
     expect(accepted.status).toBe(200);
     expect(JSON.parse(accepted.body)).toMatchObject({ team: { name: "Falcons" } });
+    await runtime.close();
+  });
+
+  it("stops a team from creating more invitations than the daily limit", async () => {
+    const transport = recordingEmailTransport();
+    const { runtime, advance } = await openRuntime(transport);
+    const owner = await signIn(runtime, transport, "owner@example.test", "Olive Owner");
+    const team = await post(runtime, "/api/teams", { name: "Falcons" }, owner.cookie);
+    const teamId = (JSON.parse(team.body) as { team: { id: string } }).team.id;
+    const invite = (index: number) =>
+      post(
+        runtime,
+        `/api/teams/${teamId}/invitations`,
+        {
+          invitedRole: "adult",
+          inviteeLabel: `Adult ${index}`,
+          recipientBinding: { kind: "verified_email", email: `adult${index}@example.test` },
+        },
+        owner.cookie,
+      );
+
+    for (let index = 0; index < INVITATIONS_PER_TEAM_PER_WINDOW; index += 1) {
+      expect((await invite(index)).status).toBe(201);
+    }
+    expect((await invite(INVITATIONS_PER_TEAM_PER_WINDOW)).status).toBe(429);
+
+    advance(24 * 60 * 60 * 1_000);
+    expect((await invite(INVITATIONS_PER_TEAM_PER_WINDOW)).status).toBe(201);
     await runtime.close();
   });
 

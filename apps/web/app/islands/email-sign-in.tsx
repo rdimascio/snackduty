@@ -8,9 +8,9 @@ import { inputClassName, labelClassName, primaryButtonClassName } from "../team/
 
 type SignInState =
   | { readonly status: "loading" }
-  | { readonly status: "form" }
+  | { readonly status: "request" }
   | { readonly status: "sent"; readonly email: string }
-  | { readonly status: "verifying" }
+  | { readonly status: "confirm"; readonly token: string; readonly maskedEmail: string }
   | { readonly status: "invalid" };
 
 const jsonPost = {
@@ -22,38 +22,23 @@ const jsonPost = {
 const SIGN_IN_PATH = "/sign-in";
 const SIGNED_IN_DESTINATION = "/app";
 
-async function verifyToken(token: string): Promise<boolean> {
+async function postJson(path: string, body: unknown): Promise<Response | undefined> {
   try {
-    const response = await fetch("/api/auth/email/verify", {
-      ...jsonPost,
-      body: JSON.stringify({ token }),
-    });
-    return response.ok;
+    return await fetch(path, { ...jsonPost, body: JSON.stringify(body) });
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-async function requestLink(email: string, displayName: string): Promise<boolean> {
-  try {
-    const response = await fetch("/api/auth/email/start", {
-      ...jsonPost,
-      body: JSON.stringify({
-        email,
-        ...(displayName === "" ? {} : { displayName }),
-        adultConsent: true,
-      }),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
+async function previewToken(token: string): Promise<SignInState> {
+  const response = await postJson("/api/auth/email/preview", { token });
+  if (response?.ok !== true) return { status: "invalid" };
+  const body = (await response.json()) as { maskedEmail: string };
+  return { status: "confirm", token, maskedEmail: body.maskedEmail };
 }
 
-function SignInForm({ onSent }: { onSent: (email: string) => void }): ReactNode {
+function RequestForm({ onSent }: { onSent: (email: string) => void }): ReactNode {
   const [email, setEmail] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [adult, setAdult] = useState(false);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string | undefined>();
 
@@ -62,9 +47,9 @@ function SignInForm({ onSent }: { onSent: (email: string) => void }): ReactNode 
     setFailure(undefined);
     setPending(true);
     const trimmedEmail = email.trim();
-    const sent = await requestLink(trimmedEmail, displayName.trim());
+    const response = await postJson("/api/auth/email/start", { email: trimmedEmail });
     setPending(false);
-    if (sent) {
+    if (response?.ok === true) {
       onSent(trimmedEmail);
       return;
     }
@@ -89,6 +74,65 @@ function SignInForm({ onSent }: { onSent: (email: string) => void }): ReactNode 
           value={email}
         />
       </label>
+      {failure === undefined ? null : (
+        <p className="text-sm font-semibold text-destructive" role="alert">
+          {failure}
+        </p>
+      )}
+      <button className={primaryButtonClassName} disabled={pending} type="submit">
+        {pending ? "Sending…" : "Email me a sign-in link"}
+      </button>
+    </form>
+  );
+}
+
+/**
+ * The link never signs anyone in by itself. The person holding it sees which
+ * account it opens, gives adult consent and clicks. A link someone else sent
+ * for their own account therefore cannot silently swap this browser's session.
+ */
+function ConfirmForm({
+  maskedEmail,
+  onInvalid,
+  token,
+}: {
+  maskedEmail: string;
+  onInvalid: () => void;
+  token: string;
+}): ReactNode {
+  const [displayName, setDisplayName] = useState("");
+  const [adult, setAdult] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setPending(true);
+    const name = displayName.trim();
+    const response = await postJson("/api/auth/email/verify", {
+      token,
+      ...(name === "" ? {} : { displayName: name }),
+      adultConsent: true,
+    });
+    if (response?.ok === true) {
+      window.location.assign(SIGNED_IN_DESTINATION);
+      return;
+    }
+    setPending(false);
+    onInvalid();
+  }
+
+  return (
+    <form
+      aria-label="Confirm sign-in"
+      className="mx-auto grid max-w-sm gap-4"
+      onSubmit={(event) => void submit(event)}
+    >
+      <p className="text-center">
+        Sign in as <strong>{maskedEmail}</strong>?
+      </p>
+      <p className="text-center text-sm text-muted-foreground">
+        If this is not your email address, close this page.
+      </p>
       <label className={labelClassName}>
         Your name (first sign-in only)
         <input
@@ -111,13 +155,8 @@ function SignInForm({ onSent }: { onSent: (email: string) => void }): ReactNode 
         />
         I am an adult (18 or older).
       </label>
-      {failure === undefined ? null : (
-        <p className="text-sm font-semibold text-destructive" role="alert">
-          {failure}
-        </p>
-      )}
       <button className={primaryButtonClassName} disabled={pending} type="submit">
-        {pending ? "Sending…" : "Email me a sign-in link"}
+        {pending ? "Signing in…" : "Sign in"}
       </button>
     </form>
   );
@@ -126,34 +165,37 @@ function SignInForm({ onSent }: { onSent: (email: string) => void }): ReactNode 
 /**
  * The sign-in link carries its token in the URL FRAGMENT, which no browser
  * sends to a server. The island reads it once, removes it from the address bar
- * and history, and sends it only in a POST body. A link scanner that fetches
+ * and history, and sends it only in POST bodies. A link scanner that fetches
  * the URL therefore cannot use up the link.
  */
 function EmailSignIn(): ReactNode {
   const [state, setState] = useState<SignInState>({ status: "loading" });
+  const showSent = (email: string) => setState({ status: "sent", email });
 
   useEffect(() => {
     const token = window.location.hash.slice(1);
     window.history.replaceState(null, "", SIGN_IN_PATH);
     if (token === "") {
-      setState({ status: "form" });
+      setState({ status: "request" });
       return;
     }
-    setState({ status: "verifying" });
-    void verifyToken(token).then((ok) => {
-      if (ok) {
-        window.location.assign(SIGNED_IN_DESTINATION);
-        return;
-      }
-      setState({ status: "invalid" });
-    });
+    void previewToken(token).then(setState);
   }, []);
 
-  if (state.status === "loading" || state.status === "verifying") {
+  if (state.status === "loading") {
     return (
       <p aria-live="polite" className="text-center text-muted-foreground">
-        {state.status === "verifying" ? "Signing you in…" : "Loading…"}
+        Loading…
       </p>
+    );
+  }
+  if (state.status === "confirm") {
+    return (
+      <ConfirmForm
+        maskedEmail={state.maskedEmail}
+        onInvalid={() => setState({ status: "invalid" })}
+        token={state.token}
+      />
     );
   }
   if (state.status === "invalid") {
@@ -163,20 +205,20 @@ function EmailSignIn(): ReactNode {
           description="It may have been used already or expired. Ask for a new link below."
           title="This sign-in link is not valid"
         />
-        <SignInForm onSent={(email) => setState({ status: "sent", email })} />
+        <RequestForm onSent={showSent} />
       </div>
     );
   }
   if (state.status === "sent") {
     return (
       <EmptyState
-        description={`If ${state.email} can receive email, a sign-in link is on its way. Open it on this device.`}
+        description={`If ${state.email} can receive email, a sign-in link is on its way.`}
         title="Check your email"
       />
     );
   }
 
-  return <SignInForm onSent={(email) => setState({ status: "sent", email })} />;
+  return <RequestForm onSent={showSent} />;
 }
 
 function EmailSignInFallback(): ReactNode {

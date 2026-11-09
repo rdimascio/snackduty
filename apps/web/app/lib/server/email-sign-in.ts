@@ -5,6 +5,8 @@ import type { Lesto } from "@lesto/web";
 import {
   adultIdentitySchema,
   emailSignInStartedSchema,
+  emailSignInPreviewInputSchema,
+  emailSignInPreviewSchema,
   emailSignInStartInputSchema,
   emailSignInVerifyInputSchema,
 } from "@snackday/domain";
@@ -26,7 +28,6 @@ export const emailSignInLinks = defineTable("email_sign_in_links", {
   id: text("id").primaryKey(),
   tokenHash: text("token_hash").notNull().unique(),
   normalizedEmail: text("normalized_email").notNull(),
-  displayName: text("display_name"),
   status: text("status").notNull(),
   createdAt: text("created_at").notNull(),
   expiresAt: text("expires_at").notNull(),
@@ -66,6 +67,10 @@ export type EmailSignInStartOutcome = "sent" | "unavailable";
 
 export interface EmailSignInOperations {
   start(input: z.infer<typeof emailSignInStartInputSchema>): Promise<EmailSignInStartOutcome>;
+  /** Names the account a live link signs in to, without using the link up. */
+  preview(
+    input: z.infer<typeof emailSignInPreviewInputSchema>,
+  ): Promise<z.infer<typeof emailSignInPreviewSchema> | undefined>;
   verify(
     input: z.infer<typeof emailSignInVerifyInputSchema>,
   ): Promise<{ readonly identity: AuthenticatedIdentity; readonly cookie: string } | undefined>;
@@ -86,8 +91,34 @@ export function emailSignInText(link: string): string {
   ].join("\n");
 }
 
+/** `pat@example.test` → `p***@example.test`: enough to spot a link for someone else's account. */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  return `${email.slice(0, 1)}***${email.slice(at)}`;
+}
+
+async function liveLink(db: Db, token: string, nowIso: string) {
+  const tokenHash = await hashBearerToken(token);
+  return db
+    .select()
+    .from(emailSignInLinks)
+    .where(
+      and(
+        eq(emailSignInLinks.tokenHash, tokenHash),
+        eq(emailSignInLinks.status, "pending"),
+        gt(emailSignInLinks.expiresAt, nowIso),
+      ),
+    )
+    .get();
+}
+
 export function createEmailSignIn(options: EmailSignInOptions): EmailSignInOperations {
   return {
+    async preview(input) {
+      const link = await liveLink(options.db, input.token, new Date(options.clock()).toISOString());
+      return link === undefined ? undefined : { maskedEmail: maskEmail(link.normalizedEmail) };
+    },
+
     async start(input) {
       const delivery = options.delivery;
       if (delivery === undefined) return "unavailable";
@@ -116,7 +147,6 @@ export function createEmailSignIn(options: EmailSignInOptions): EmailSignInOpera
             id,
             tokenHash,
             normalizedEmail: input.email,
-            displayName: input.displayName ?? null,
             status: "pending",
             createdAt: nowIso,
             expiresAt: new Date(now + EMAIL_SIGN_IN_TTL_MS).toISOString(),
@@ -150,20 +180,9 @@ export function createEmailSignIn(options: EmailSignInOptions): EmailSignInOpera
     },
 
     async verify(input) {
-      const tokenHash = await hashBearerToken(input.token);
       const identity = await options.db.transaction(async (tx) => {
         const nowIso = new Date(options.clock()).toISOString();
-        const link = await tx
-          .select()
-          .from(emailSignInLinks)
-          .where(
-            and(
-              eq(emailSignInLinks.tokenHash, tokenHash),
-              eq(emailSignInLinks.status, "pending"),
-              gt(emailSignInLinks.expiresAt, nowIso),
-            ),
-          )
-          .get();
+        const link = await liveLink(tx, input.token, nowIso);
         if (link === undefined) return undefined;
         const consumed = await tx
           .update(emailSignInLinks)
@@ -180,7 +199,7 @@ export function createEmailSignIn(options: EmailSignInOptions): EmailSignInOpera
             email: link.normalizedEmail,
             emailVerified: true,
           },
-          link.displayName ?? undefined,
+          input.displayName,
           nowIso,
         );
       });
@@ -200,6 +219,12 @@ export function registerEmailSignInRoutes(app: Lesto, operations: EmailSignInOpe
       return outcome === "sent"
         ? c.json(emailSignInStartedSchema.parse({ sent: true }), 202)
         : c.json(emailSignInUnavailable, 503);
+    })
+    .post("/api/auth/email/preview", async (c) => {
+      const preview = await operations.preview(c.valid(emailSignInPreviewInputSchema));
+      return preview === undefined
+        ? c.json(authenticationFailed, 401)
+        : c.json(emailSignInPreviewSchema.parse(preview));
     })
     .post("/api/auth/email/verify", async (c) => {
       const signedIn = await operations.verify(c.valid(emailSignInVerifyInputSchema));

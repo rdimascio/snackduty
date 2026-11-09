@@ -6,6 +6,12 @@ import type { InviteDeliverer, InviteDelivery } from "./invite-delivery";
 import { INVITATION_TTL_MS } from "./invitations";
 
 const INVITATION_TTL_DAYS = INVITATION_TTL_MS / (24 * 60 * 60 * 1_000);
+export const INVITATION_EMAIL_SUBJECT = "Your Snackday team invitation";
+const MAX_QUOTED_NAME_LENGTH = 80;
+const CONTROL_OR_LINE_BREAK = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu;
+const URL_SCHEME = /[a-z][a-z0-9+.-]*:\/\//giu;
+const DOT_BETWEEN_WORDS = /(?<=[\p{L}\p{N}])\.(?=[\p{L}\p{N}])/gu;
+const ONE_DOT_LEADER = "․";
 
 export interface EmailInviteDelivererOptions {
   readonly transport: EmailTransport;
@@ -15,17 +21,40 @@ export interface EmailInviteDelivererOptions {
   readonly recipientEmails: (recipient: RecipientBinding) => Promise<readonly string[]>;
 }
 
+/**
+ * Team and inviter names are typed by any signed-in adult. In an email they
+ * stay on one line, lose URL schemes, and render `evil.com` as a non-link, so
+ * a name cannot pose as instructions or as a second link.
+ */
+export function quotedEmailName(name: string): string {
+  const neutral = name
+    .replace(CONTROL_OR_LINE_BREAK, " ")
+    .replace(URL_SCHEME, "")
+    .replace(DOT_BETWEEN_WORDS, ONE_DOT_LEADER)
+    .replace(/\s+/gu, " ")
+    .trim();
+  const shortened =
+    neutral.length > MAX_QUOTED_NAME_LENGTH
+      ? `${neutral.slice(0, MAX_QUOTED_NAME_LENGTH - 1)}…`
+      : neutral;
+  return `"${shortened}"`;
+}
+
 function roleText(delivery: InviteDelivery): string {
   return delivery.invitedRole === "owner" ? "an owner" : "a member";
 }
 
 /**
  * Only the fields the privacy contract in `invite-delivery.ts` allows: the
- * team, the inviter, the role and the link. Never the invitee label.
+ * team, the inviter, the role and the link. Never the invitee label. Fixed
+ * copy comes first; user-typed names appear only in quotes.
  */
 export function invitationEmailText(delivery: InviteDelivery, link: string): string {
   return [
-    `${delivery.inviterDisplayName} invited you to join ${delivery.teamName} on Snackday as ${roleText(delivery)}.`,
+    `You have an invitation to join a team on Snackday as ${roleText(delivery)}.`,
+    "",
+    `Team: ${quotedEmailName(delivery.teamName)}`,
+    `Invited by: ${quotedEmailName(delivery.inviterDisplayName)}`,
     "",
     "Open this link to accept:",
     link,
@@ -49,7 +78,7 @@ export function emailInviteDeliverer(options: EmailInviteDelivererOptions): Invi
       for (const address of addresses) {
         await options.transport.send({
           to: address,
-          subject: `Join ${delivery.teamName} on Snackday`,
+          subject: INVITATION_EMAIL_SUBJECT,
           text: invitationEmailText(delivery, link),
           idempotencyKey: `${delivery.idempotencyKey}:${address}`,
         });

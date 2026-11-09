@@ -137,6 +137,9 @@ export const createInvitationRecipientBinding: MigrationEntry = {
 // cheaply (it rotates the hash, killing the old link), so a short window costs
 // the product nothing and shrinks how long a mislaid link stays live.
 export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
+const INVITATION_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1_000;
+/** New invitations one team may create per window; each one sends an email to any address. */
+export const INVITATIONS_PER_TEAM_PER_WINDOW = 100;
 
 const invitedRoleSchema = z.enum(["owner", "adult"] as const satisfies readonly InvitedRole[]);
 
@@ -188,6 +191,7 @@ const invitationAlreadyPending = {
   error: "invitation already pending",
 } as const;
 const invitationNotPending = { error: "invitation is not pending" } as const;
+const invitationLimitReached = { error: "invitation limit reached" } as const;
 const invitationAlreadyAccepted = {
   error: "invitation already accepted",
 } as const;
@@ -500,6 +504,13 @@ async function createInvitation(
       )
       .get();
     if (pending !== undefined) return "duplicate" as const;
+    const windowStart = new Date(now.getTime() - INVITATION_LIMIT_WINDOW_MS).toISOString();
+    const recent = await tx
+      .select()
+      .from(invitations)
+      .where(and(eq(invitations.teamId, team.id), gt(invitations.createdAt, windowStart)))
+      .all();
+    if (recent.length >= INVITATIONS_PER_TEAM_PER_WINDOW) return "limit" as const;
 
     const row = await tx
       .insert(invitations)
@@ -533,6 +544,7 @@ async function createInvitation(
   if (outcome === null) return c.json(teamNotFound, 404);
   if (outcome === "no-participant") return c.json(participantNotFound, 404);
   if (outcome === "duplicate") return c.json(invitationAlreadyPending, 409);
+  if (outcome === "limit") return c.json(invitationLimitReached, 429);
   if (outcome === "invalid-recipient" || outcome === "invalid-replacement") {
     return c.json(invitationRecipientInvalid, 422);
   }
