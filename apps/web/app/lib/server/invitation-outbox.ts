@@ -1,4 +1,4 @@
-import { createDb, createTableSql, defineTable, dropTableSql, eq, text } from "@lesto/db";
+import { and, createDb, createTableSql, defineTable, dropTableSql, eq, gt, text } from "@lesto/db";
 import type { Db, Dialect, SqlDatabase } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import { isPermanentFailure, permanentFailure, Queue } from "@lesto/queue";
@@ -147,6 +147,35 @@ export interface InvitationOutboxOptions {
   readonly cipher: InvitationPayloadCipher;
   readonly clock?: () => number;
   readonly onSchedulingError: (error: unknown) => void;
+}
+
+const INVITATION_SEND_WINDOW_MS = 24 * 60 * 60 * 1_000;
+/** Invitation emails (creates and resends) one team may queue per window. */
+export const INVITATION_SENDS_PER_TEAM_PER_WINDOW = 100;
+/**
+ * Invitation emails one person's invitations may queue per window, across
+ * every team, so opening a new team does not reset the budget.
+ */
+export const INVITATION_SENDS_PER_PERSON_PER_WINDOW = 200;
+
+/** Counts queued sends, not invitation rows, so resends spend the same budget. */
+export async function invitationSendLimitReached(
+  tx: Db,
+  scope: { readonly teamId: string; readonly personId: string },
+  nowMs: number,
+): Promise<boolean> {
+  const windowStart = new Date(nowMs - INVITATION_SEND_WINDOW_MS).toISOString();
+  const sendsWhere = (owner: ReturnType<typeof eq>) =>
+    tx
+      .select()
+      .from(invitationOutbox)
+      .innerJoin(invitations, eq(invitationOutbox.invitationId, invitations.id))
+      .where(and(gt(invitationOutbox.createdAt, windowStart), owner))
+      .all();
+  const teamSends = await sendsWhere(eq(invitations.teamId, scope.teamId));
+  if (teamSends.length >= INVITATION_SENDS_PER_TEAM_PER_WINDOW) return true;
+  const personSends = await sendsWhere(eq(invitations.createdByPersonId, scope.personId));
+  return personSends.length >= INVITATION_SENDS_PER_PERSON_PER_WINDOW;
 }
 
 function deliveryKey(invitationId: string, tokenHash: string): string {

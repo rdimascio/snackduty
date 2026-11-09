@@ -112,8 +112,11 @@ describe("email invite deliverer", () => {
 
   it("keeps user-typed names on one quoted line with no live links", () => {
     expect(quotedEmailName("Falcons\r\nClick here: https://evil.example/login")).toBe(
-      '"Falcons Click here: evil․example/login"',
+      '"Falcons Click here https evil example login"',
     );
+    expect(quotedEmailName("hthttps://tps://evil．com")).toBe('"hthttps tps evil com"');
+    expect(quotedEmailName("evil。com evil｡com evil․com")).toBe('"evil com evil com evil com"');
+    expect(quotedEmailName("user@evil.com")).toBe('"user evil com"');
     expect(quotedEmailName("St. Mary's 10U")).toBe(`"St. Mary's 10U"`);
     expect(quotedEmailName("x".repeat(200))).toHaveLength(82);
   });

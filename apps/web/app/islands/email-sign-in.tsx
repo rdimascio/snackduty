@@ -10,7 +10,7 @@ type SignInState =
   | { readonly status: "loading" }
   | { readonly status: "request" }
   | { readonly status: "sent"; readonly email: string }
-  | { readonly status: "confirm"; readonly token: string; readonly maskedEmail: string }
+  | { readonly status: "confirm"; readonly token: string; readonly email: string }
   | { readonly status: "invalid" };
 
 const jsonPost = {
@@ -33,8 +33,8 @@ async function postJson(path: string, body: unknown): Promise<Response | undefin
 async function previewToken(token: string): Promise<SignInState> {
   const response = await postJson("/api/auth/email/preview", { token });
   if (response?.ok !== true) return { status: "invalid" };
-  const body = (await response.json()) as { maskedEmail: string };
-  return { status: "confirm", token, maskedEmail: body.maskedEmail };
+  const body = (await response.json()) as { email: string };
+  return { status: "confirm", token, email: body.email };
 }
 
 function RequestForm({ onSent }: { onSent: (email: string) => void }): ReactNode {
@@ -92,11 +92,11 @@ function RequestForm({ onSent }: { onSent: (email: string) => void }): ReactNode
  * for their own account therefore cannot silently swap this browser's session.
  */
 function ConfirmForm({
-  maskedEmail,
+  email,
   onInvalid,
   token,
 }: {
-  maskedEmail: string;
+  email: string;
   onInvalid: () => void;
   token: string;
 }): ReactNode {
@@ -128,7 +128,7 @@ function ConfirmForm({
       onSubmit={(event) => void submit(event)}
     >
       <p className="text-center">
-        Sign in as <strong>{maskedEmail}</strong>?
+        Sign in as <strong>{email}</strong>?
       </p>
       <p className="text-center text-sm text-muted-foreground">
         If this is not your email address, close this page.
@@ -192,7 +192,7 @@ function EmailSignIn(): ReactNode {
   if (state.status === "confirm") {
     return (
       <ConfirmForm
-        maskedEmail={state.maskedEmail}
+        email={state.email}
         onInvalid={() => setState({ status: "invalid" })}
         token={state.token}
       />

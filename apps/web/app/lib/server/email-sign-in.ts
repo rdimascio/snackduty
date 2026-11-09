@@ -67,7 +67,10 @@ export type EmailSignInStartOutcome = "sent" | "unavailable";
 
 export interface EmailSignInOperations {
   start(input: z.infer<typeof emailSignInStartInputSchema>): Promise<EmailSignInStartOutcome>;
-  /** Names the account a live link signs in to, without using the link up. */
+  /**
+   * Names the account a live link signs in to, without using the link up. The
+   * full address is safe to show: only a holder of the mailed token sees it.
+   */
   preview(
     input: z.infer<typeof emailSignInPreviewInputSchema>,
   ): Promise<z.infer<typeof emailSignInPreviewSchema> | undefined>;
@@ -91,12 +94,6 @@ export function emailSignInText(link: string): string {
   ].join("\n");
 }
 
-/** `pat@example.test` → `p***@example.test`: enough to spot a link for someone else's account. */
-export function maskEmail(email: string): string {
-  const at = email.lastIndexOf("@");
-  return `${email.slice(0, 1)}***${email.slice(at)}`;
-}
-
 async function liveLink(db: Db, token: string, nowIso: string) {
   const tokenHash = await hashBearerToken(token);
   return db
@@ -116,7 +113,7 @@ export function createEmailSignIn(options: EmailSignInOptions): EmailSignInOpera
   return {
     async preview(input) {
       const link = await liveLink(options.db, input.token, new Date(options.clock()).toISOString());
-      return link === undefined ? undefined : { maskedEmail: maskEmail(link.normalizedEmail) };
+      return link === undefined ? undefined : { email: link.normalizedEmail };
     },
 
     async start(input) {

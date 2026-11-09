@@ -22,7 +22,7 @@ export const emailSignInStartInputSchema = z.strictObject({
 export const emailSignInStartedSchema = z.strictObject({ sent: z.literal(true) });
 const emailSignInToken = z.string().regex(/^[0-9a-f]{64}$/u);
 export const emailSignInPreviewInputSchema = z.strictObject({ token: emailSignInToken });
-export const emailSignInPreviewSchema = z.strictObject({ maskedEmail: z.string().min(1) });
+export const emailSignInPreviewSchema = z.strictObject({ email: z.string().min(1) });
 export const emailSignInVerifyInputSchema = z.strictObject({
   token: emailSignInToken,
   displayName: z.string().trim().min(1).max(200).optional(),

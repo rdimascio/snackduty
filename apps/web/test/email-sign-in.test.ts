@@ -12,7 +12,11 @@ import {
 } from "../app/lib/server/email-sign-in";
 import { VERIFIED_SESSION_COOKIE } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
-import { INVITATIONS_PER_TEAM_PER_WINDOW } from "../app/lib/server/invitations";
+import {
+  INVITATION_SENDS_PER_PERSON_PER_WINDOW,
+  INVITATION_SENDS_PER_TEAM_PER_WINDOW,
+  invitationOutbox,
+} from "../app/lib/server/invitation-outbox";
 import { openRuntimeApplication } from "../runtime";
 import type { RuntimeConfiguration } from "../runtime";
 
@@ -175,7 +179,7 @@ describe("email-link sign-in", () => {
     const token = linkToken(transport.messages[0], "/sign-in");
 
     const preview = await post(runtime, "/api/auth/email/preview", { token });
-    expect(JSON.parse(preview.body)).toEqual({ maskedEmail: "p***@example.test" });
+    expect(JSON.parse(preview.body)).toEqual({ email: "pat@example.test" });
     await expect(
       post(runtime, "/api/auth/email/start", {
         email: "pat@example.test",
@@ -248,31 +252,68 @@ describe("invitation email delivery", () => {
     await runtime.close();
   });
 
-  it("stops a team from creating more invitations than the daily limit", async () => {
+  it("spends one daily send budget on creates and resends, per team and per inviter", async () => {
     const transport = recordingEmailTransport();
     const { runtime, advance } = await openRuntime(transport);
     const owner = await signIn(runtime, transport, "owner@example.test", "Olive Owner");
-    const team = await post(runtime, "/api/teams", { name: "Falcons" }, owner.cookie);
-    const teamId = (JSON.parse(team.body) as { team: { id: string } }).team.id;
-    const invite = (index: number) =>
+    const newTeam = async (name: string) => {
+      const team = await post(runtime, "/api/teams", { name }, owner.cookie);
+      return (JSON.parse(team.body) as { team: { id: string } }).team.id;
+    };
+    const invite = (teamId: string, label: string) =>
       post(
         runtime,
         `/api/teams/${teamId}/invitations`,
         {
           invitedRole: "adult",
-          inviteeLabel: `Adult ${index}`,
-          recipientBinding: { kind: "verified_email", email: `adult${index}@example.test` },
+          inviteeLabel: label,
+          recipientBinding: { kind: "verified_email", email: "adult@example.test" },
         },
         owner.cookie,
       );
+    // The kernel's real-time request limiter would answer 429 long before
+    // 200 HTTP sends, so earlier sends in the window are written as outbox rows.
+    const recordEarlierSends = async (invitationId: string, count: number) => {
+      const at = new Date(START).toISOString();
+      for (let index = 0; index < count; index += 1) {
+        await runtime.db
+          .insert(invitationOutbox)
+          .values({
+            id: `invitation_delivery_earlier_${invitationId}_${index}`,
+            invitationId,
+            deliveryKey: `earlier:${invitationId}:${index}`,
+            tokenHash: "earlier",
+            encryptedPayload: "earlier",
+            status: "delivered",
+            createdAt: at,
+            updatedAt: at,
+            queuedAt: at,
+            deliveredAt: at,
+          })
+          .run();
+      }
+    };
+    const spendTeamBudget = async (teamId: string) => {
+      const created = await invite(teamId, "Adult");
+      expect(created.status).toBe(201);
+      const { invitation } = JSON.parse(created.body) as { invitation: { id: string } };
+      await recordEarlierSends(invitation.id, INVITATION_SENDS_PER_TEAM_PER_WINDOW - 1);
+      return () =>
+        post(runtime, `/api/teams/${teamId}/invitations/${invitation.id}/resend`, {}, owner.cookie);
+    };
+    const limitReached = { status: 429, body: '{"error":"invitation limit reached"}' };
 
-    for (let index = 0; index < INVITATIONS_PER_TEAM_PER_WINDOW; index += 1) {
-      expect((await invite(index)).status).toBe(201);
-    }
-    expect((await invite(INVITATIONS_PER_TEAM_PER_WINDOW)).status).toBe(429);
+    const falcons = await newTeam("Falcons");
+    const resendFalcons = await spendTeamBudget(falcons);
+    expect(await resendFalcons()).toMatchObject(limitReached);
+    expect(await invite(falcons, "Another adult")).toMatchObject(limitReached);
+
+    expect(INVITATION_SENDS_PER_PERSON_PER_WINDOW).toBe(2 * INVITATION_SENDS_PER_TEAM_PER_WINDOW);
+    await spendTeamBudget(await newTeam("Comets"));
+    expect(await invite(await newTeam("Owls"), "Adult")).toMatchObject(limitReached);
 
     advance(24 * 60 * 60 * 1_000);
-    expect((await invite(INVITATIONS_PER_TEAM_PER_WINDOW)).status).toBe(201);
+    expect((await resendFalcons()).status).toBe(200);
     await runtime.close();
   });
 

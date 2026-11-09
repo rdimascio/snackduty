@@ -9,9 +9,10 @@ const INVITATION_TTL_DAYS = INVITATION_TTL_MS / (24 * 60 * 60 * 1_000);
 export const INVITATION_EMAIL_SUBJECT = "Your Snackday team invitation";
 const MAX_QUOTED_NAME_LENGTH = 80;
 const CONTROL_OR_LINE_BREAK = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu;
-const URL_SCHEME = /[a-z][a-z0-9+.-]*:\/\//giu;
-const DOT_BETWEEN_WORDS = /(?<=[\p{L}\p{N}])\.(?=[\p{L}\p{N}])/gu;
-const ONE_DOT_LEADER = "․";
+/** Characters a URL or address needs between scheme, user, host and path. */
+const URL_SEPARATORS = /[:/\\@]/gu;
+/** `.` and the code points UTS 46 maps to it: U+2024, U+3002, U+FF0E, U+FF61. */
+const DOT_BETWEEN_WORDS = /(?<=[\p{L}\p{N}])[.․。．｡](?=[\p{L}\p{N}])/gu;
 
 export interface EmailInviteDelivererOptions {
   readonly transport: EmailTransport;
@@ -23,14 +24,14 @@ export interface EmailInviteDelivererOptions {
 
 /**
  * Team and inviter names are typed by any signed-in adult. In an email they
- * stay on one line, lose URL schemes, and render `evil.com` as a non-link, so
- * a name cannot pose as instructions or as a second link.
+ * stay on one line and lose every URL separator and every dot between words,
+ * so a name cannot pose as instructions or as a second link.
  */
 export function quotedEmailName(name: string): string {
   const neutral = name
     .replace(CONTROL_OR_LINE_BREAK, " ")
-    .replace(URL_SCHEME, "")
-    .replace(DOT_BETWEEN_WORDS, ONE_DOT_LEADER)
+    .replace(URL_SEPARATORS, " ")
+    .replace(DOT_BETWEEN_WORDS, " ")
     .replace(/\s+/gu, " ")
     .trim();
   const shortened =
