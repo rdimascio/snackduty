@@ -41,7 +41,11 @@ import {
   registerInvitationRoutes,
 } from "./invitations";
 import type { InvitationRouteOptions } from "./invitations";
-import { createInvitationOutbox, createInvitationOutboxOperations } from "./invitation-outbox";
+import {
+  addOutboxQueuedBy,
+  createInvitationOutbox,
+  createInvitationOutboxOperations,
+} from "./invitation-outbox";
 import type { InvitationPayloadCipher } from "./invitation-outbox";
 import { registerRosterImportRoutes } from "./roster-import";
 import { createRoster, registerRosterRoutes } from "./roster";
@@ -161,6 +165,7 @@ export const applicationMigrations = [
   addSeasonLessonAgeBand,
   createSkillEvents,
   createEmailSignInSchema,
+  addOutboxQueuedBy,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 function registerLessonSurface(app: Lesto, options: ApplicationOptions): Lesto {

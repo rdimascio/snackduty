@@ -273,15 +273,19 @@ describe("invitation email delivery", () => {
       );
     // The kernel's real-time request limiter would answer 429 long before
     // 200 HTTP sends, so earlier sends in the window are written as outbox rows.
-    const recordEarlierSends = async (invitationId: string, count: number) => {
+    const session = await runtime.app.handle("GET", "/api/session", {
+      headers: { cookie: owner.cookie },
+    });
+    const ownerId = (JSON.parse(session.body) as { person: { id: string } }).person.id;
+    const recordEarlierSends = async (invitationId: string, count: number, queuedBy: string) => {
       const at = new Date(START).toISOString();
       for (let index = 0; index < count; index += 1) {
         await runtime.db
           .insert(invitationOutbox)
           .values({
-            id: `invitation_delivery_earlier_${invitationId}_${index}`,
+            id: `invitation_delivery_earlier_${invitationId}_${queuedBy}_${index}`,
             invitationId,
-            deliveryKey: `earlier:${invitationId}:${index}`,
+            deliveryKey: `earlier:${invitationId}:${queuedBy}:${index}`,
             tokenHash: "earlier",
             encryptedPayload: "earlier",
             status: "delivered",
@@ -289,31 +293,53 @@ describe("invitation email delivery", () => {
             updatedAt: at,
             queuedAt: at,
             deliveredAt: at,
+            queuedByPersonId: queuedBy,
           })
           .run();
       }
     };
-    const spendTeamBudget = async (teamId: string) => {
+    const createInvitation = async (teamId: string) => {
       const created = await invite(teamId, "Adult");
       expect(created.status).toBe(201);
-      const { invitation } = JSON.parse(created.body) as { invitation: { id: string } };
-      await recordEarlierSends(invitation.id, INVITATION_SENDS_PER_TEAM_PER_WINDOW - 1);
-      return () =>
-        post(runtime, `/api/teams/${teamId}/invitations/${invitation.id}/resend`, {}, owner.cookie);
+      return (JSON.parse(created.body) as { invitation: { id: string } }).invitation.id;
     };
     const limitReached = { status: 429, body: '{"error":"invitation limit reached"}' };
+    const spare = INVITATION_SENDS_PER_TEAM_PER_WINDOW - 1;
 
     const falcons = await newTeam("Falcons");
-    const resendFalcons = await spendTeamBudget(falcons);
+    const falconsInvitation = await createInvitation(falcons);
+    await recordEarlierSends(falconsInvitation, spare, ownerId);
+    const resendFalcons = () =>
+      post(
+        runtime,
+        `/api/teams/${falcons}/invitations/${falconsInvitation}/resend`,
+        {},
+        owner.cookie,
+      );
     expect(await resendFalcons()).toMatchObject(limitReached);
     expect(await invite(falcons, "Another adult")).toMatchObject(limitReached);
 
-    expect(INVITATION_SENDS_PER_PERSON_PER_WINDOW).toBe(2 * INVITATION_SENDS_PER_TEAM_PER_WINDOW);
-    await spendTeamBudget(await newTeam("Comets"));
-    expect(await invite(await newTeam("Owls"), "Adult")).toMatchObject(limitReached);
+    const comets = await newTeam("Comets");
+    await recordEarlierSends(await createInvitation(comets), spare, "person_someone_else");
+    const owls = await newTeam("Owls");
+    const owlsInvitation = await createInvitation(owls);
+
+    const ownerSends = INVITATION_SENDS_PER_TEAM_PER_WINDOW + 2;
+    await recordEarlierSends(
+      owlsInvitation,
+      INVITATION_SENDS_PER_PERSON_PER_WINDOW - ownerSends,
+      ownerId,
+    );
+    expect(await invite(owls, "Another adult")).toMatchObject(limitReached);
 
     advance(24 * 60 * 60 * 1_000);
     expect((await resendFalcons()).status).toBe(200);
+    const latest = await runtime.sql
+      .prepare(
+        "SELECT queued_by_person_id FROM invitation_delivery_outbox WHERE delivery_key NOT LIKE 'earlier:%' ORDER BY created_at DESC LIMIT 1",
+      )
+      .get();
+    expect(latest).toEqual({ queued_by_person_id: ownerId });
     await runtime.close();
   });
 

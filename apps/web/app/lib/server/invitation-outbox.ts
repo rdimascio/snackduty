@@ -15,7 +15,7 @@ import { ownedActiveTeam } from "./teams";
 const JOB_NAME = "invitation.delivery";
 const QUEUE_NAME = "invitation-delivery";
 
-export const invitationOutbox = defineTable("invitation_delivery_outbox", {
+const outboxColumnsV012 = {
   id: text("id").primaryKey(),
   invitationId: text("invitation_id")
     .notNull()
@@ -28,13 +28,40 @@ export const invitationOutbox = defineTable("invitation_delivery_outbox", {
   updatedAt: text("updated_at").notNull(),
   queuedAt: text("queued_at"),
   deliveredAt: text("delivered_at"),
+};
+const invitationOutboxV012 = defineTable("invitation_delivery_outbox", outboxColumnsV012);
+
+export const invitationOutbox = defineTable("invitation_delivery_outbox", {
+  ...outboxColumnsV012,
+  /** The adult whose create or resend queued this send; null on rows from before 018. */
+  queuedByPersonId: text("queued_by_person_id"),
 });
+
+export const addOutboxQueuedBy: MigrationEntry = {
+  version: "018_add_invitation_outbox_queued_by",
+  migration: {
+    up: async (schema) => {
+      await schema.execute(
+        "ALTER TABLE invitation_delivery_outbox ADD COLUMN queued_by_person_id TEXT",
+      );
+      await schema.execute(
+        "CREATE INDEX invitation_delivery_outbox_queued_by_idx ON invitation_delivery_outbox (queued_by_person_id, created_at)",
+      );
+    },
+    down: async (schema) => {
+      await schema.execute("DROP INDEX invitation_delivery_outbox_queued_by_idx");
+      await schema.execute(
+        "ALTER TABLE invitation_delivery_outbox DROP COLUMN queued_by_person_id",
+      );
+    },
+  },
+};
 
 export const createInvitationOutbox: MigrationEntry = {
   version: "012_create_invitation_outbox",
   migration: {
     up: async (schema) => {
-      await schema.execute(createTableSql(invitationOutbox, schema.dialect));
+      await schema.execute(createTableSql(invitationOutboxV012, schema.dialect));
       await schema.execute(
         "CREATE INDEX invitation_delivery_outbox_invitation_id_idx ON invitation_delivery_outbox (invitation_id)",
       );
@@ -127,6 +154,8 @@ export interface InvitationDeliveryIntent {
   readonly invitationId: string;
   readonly tokenHash: string;
   readonly delivery: InviteDelivery;
+  /** The acting adult, charged against the per-person send budget. */
+  readonly queuedByPersonId: string;
 }
 
 export interface InvitationOutbox {
@@ -174,7 +203,16 @@ export async function invitationSendLimitReached(
       .all();
   const teamSends = await sendsWhere(eq(invitations.teamId, scope.teamId));
   if (teamSends.length >= INVITATION_SENDS_PER_TEAM_PER_WINDOW) return true;
-  const personSends = await sendsWhere(eq(invitations.createdByPersonId, scope.personId));
+  const personSends = await tx
+    .select()
+    .from(invitationOutbox)
+    .where(
+      and(
+        gt(invitationOutbox.createdAt, windowStart),
+        eq(invitationOutbox.queuedByPersonId, scope.personId),
+      ),
+    )
+    .all();
   return personSends.length >= INVITATION_SENDS_PER_PERSON_PER_WINDOW;
 }
 
@@ -330,6 +368,7 @@ export function createInvitationOutboxOperations(
               invitationId: intent.invitationId,
               deliveryKey: key,
               tokenHash: intent.tokenHash,
+              queuedByPersonId: intent.queuedByPersonId,
               encryptedPayload,
               status: "pending",
               createdAt: nowIso,
