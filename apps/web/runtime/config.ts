@@ -4,12 +4,19 @@ import type { RuntimeRelease } from "./release";
 
 export type RemoteRuntimeMode = "staging" | "production";
 
+export interface EmailConfiguration {
+  readonly provider: "resend";
+  readonly from: string;
+  readonly apiKey: string;
+}
+
 interface SharedRuntimeConfiguration {
   readonly mode: RemoteRuntimeMode;
   readonly host: string;
   readonly port: number;
   readonly publicBaseUrl: URL;
-  readonly appleClientId: string;
+  readonly appleClientId?: string;
+  readonly email?: EmailConfiguration;
   readonly upstreamCredentialPathLoggingSafe: boolean;
   readonly release?: RuntimeRelease;
 }
@@ -150,6 +157,25 @@ function explicitBoolean(value: string | undefined, name: string): boolean {
   throw new RuntimeConfigurationError(`${name} must be true or false when set.`);
 }
 
+function optional(environment: RuntimeEnvironment, name: string): string | undefined {
+  const value = environment[name]?.trim();
+  return value === undefined || value === "" ? undefined : value;
+}
+
+const EMAIL_SETTINGS = ["SNACKDAY_EMAIL_FROM", "RESEND_API_KEY"] as const;
+
+function emailConfiguration(environment: RuntimeEnvironment): EmailConfiguration | undefined {
+  const [from, apiKey] = EMAIL_SETTINGS.map((name) => optional(environment, name));
+  if (from === undefined && apiKey === undefined) return undefined;
+  if (from === undefined || apiKey === undefined) {
+    throw new RuntimeConfigurationError(
+      `${EMAIL_SETTINGS.join(" and ")} must be set together to enable email.`,
+    );
+  }
+
+  return { provider: "resend", from, apiKey };
+}
+
 export function runtimeConfiguration(environment: RuntimeEnvironment): RuntimeConfiguration {
   if (explicitBoolean(environment["SNACKDAY_DEV_SIGN_IN"], "SNACKDAY_DEV_SIGN_IN")) {
     throw new RuntimeConfigurationError(
@@ -157,13 +183,16 @@ export function runtimeConfiguration(environment: RuntimeEnvironment): RuntimeCo
     );
   }
   const release = runtimeRelease(environment);
+  const appleClientId = optional(environment, "SNACKDAY_APPLE_CLIENT_ID");
+  const email = emailConfiguration(environment);
   const shared = {
     ...(release === undefined ? {} : { release }),
+    ...(appleClientId === undefined ? {} : { appleClientId }),
+    ...(email === undefined ? {} : { email }),
     mode: runtimeMode(required(environment, "SNACKDAY_RUNTIME_MODE")),
     host: environment["HOST"]?.trim() || "0.0.0.0",
     port: port(environment["PORT"]),
     publicBaseUrl: publicBaseUrl(required(environment, "SNACKDAY_PUBLIC_BASE_URL")),
-    appleClientId: required(environment, "SNACKDAY_APPLE_CLIENT_ID"),
     upstreamCredentialPathLoggingSafe: explicitBoolean(
       environment["SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE"],
       "SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE",

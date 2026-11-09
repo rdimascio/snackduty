@@ -22,8 +22,12 @@ The runtime fails closed:
 - `SNACKDAY_PUBLIC_BASE_URL` must be a credential-free HTTPS origin.
 - Development sign-in is disabled in composition and `/api/dev/*` is withheld at
   the serving boundary.
-- Invitation create/resend returns 503 until a real persisted delivery adapter is
-  injected. It never reports a memory-only delivery as success.
+- Invitation create/resend returns 503 until email is configured
+  (`SNACKDAY_EMAIL_FROM`, `RESEND_API_KEY` and `SNACKDAY_INVITATION_OUTBOX_KEY`).
+  It never reports a memory-only delivery as success.
+- Email-link sign-in (`/sign-in`, `POST /api/auth/email/start` and
+  `/api/auth/email/verify`) answers 503 until email is configured. Apple sign-in
+  is enabled only when `SNACKDAY_APPLE_CLIENT_ID` is set.
 - Calendar bearer-token routes remain withheld until every upstream proxy log is
   configured and verified to avoid request paths. Set
   `SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE=true` only after that verification.
@@ -31,16 +35,18 @@ The runtime fails closed:
 
 ## Required configuration
 
-| Variable                                         | Example                        | Requirement                                                                                 |
-| ------------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------- |
-| `SNACKDAY_RUNTIME_MODE`                          | `staging`                      | Explicitly `staging` or `production`                                                        |
-| `LESTO_DB`                                       | `/data/snackduty/snackduty.db` | Absolute path on the mounted persistent volume                                              |
-| `SNACKDAY_PUBLIC_BASE_URL`                       | `https://staging.example.com`  | Public HTTPS origin, without credentials/query/fragment                                     |
-| `SNACKDAY_APPLE_CLIENT_ID`                       | `com.snackday.app`             | Required exact registered Apple token audience; example is not account verification         |
-| `SNACKDAY_INVITATION_OUTBOX_KEY`                 | Secret store only              | Canonical base64 32-byte encryption key, required when real invitation delivery is injected |
-| `HOST`                                           | `0.0.0.0`                      | Optional; defaults to `0.0.0.0`                                                             |
-| `PORT`                                           | `3000`                         | Optional; defaults to `3000`                                                                |
-| `SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE` | `false`                        | Optional explicit Boolean; defaults to false                                                |
+| Variable                                         | Example                        | Requirement                                                                     |
+| ------------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------- |
+| `SNACKDAY_RUNTIME_MODE`                          | `staging`                      | Explicitly `staging` or `production`                                            |
+| `LESTO_DB`                                       | `/data/snackduty/snackduty.db` | Absolute path on the mounted persistent volume                                  |
+| `SNACKDAY_PUBLIC_BASE_URL`                       | `https://staging.example.com`  | Public HTTPS origin, without credentials/query/fragment                         |
+| `SNACKDAY_APPLE_CLIENT_ID`                       | `com.snackday.app`             | Optional exact registered Apple token audience; unset disables Apple sign-in    |
+| `SNACKDAY_EMAIL_FROM`                            | `Snackday <team@mail.example>` | Optional sender on a Resend-verified domain; set together with `RESEND_API_KEY` |
+| `RESEND_API_KEY`                                 | Secret store only              | Optional Resend API key; set together with `SNACKDAY_EMAIL_FROM`                |
+| `SNACKDAY_INVITATION_OUTBOX_KEY`                 | Secret store only              | Canonical base64 32-byte encryption key, required when email is configured      |
+| `HOST`                                           | `0.0.0.0`                      | Optional; defaults to `0.0.0.0`                                                 |
+| `PORT`                                           | `3000`                         | Optional; defaults to `3000`                                                    |
+| `SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE` | `false`                        | Optional explicit Boolean; defaults to false                                    |
 
 `bun run runtime:serve` starts this runtime; runtime sources are included in the
 web TypeScript project. The configured Apple audience creates the real Apple JWKS

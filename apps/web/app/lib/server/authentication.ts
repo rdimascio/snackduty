@@ -175,8 +175,16 @@ async function recordVerifiedEmail(
   }
 }
 
-async function resolveProviderIdentity(
+export type SignInProvider = "apple" | "email";
+
+const FALLBACK_DISPLAY_NAMES: Record<SignInProvider, string> = {
+  apple: "Apple user",
+  email: "Snackday user",
+};
+
+export async function resolveProviderIdentity(
   tx: Db,
+  provider: SignInProvider,
   identity: VerifiedProviderIdentity,
   displayName: string | undefined,
   now: string,
@@ -186,7 +194,7 @@ async function resolveProviderIdentity(
     .from(providerIdentityLinks)
     .where(
       and(
-        eq(providerIdentityLinks.provider, "apple"),
+        eq(providerIdentityLinks.provider, provider),
         eq(providerIdentityLinks.issuer, identity.issuer),
         eq(providerIdentityLinks.subject, identity.subject),
       ),
@@ -199,7 +207,7 @@ async function resolveProviderIdentity(
       .insert(people)
       .values({
         id: personId,
-        displayName: displayName?.trim() || "Apple user",
+        displayName: displayName?.trim() || FALLBACK_DISPLAY_NAMES[provider],
         status: "active",
         createdAt: now,
         updatedAt: now,
@@ -219,7 +227,7 @@ async function resolveProviderIdentity(
       .insert(providerIdentityLinks)
       .values({
         id: `provider_identity_${crypto.randomUUID()}`,
-        provider: "apple",
+        provider,
         issuer: identity.issuer,
         subject: identity.subject,
         accountId,
@@ -250,12 +258,24 @@ async function resolveProviderIdentity(
         id: `adult_consent_${crypto.randomUUID()}`,
         accountId: link.accountId,
         policyVersion: CONSENT_VERSION,
-        provider: "apple",
+        provider,
         consentedAt: now,
       })
       .run();
   }
   return projected;
+}
+
+/** Create a session for a resolved account and return its Set-Cookie value. */
+export async function startSession(
+  options: Pick<AuthenticationOptions, "sessions" | "secureCookies">,
+  accountId: string,
+): Promise<string> {
+  const ttl = options.secureCookies ? VERIFIED_SESSION_TTL_MS : DEV_SESSION_TTL_MS;
+  const session = await options.sessions.create(accountId, ttl);
+  return options.secureCookies
+    ? verifiedSessionCookie(session.token)
+    : developmentSessionCookie(session.token);
 }
 
 export function createAuthentication(options: AuthenticationOptions): AuthenticationOperations {
@@ -336,17 +356,10 @@ export function createAuthentication(options: AuthenticationOptions): Authentica
           )
           .run();
         if (consumed.changes !== 1) return undefined;
-        return resolveProviderIdentity(tx, verified, input.displayName, now);
+        return resolveProviderIdentity(tx, "apple", verified, input.displayName, now);
       });
       if (identity === undefined) return undefined;
-      const ttl = options.secureCookies ? VERIFIED_SESSION_TTL_MS : DEV_SESSION_TTL_MS;
-      const session = await options.sessions.create(identity.account.id, ttl);
-      return {
-        identity,
-        cookie: options.secureCookies
-          ? verifiedSessionCookie(session.token)
-          : developmentSessionCookie(session.token),
-      };
+      return { identity, cookie: await startSession(options, identity.account.id) };
     },
 
     current(cookieHeader) {

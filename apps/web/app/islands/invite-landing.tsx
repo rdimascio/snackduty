@@ -50,6 +50,8 @@ function roleDescription(role: string): string {
   return role === "coach" ? "a co-coach" : "an adult member";
 }
 
+const UNAUTHENTICATED = 401;
+
 const jsonPost = {
   credentials: "same-origin",
   headers: { "Content-Type": "application/json" },
@@ -153,8 +155,8 @@ const actionClassName =
  * it only in POST request bodies. It lives in ONE island rather than three
  * because the token is state, not a prop: a server loader cannot see it, and an
  * island that re-entered through a page reload would find the fragment already
- * gone. A signed-out visitor is directed to sign in and paste their original
- * invitation in the native app; this surface never invokes dev auth.
+ * gone. A signed-out visitor signs in by email link in a new tab while this
+ * island keeps the token, then accepts here; this surface never invokes dev auth.
  *
  * `signedIn` is the only thing the server loader could still resolve, and it
  * chooses which affordance a valid preview offers.
@@ -163,6 +165,7 @@ function InviteLanding({ signedIn: sessionAtLoad }: { signedIn: boolean }): Reac
   const [token, setToken] = useState("");
   const [landing, setLanding] = useState<Landing>({ status: "resolving" });
   const [pending, setPending] = useState(false);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
 
   useEffect(() => {
     const fragment = window.location.hash.slice(1);
@@ -186,6 +189,10 @@ function InviteLanding({ signedIn: sessionAtLoad }: { signedIn: boolean }): Reac
         ...jsonPost,
         body: JSON.stringify({ token }),
       });
+      if (response.status === UNAUTHENTICATED) {
+        setNeedsSignIn(true);
+        return;
+      }
       if (!response.ok) {
         setLanding({ status: "invalid" });
         return;
@@ -221,9 +228,30 @@ function InviteLanding({ signedIn: sessionAtLoad }: { signedIn: boolean }): Reac
     return (
       <>
         <p className="text-sm text-muted-foreground">
-          Sign in to the Snackday app, choose Join Team from your account menu, and paste the
-          original invitation link you received. Only the intended recipient can accept it.
+          Sign in with the email address this invitation was sent to. Keep this page open, then come
+          back and accept. Only the intended recipient can accept it.
         </p>
+        <a
+          className="font-semibold text-primary underline"
+          href="/sign-in"
+          rel="noopener"
+          target="_blank"
+        >
+          Sign in in a new tab
+        </a>
+        <button
+          className={actionClassName}
+          disabled={pending}
+          onClick={() => void accept()}
+          type="button"
+        >
+          {pending ? "Accepting…" : "I have signed in — accept invitation"}
+        </button>
+        {needsSignIn ? (
+          <p className="text-sm font-semibold text-destructive" role="alert">
+            You are not signed in yet. Open the sign-in link from your email first.
+          </p>
+        ) : null}
       </>
     );
   }

@@ -99,6 +99,20 @@ describe("csp: public pages", () => {
     });
   });
 
+  test("the email sign-in page shows its form or a dead-link notice and raises no violation", async () => {
+    await asRole(scenario(), "signed-out", async (session) => {
+      session.allowFailedResponse(401, "/api/auth/email/verify");
+      await expectPolicy(session, "/sign-in");
+      await expectHydrated(session.page);
+      await session.page.getByRole("form", { name: "Sign in with email" }).waitFor();
+
+      await expectPolicy(session, "/");
+      await expectPolicy(session, `/sign-in#${"0".repeat(64)}`);
+      await session.page.getByText("This sign-in link is not valid").waitFor();
+      expect(new URL(session.page.url()).hash).toBe("");
+    });
+  });
+
   test("the dev sign-in page lists every role, hydrates, and raises no violation", async () => {
     await asRole(scenario(), "signed-out", async (session) => {
       await expectPolicy(session, DEV_SIGN_IN_PAGE_PATH);
