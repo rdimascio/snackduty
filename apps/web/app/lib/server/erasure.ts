@@ -59,12 +59,42 @@ export async function eraseParticipant(tx: Db, participantId: string): Promise<v
     await tx.delete(invitations).where(inList(invitations.id, invitationIds)).run();
   }
   await tx.delete(memberships).where(eq(memberships.memberParticipantId, participantId)).run();
+  const edges = await tx
+    .select()
+    .from(guardianRelationships)
+    .where(eq(guardianRelationships.participantId, participantId))
+    .all();
   await tx
     .delete(guardianRelationships)
     .where(eq(guardianRelationships.participantId, participantId))
     .run();
   await tx.delete(participants).where(eq(participants.id, participantId)).run();
   await tx.delete(people).where(eq(people.id, participant.personId)).run();
+  for (const edge of edges) await deleteUnusedPlaceholderGuardian(tx, edge.guardianPersonId);
+}
+
+/**
+ * A guardian typed in by a coach is a person with no account. Once the last
+ * child they were linked to is erased, their name describes nobody we serve.
+ */
+async function deleteUnusedPlaceholderGuardian(tx: Db, personId: string): Promise<void> {
+  const account = await tx.select().from(accounts).where(eq(accounts.personId, personId)).get();
+  if (account !== undefined) return;
+  const remainingEdge = await tx
+    .select()
+    .from(guardianRelationships)
+    .where(eq(guardianRelationships.guardianPersonId, personId))
+    .get();
+  if (remainingEdge !== undefined) return;
+  await tx.delete(people).where(eq(people.id, personId)).run();
+}
+
+/** A guardian who can still act for a child: an active person with an active account. */
+async function isAccountHolder(tx: Db, personId: string): Promise<boolean> {
+  const person = await tx.select().from(people).where(eq(people.id, personId)).get();
+  if (person?.status !== "active") return false;
+  const account = await tx.select().from(accounts).where(eq(accounts.personId, personId)).get();
+  return account?.status === "active";
 }
 
 /** Active teams where this adult is the only owner left. */
@@ -95,7 +125,10 @@ async function soleOwnedTeams(tx: Db, personId: string) {
   return owned;
 }
 
-/** Children whose only active managing guardian is this adult. */
+/**
+ * Children with no other managing guardian who holds an active account. A
+ * placeholder guardian typed in by a coach cannot sign in, so it does not count.
+ */
 async function soleGuardianOf(tx: Db, personId: string) {
   const edges = await tx
     .select()
@@ -120,9 +153,11 @@ async function soleGuardianOf(tx: Db, personId: string) {
         ),
       )
       .all();
-    const othersManage = others.some((row) =>
-      (JSON.parse(row.permissions) as string[]).includes("participant.manage"),
-    );
+    let othersManage = false;
+    for (const row of others) {
+      const manages = (JSON.parse(row.permissions) as string[]).includes("participant.manage");
+      if (manages && (await isAccountHolder(tx, row.guardianPersonId))) othersManage = true;
+    }
     if (!othersManage) children.push({ participantId: edge.participantId });
   }
   return children;
@@ -158,19 +193,35 @@ export async function eraseAccount(
     .where(eq(verifiedIdentityEmails.accountId, identity.accountId))
     .all();
   const addresses = emails.map((row) => row.normalizedEmail);
+  const addressedToThisAdult = or(
+    eq(invitations.recipientPersonId, identity.personId),
+    eq(invitations.acceptedByPersonId, identity.personId),
+    inList(invitations.recipientEmail, addresses),
+  );
+  const received = await tx.select().from(invitations).where(addressedToThisAdult).all();
+  await tx
+    .delete(invitationOutbox)
+    .where(
+      inList(
+        invitationOutbox.invitationId,
+        received.map((row) => row.id),
+      ),
+    )
+    .run();
   await tx
     .update(invitations)
     .set({ status: ENDED, updatedAt: nowIso })
     .where(
       and(
         eq(invitations.status, "pending"),
-        or(
-          eq(invitations.createdByPersonId, identity.personId),
-          eq(invitations.recipientPersonId, identity.personId),
-          ...(addresses.length === 0 ? [] : [inList(invitations.recipientEmail, addresses)]),
-        ),
+        or(eq(invitations.createdByPersonId, identity.personId), addressedToThisAdult),
       ),
     )
+    .run();
+  await tx
+    .update(invitations)
+    .set({ recipientEmail: null, inviteeLabel: ERASED_ADULT_DISPLAY_NAME, updatedAt: nowIso })
+    .where(addressedToThisAdult)
     .run();
   await tx
     .delete(verifiedIdentityEmails)

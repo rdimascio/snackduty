@@ -102,6 +102,24 @@ describe("child erasure", () => {
     expect(remaining).toContain(blake.displayName);
   });
 
+  it("deletes a coach-typed placeholder guardian once their only child is erased", async () => {
+    const coach = await cookieFor("head-coach");
+    const linked = await post(`/api/participants/${blake.participantId}/guardians`, coach, {
+      displayName: "Grandma Placeholder",
+      relationship: "guardian",
+    });
+    expect(linked.status).toBe(201);
+
+    const erased = await post(
+      `/api/participants/${blake.participantId}/erase`,
+      await cookieFor("parent"),
+      { confirmName: blake.displayName },
+    );
+
+    expect(erased.status).toBe(200);
+    expect(await databaseText()).not.toContain("Grandma Placeholder");
+  });
+
   it("requires the child's exact name and a managing guardian", async () => {
     const parent = await cookieFor("parent");
     const coach = await cookieFor("head-coach");
@@ -151,6 +169,46 @@ describe("account erasure", () => {
     expect(JSON.parse(response.body).soleGuardianOf).toEqual(
       expect.arrayContaining([{ participantId: blake.participantId }]),
     );
+  });
+
+  it("does not count a placeholder guardian as someone who can still manage the child", async () => {
+    const coach = await cookieFor("head-coach");
+    await post(`/api/participants/${blake.participantId}/guardians`, coach, {
+      displayName: "Grandma Placeholder",
+      relationship: "guardian",
+    });
+
+    const response = await post("/api/account/erase", await cookieFor("parent"), confirm);
+
+    expect(response.status).toBe(409);
+    expect(JSON.parse(response.body).soleGuardianOf).toEqual(
+      expect.arrayContaining([{ participantId: blake.participantId }]),
+    );
+  });
+
+  it("scrubs the adult's email and label from every invitation addressed to them", async () => {
+    const stranger = await cookieFor("stranger");
+    const at = new Date().toISOString();
+    await sql.exec(
+      `INSERT INTO provider_identity_links (id, provider, issuer, subject, account_id, created_at, updated_at) VALUES ('provider_identity_erase_test', 'email', 'test', 'casey-parent@snackday.test', 'account_seed_stranger', '${at}', '${at}')`,
+    );
+    await sql.exec(
+      `INSERT INTO verified_identity_emails (id, link_id, account_id, normalized_email, status, verified_at, updated_at) VALUES ('verified_email_erase_test', 'provider_identity_erase_test', 'account_seed_stranger', 'casey-parent@snackday.test', 'active', '${at}', '${at}')`,
+    );
+
+    const response = await post("/api/account/erase", stranger, confirm);
+
+    expect(response.status).toBe(200);
+    const remaining = await databaseText();
+    expect(remaining).not.toContain("casey-parent@snackday.test");
+    expect(remaining).not.toContain("Sid, new team adult");
+    expect(remaining).not.toContain("Casey's parent");
+    const pending = await sql
+      .prepare(
+        "SELECT COUNT(*) AS count FROM invitations WHERE id IN ('invitation_seed_stranger', 'invitation_seed_casey_parent') AND status = 'pending'",
+      )
+      .get();
+    expect(pending).toEqual({ count: 0 });
   });
 
   it("tombstones the adult, ends every membership and signs every session out", async () => {
