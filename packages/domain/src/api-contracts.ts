@@ -28,6 +28,13 @@ export const emailSignInVerifyInputSchema = z.strictObject({
   displayName: z.string().trim().min(1).max(200).optional(),
   adultConsent: z.literal(true),
 });
+export const eraseParticipantInputSchema = z.strictObject({
+  confirmName: z.string().trim().min(1).max(200),
+});
+export const ACCOUNT_ERASE_CONFIRMATION = "erase my account";
+export const eraseAccountInputSchema = z.strictObject({
+  confirm: z.literal(ACCOUNT_ERASE_CONFIRMATION),
+});
 export const signedOutSchema = z.strictObject({ signedOut: z.literal(true) });
 export const apiErrorSchema = z.object({ error: z.string().min(1) });
 export const teamCapabilitiesSchema = z.strictObject({

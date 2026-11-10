@@ -92,7 +92,7 @@ describe("csp: public pages", () => {
   test("the Snackday home, features and invite pages carry the Snackday policy and raise no violation", async () => {
     await asRole(scenario(), "signed-out", async (session) => {
       session.allowFailedResponse(404, "/api/invitations/preview");
-      for (const path of ["/", "/features", "/invite#not-a-token"]) {
+      for (const path of ["/", "/features", "/privacy", "/invite#not-a-token"]) {
         await expectPolicy(session, path);
         await expectLayoutWrapper(session.page);
       }

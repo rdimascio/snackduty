@@ -7,6 +7,7 @@ import { lesto } from "@lesto/web";
 
 import { logAccessLine, redactingLogRequest } from "./app/lib/server/access-log";
 import features from "./app/routes/(marketing)/features/page";
+import privacy from "./app/routes/(marketing)/privacy/page";
 import MarketingLayout from "./app/routes/(marketing)/layout";
 import home from "./app/routes/(marketing)/page";
 import AppLayout from "./app/routes/app/layout";
@@ -35,6 +36,14 @@ function PublicFeatures(): ReactNode {
 // the edge too, but the Worker registers no app services — no filesystem SQLite
 // — so it resolves to the signed-out state and the page degrades gracefully.
 // This wrapper forwards those loaded props into the file-routed component.
+function PublicPrivacy(): ReactNode {
+  return createElement(
+    RootLayout,
+    null,
+    createElement(MarketingLayout, null, createElement(privacy.component)),
+  );
+}
+
 function ProductOverview(props: ComponentProps<typeof overview.component>): ReactNode {
   return createElement(
     RootLayout,
@@ -72,6 +81,7 @@ const app = lesto()
   .styles("/styles.css")
   .page("/", { ...home, component: PublicHome })
   .page("/features", { ...features, component: PublicFeatures })
+  .page("/privacy", { ...privacy, component: PublicPrivacy })
   .page("/app", { ...overview, component: ProductOverview })
   .page("/invite", { ...invite, component: InviteLanding });
 

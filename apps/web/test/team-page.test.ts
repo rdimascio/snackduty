@@ -301,6 +301,7 @@ describe("/app/team page", () => {
       "/app/roster",
       "/app/schedule",
       "/app/duties",
+      "/app/account",
     ]);
     for (const href of hrefs) {
       const response = await app.handle("GET", href, { headers: { cookie: owner } });
