@@ -148,6 +148,33 @@ describe("child erasure", () => {
     expect(await databaseText()).toContain(casey.participantId);
   });
 
+  it("treats a second owner who rebinds another owner's invitation to themselves as self-granted", async () => {
+    const casey = SEED_CHILDREN.casey;
+    const at = new Date().toISOString();
+    await sql.exec(
+      `INSERT INTO adult_memberships (id, team_id, person_id, role, status, created_at, updated_at) VALUES ('adult_membership_erase_test', '${SEED_TEAMS.coached.teamId}', 'person_dev_second_adult', 'owner', 'active', '${at}', '${at}')`,
+    );
+    const secondOwner = await cookieFor("second-adult");
+    const rebound = await post(
+      `/api/teams/${SEED_TEAMS.coached.teamId}/invitations/invitation_seed_casey_parent/resend`,
+      secondOwner,
+      { recipientBinding: { kind: "confirmed_person", personId: "person_dev_second_adult" } },
+    );
+    expect(rebound.status).toBe(200);
+    const { inviteUrl } = (JSON.parse(rebound.body) as { invitation: { inviteUrl: string } })
+      .invitation;
+    const accepted = await post("/api/invitations/accept", secondOwner, {
+      token: inviteUrl.slice("/invite#".length),
+    });
+    expect(accepted.status).toBe(200);
+
+    const erased = await post(`/api/participants/${casey.participantId}/erase`, secondOwner, {
+      confirmName: casey.displayName,
+    });
+
+    expect(erased.status).toBe(403);
+  });
+
   it("requires the child's exact name and a managing guardian", async () => {
     const parent = await cookieFor("parent");
     const coach = await cookieFor("head-coach");
