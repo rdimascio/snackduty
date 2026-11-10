@@ -23,6 +23,17 @@ async function postJson(path: string, body: unknown): Promise<Response | undefin
   }
 }
 
+const NAME_MISMATCH = 422;
+const SELF_GRANTED_GUARDIAN = 403;
+
+function eraseChildFailure(status: number | undefined, name: string): string {
+  if (status === NAME_MISMATCH) return `Type ${name} exactly as shown.`;
+  if (status === SELF_GRANTED_GUARDIAN) {
+    return `You added yourself as ${name}'s guardian, so you cannot erase their data. Ask a guardian another adult invited.`;
+  }
+  return "We could not erase this data. Try again in a minute.";
+}
+
 function EraseChild({ child }: { child: ManagedChild }): ReactNode {
   const [typed, setTyped] = useState("");
   const [pending, setPending] = useState(false);
@@ -40,11 +51,7 @@ function EraseChild({ child }: { child: ManagedChild }): ReactNode {
       return;
     }
     setPending(false);
-    setFailure(
-      response?.status === 422
-        ? `Type ${child.name} exactly as shown.`
-        : "We could not erase this data. Try again in a minute.",
-    );
+    setFailure(eraseChildFailure(response?.status, child.name));
   }
 
   return (

@@ -11,6 +11,7 @@ import { createApplication } from "../app/lib/server/composition";
 import { ERASED_ADULT_DISPLAY_NAME } from "../app/lib/server/erasure";
 import { identityServices } from "../app/lib/server/identity";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
+import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { registerRuntimePages } from "../runtime/web-surface";
 
 type Handle = Awaited<ReturnType<typeof createApp>>["handle"];
@@ -33,6 +34,7 @@ beforeEach(async () => {
     mode: "development",
     developmentSignIn: true,
     inviteDelivery: devInviteDeliverer(),
+    invitationCipher: aesGcmInvitationPayloadCipher(new Uint8Array(32).fill(7)),
   });
   await registerRuntimePages(config.app);
   const app = registerDevSignIn(config.app, { enabled: true, db, sessions });
@@ -118,6 +120,32 @@ describe("child erasure", () => {
 
     expect(erased.status).toBe(200);
     expect(await databaseText()).not.toContain("Grandma Placeholder");
+  });
+
+  it("refuses an owner who made themselves the child's guardian", async () => {
+    const coach = await cookieFor("head-coach");
+    const casey = SEED_CHILDREN.casey;
+    const invited = await post(`/api/teams/${SEED_TEAMS.coached.teamId}/invitations`, coach, {
+      invitedRole: "adult",
+      inviteeLabel: "Coach as parent",
+      participantId: casey.participantId,
+      relationship: "parent",
+      recipientBinding: { kind: "confirmed_person", personId: "person_seed_head_coach" },
+    });
+    expect(invited.status).toBe(201);
+    const { inviteUrl } = (JSON.parse(invited.body) as { invitation: { inviteUrl: string } })
+      .invitation;
+    const accepted = await post("/api/invitations/accept", coach, {
+      token: inviteUrl.slice("/invite#".length),
+    });
+    expect(accepted.status).toBe(200);
+
+    const erased = await post(`/api/participants/${casey.participantId}/erase`, coach, {
+      confirmName: casey.displayName,
+    });
+
+    expect(erased.status).toBe(403);
+    expect(await databaseText()).toContain(casey.participantId);
   });
 
   it("requires the child's exact name and a managing guardian", async () => {

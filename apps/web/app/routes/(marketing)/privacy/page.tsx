@@ -5,6 +5,7 @@ import type { PageDef } from "@lesto/web";
 import { REEL_MEDIA_ORIGIN } from "../../../server/content-security-policy";
 
 const REEL_MEDIA_HOST = new URL(REEL_MEDIA_ORIGIN).host;
+const PRIVACY_CONTACT_EMAIL = "privacy@snackduty.com";
 
 interface PolicySection {
   readonly heading: string;
@@ -57,7 +58,7 @@ const sections: readonly PolicySection[] = [
     heading: "How long we keep data, and how to erase it",
     points: [
       "We keep data while your account or team uses it.",
-      "On the Account page, a guardian can erase a child's data from every team at once, and any adult can erase their own account.",
+      "On the Account page, a guardian invited by another adult can erase a child's data from every team at once, and any adult can erase their own account.",
       "Erasing a child removes their name, birth date, attendance, RSVPs, lesson answers and ratings. It cannot be undone.",
       "Erasing an account removes your name, email addresses, sign-in methods and team access. Team records you created keep a placeholder name.",
     ],
@@ -71,8 +72,7 @@ function PrivacyPage(): ReactNode {
         className="mb-8 rounded-xl border border-dashed border-border bg-accent p-4 text-sm font-semibold"
         role="note"
       >
-        Draft. This policy has not had a legal review yet, and the contact address comes before
-        launch.
+        Draft. This policy has not had a legal review yet.
       </p>
       <h1 className="text-4xl font-black tracking-tight">Privacy policy</h1>
       <p className="mt-4 text-muted-foreground">
@@ -89,6 +89,19 @@ function PrivacyPage(): ReactNode {
           </ul>
         </section>
       ))}
+      <section className="mt-10">
+        <h2 className="text-xl font-bold">Contact</h2>
+        <p className="mt-3 text-muted-foreground">
+          Questions, or a request to see, correct or erase data? Email{" "}
+          <a
+            className="font-semibold text-primary underline"
+            href={`mailto:${PRIVACY_CONTACT_EMAIL}`}
+          >
+            {PRIVACY_CONTACT_EMAIL}
+          </a>
+          .
+        </p>
+      </section>
     </article>
   );
 }

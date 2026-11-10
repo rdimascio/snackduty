@@ -29,6 +29,43 @@ const ENDED = "revoked";
 const unauthorized = { error: "authentication required" } as const;
 const participantNotFound = { error: "participant not found" } as const;
 const confirmationMismatch = { error: "confirmation does not match" } as const;
+const eraseNeedsInvitedGuardian = {
+  error: "only a guardian invited by another adult can erase this child",
+} as const;
+
+export type ChildEraseAuthority = "allowed" | "not-found" | "self-granted";
+
+/**
+ * THE rule for who may hard-erase a child, kept in one place so a stricter
+ * flow (blocking self-acceptance, or notify-and-wait) can replace it later.
+ *
+ * An owner can invite their own address as a child's guardian and accept it.
+ * That self-granted link still lets a coach-parent act for their own child,
+ * but it cannot erase: the erase reaches every team, so it needs a guardian
+ * link someone else created (an invitation from another adult, or a link
+ * that predates invitations).
+ */
+export async function childEraseAuthority(
+  tx: Db,
+  personId: string,
+  participantId: string,
+): Promise<ChildEraseAuthority> {
+  if (!(await isManagingGuardian(tx, personId, participantId))) return "not-found";
+  const accepted = await tx
+    .select()
+    .from(invitations)
+    .where(
+      and(
+        eq(invitations.participantId, participantId),
+        eq(invitations.acceptedByPersonId, personId),
+        eq(invitations.status, "accepted"),
+      ),
+    )
+    .all();
+  const onlySelfGranted =
+    accepted.length > 0 && accepted.every((row) => row.createdByPersonId === personId);
+  return onlySelfGranted ? "self-granted" : "allowed";
+}
 
 /**
  * Hard-erases one child everywhere: every row that names, dates or describes
@@ -283,9 +320,8 @@ export function registerErasureRoutes(app: Lesto, options: ErasureRouteOptions) 
       const input = c.valid(eraseParticipantInputSchema);
       const participantId = c.param("participantId");
       const outcome = await options.db.transaction(async (tx) => {
-        if (!(await isManagingGuardian(tx, identity.person.id, participantId))) {
-          return "not-found" as const;
-        }
+        const authority = await childEraseAuthority(tx, identity.person.id, participantId);
+        if (authority !== "allowed") return authority;
         const participant = await tx
           .select()
           .from(participants)
@@ -301,6 +337,7 @@ export function registerErasureRoutes(app: Lesto, options: ErasureRouteOptions) 
         return "erased" as const;
       });
       if (outcome === "not-found") return c.json(participantNotFound, 404);
+      if (outcome === "self-granted") return c.json(eraseNeedsInvitedGuardian, 403);
       if (outcome === "mismatch") return c.json(confirmationMismatch, 422);
       return c.json({ erased: true });
     })
