@@ -7,6 +7,7 @@ import type { Clock, SessionService } from "./application-contracts";
 import { providerIdentityLinks, verifiedIdentityEmails } from "./authentication";
 import { calendarFeedTokens } from "./calendar-feeds";
 import { dutySlots } from "./duties";
+import { emailSignInLinks } from "./email-sign-in";
 import { eventAttendance } from "./events";
 import {
   accounts,
@@ -259,6 +260,10 @@ export async function eraseAccount(
     .update(invitations)
     .set({ recipientEmail: null, inviteeLabel: ERASED_ADULT_DISPLAY_NAME, updatedAt: nowIso })
     .where(addressedToThisAdult)
+    .run();
+  await tx
+    .delete(emailSignInLinks)
+    .where(inList(emailSignInLinks.normalizedEmail, addresses))
     .run();
   await tx
     .delete(verifiedIdentityEmails)

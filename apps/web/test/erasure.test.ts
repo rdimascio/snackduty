@@ -250,6 +250,9 @@ describe("account erasure", () => {
     await sql.exec(
       `INSERT INTO verified_identity_emails (id, link_id, account_id, normalized_email, status, verified_at, updated_at) VALUES ('verified_email_erase_test', 'provider_identity_erase_test', 'account_seed_stranger', 'casey-parent@snackday.test', 'active', '${at}', '${at}')`,
     );
+    await sql.exec(
+      `INSERT INTO email_sign_in_links (id, token_hash, normalized_email, status, created_at, expires_at) VALUES ('email_sign_in_erase_test', 'hash_erase_test', 'casey-parent@snackday.test', 'pending', '${at}', '${at}')`,
+    );
 
     const response = await post("/api/account/erase", stranger, confirm);
 
