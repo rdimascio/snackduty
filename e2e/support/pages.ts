@@ -37,6 +37,7 @@ export const APP_SECTIONS = [
   { path: "/app/roster", label: "Roster" },
   { path: "/app/schedule", label: "Schedule" },
   { path: "/app/duties", label: "Duties" },
+  { path: "/app/account", label: "Account" },
 ] as const;
 
 export function teamApi(teamId: string, rest = ""): string {

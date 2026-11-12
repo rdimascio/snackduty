@@ -643,7 +643,12 @@ async function resendInvitation(
         tokenHash,
         expiresAt: new Date(now.getTime() + INVITATION_TTL_MS).toISOString(),
         updatedAt: now.toISOString(),
-        ...(requestedBinding === undefined ? {} : bindingColumns(requestedBinding)),
+        // Whoever picks the recipient is the inviter: a rebinding resend must
+        // not let one owner pass off a self-addressed guardian link as
+        // another owner's invitation (see `childEraseAuthority`).
+        ...(requestedBinding === undefined
+          ? {}
+          : { ...bindingColumns(requestedBinding), createdByPersonId: identity.person.id }),
         ...(requestedReplacement === undefined
           ? {}
           : { replacesGuardianRelationshipId: requestedReplacement }),

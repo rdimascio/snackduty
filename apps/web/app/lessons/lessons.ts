@@ -175,7 +175,7 @@ async function rosteredSeasonIds(tx: Db, teamId: string, participantId: string) 
   return [...new Set(rows.map((row) => row.seasonId))];
 }
 
-async function isManagingGuardian(tx: Db, personId: string, participantId: string) {
+export async function isManagingGuardian(tx: Db, personId: string, participantId: string) {
   const rows = await tx
     .select()
     .from(guardianRelationships)

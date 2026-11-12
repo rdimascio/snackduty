@@ -5,13 +5,14 @@ import { describe, expect, it } from "vitest";
 import { AppNavigationLinks, appSections, sectionForPath } from "../app/team/navigation";
 
 describe("sidebar sections", () => {
-  it("lists the five app sections in order", () => {
+  it("lists the six app sections in order", () => {
     expect(appSections.map((section) => section.href)).toStrictEqual([
       "/app",
       "/app/team",
       "/app/roster",
       "/app/schedule",
       "/app/duties",
+      "/app/account",
     ]);
   });
 
@@ -39,6 +40,6 @@ describe("sidebar sections", () => {
   it("marks nothing when no section matches", () => {
     const html = renderToStaticMarkup(createElement(AppNavigationLinks, {}));
     expect(html).not.toContain("aria-current");
-    expect(html.match(/<a /gu)).toHaveLength(5);
+    expect(html.match(/<a /gu)).toHaveLength(appSections.length);
   });
 });

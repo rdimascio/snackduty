@@ -6,6 +6,7 @@ export const appSections = [
   { href: "/app/roster", label: "Roster" },
   { href: "/app/schedule", label: "Schedule" },
   { href: "/app/duties", label: "Duties" },
+  { href: "/app/account", label: "Account" },
 ] as const;
 
 export type AppSectionHref = (typeof appSections)[number]["href"];

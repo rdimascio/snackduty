@@ -14,6 +14,7 @@ import {
   verifiedRecipientEmails,
 } from "./authentication";
 import { registerSessionRoutes } from "./session-routes";
+import { registerErasureRoutes } from "./erasure";
 import {
   createEmailSignIn,
   createEmailSignInSchema,
@@ -214,24 +215,29 @@ export function createApplication(options: ApplicationOptions) {
   );
   const config: LestoAppConfig = {
     db: options.sql,
-    app: registerEmailSignInRoutes(
-      registerSessionRoutes(
-        registerLessonSurface(domainApp, options),
-        createAuthentication({
+    app: registerErasureRoutes(
+      registerEmailSignInRoutes(
+        registerSessionRoutes(
+          registerLessonSurface(domainApp, options),
+          createAuthentication({
+            db: options.db,
+            sessions: options.sessions,
+            clock: options.clock,
+            secureCookies: options.mode !== "development",
+            ...(options.appleVerifier === undefined
+              ? {}
+              : { appleVerifier: options.appleVerifier }),
+          }),
+        ),
+        createEmailSignIn({
           db: options.db,
           sessions: options.sessions,
           clock: options.clock,
           secureCookies: options.mode !== "development",
-          ...(options.appleVerifier === undefined ? {} : { appleVerifier: options.appleVerifier }),
+          ...(options.emailSignIn === undefined ? {} : { delivery: options.emailSignIn }),
         }),
       ),
-      createEmailSignIn({
-        db: options.db,
-        sessions: options.sessions,
-        clock: options.clock,
-        secureCookies: options.mode !== "development",
-        ...(options.emailSignIn === undefined ? {} : { delivery: options.emailSignIn }),
-      }),
+      { db: options.db, sql: options.sql, sessions: options.sessions, clock: options.clock },
     ),
     migrations: applicationMigrations,
     schemas: [(sql) => installQueueSchema(sql, options.dialect ?? "sqlite")],

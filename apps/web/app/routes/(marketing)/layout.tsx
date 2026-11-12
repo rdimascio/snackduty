@@ -51,6 +51,9 @@ export default function MarketingLayout({ children }: { children: ReactNode }): 
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between lg:px-8">
           <Brand className="text-foreground" />
           <p>Built for the families who make youth sports happen.</p>
+          <a className="font-semibold hover:text-foreground" href="/privacy">
+            Privacy
+          </a>
         </div>
       </footer>
     </div>
