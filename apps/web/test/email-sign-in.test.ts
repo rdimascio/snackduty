@@ -279,24 +279,28 @@ describe("invitation email delivery", () => {
     const ownerId = (JSON.parse(session.body) as { person: { id: string } }).person.id;
     const recordEarlierSends = async (invitationId: string, count: number, queuedBy: string) => {
       const at = new Date(START).toISOString();
-      for (let index = 0; index < count; index += 1) {
-        await runtime.db
-          .insert(invitationOutbox)
-          .values({
-            id: `invitation_delivery_earlier_${invitationId}_${queuedBy}_${index}`,
-            invitationId,
-            deliveryKey: `earlier:${invitationId}:${queuedBy}:${index}`,
-            tokenHash: "earlier",
-            encryptedPayload: "earlier",
-            status: "delivered",
-            createdAt: at,
-            updatedAt: at,
-            queuedAt: at,
-            deliveredAt: at,
-            queuedByPersonId: queuedBy,
-          })
-          .run();
-      }
+      // One transaction: a commit per row is one disk sync per row, which
+      // outran the 5 s test timeout on the CI runner's disk.
+      await runtime.db.transaction(async (tx) => {
+        for (let index = 0; index < count; index += 1) {
+          await tx
+            .insert(invitationOutbox)
+            .values({
+              id: `invitation_delivery_earlier_${invitationId}_${queuedBy}_${index}`,
+              invitationId,
+              deliveryKey: `earlier:${invitationId}:${queuedBy}:${index}`,
+              tokenHash: "earlier",
+              encryptedPayload: "earlier",
+              status: "delivered",
+              createdAt: at,
+              updatedAt: at,
+              queuedAt: at,
+              deliveredAt: at,
+              queuedByPersonId: queuedBy,
+            })
+            .run();
+        }
+      });
     };
     const createInvitation = async (teamId: string) => {
       const created = await invite(teamId, "Adult");
