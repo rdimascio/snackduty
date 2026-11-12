@@ -58,7 +58,7 @@ const sections: readonly PolicySection[] = [
     heading: "How long we keep data, and how to erase it",
     points: [
       "We keep data while your account or team uses it.",
-      "On the Account page, a guardian invited by another adult can erase a child's data from every team at once, and any adult can erase their own account.",
+      "On the Account page, a guardian invited by another adult can erase the data of a child who is on one team. For a child on several teams, email us and we erase it by hand. Any adult can erase their own account.",
       "Erasing a child removes their name, birth date, attendance, RSVPs, lesson answers and ratings. It cannot be undone.",
       "Erasing an account removes your name, email addresses, sign-in methods and team access. Team records you created keep a placeholder name.",
     ],

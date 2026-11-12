@@ -34,17 +34,33 @@ const eraseNeedsInvitedGuardian = {
   error: "only a guardian invited by another adult can erase this child",
 } as const;
 
-export type ChildEraseAuthority = "allowed" | "not-found" | "self-granted";
+const eraseSpansTeams = {
+  error: "this child is on more than one team, so erasing needs support",
+} as const;
+
+export type ChildEraseAuthority = "allowed" | "not-found" | "self-granted" | "multi-team";
+
+/** Every team that holds a roster row for the child, in any status. */
+async function teamsHoldingChild(tx: Db, participantId: string): Promise<Set<string>> {
+  const rows = await tx
+    .select()
+    .from(memberships)
+    .where(eq(memberships.memberParticipantId, participantId))
+    .all();
+  return new Set(rows.map((row) => row.teamId));
+}
 
 /**
  * THE rule for who may hard-erase a child, kept in one place so a stricter
  * flow (blocking self-acceptance, or notify-and-wait) can replace it later.
  *
- * An owner can invite their own address as a child's guardian and accept it.
- * That self-granted link still lets a coach-parent act for their own child,
- * but it cannot erase: the erase reaches every team, so it needs a guardian
- * link someone else created (an invitation from another adult, or a link
- * that predates invitations).
+ * Coaches send every guardian invitation, so no invitation history can tell
+ * a real parent from a coach's second email account. Until a notify-and-wait
+ * flow lets other guardians and team owners object, an erase may only reach
+ * one team: a child on several teams needs support.
+ *
+ * A link the guardian invited themselves to (an owner inviting their own
+ * address) still cannot erase, even on one team.
  */
 export async function childEraseAuthority(
   tx: Db,
@@ -52,6 +68,7 @@ export async function childEraseAuthority(
   participantId: string,
 ): Promise<ChildEraseAuthority> {
   if (!(await isManagingGuardian(tx, personId, participantId))) return "not-found";
+  if ((await teamsHoldingChild(tx, participantId)).size > 1) return "multi-team";
   const accepted = await tx
     .select()
     .from(invitations)
@@ -343,6 +360,7 @@ export function registerErasureRoutes(app: Lesto, options: ErasureRouteOptions) 
       });
       if (outcome === "not-found") return c.json(participantNotFound, 404);
       if (outcome === "self-granted") return c.json(eraseNeedsInvitedGuardian, 403);
+      if (outcome === "multi-team") return c.json(eraseSpansTeams, 409);
       if (outcome === "mismatch") return c.json(confirmationMismatch, 422);
       return c.json({ erased: true });
     })
