@@ -25,9 +25,13 @@ async function postJson(path: string, body: unknown): Promise<Response | undefin
 
 const NAME_MISMATCH = 422;
 const SELF_GRANTED_GUARDIAN = 403;
+const ON_SEVERAL_TEAMS = 409;
 
 function eraseChildFailure(status: number | undefined, name: string): string {
   if (status === NAME_MISMATCH) return `Type ${name} exactly as shown.`;
+  if (status === ON_SEVERAL_TEAMS) {
+    return `${name} is on more than one team, so we erase their data by hand. Email privacy@snackduty.com.`;
+  }
   if (status === SELF_GRANTED_GUARDIAN) {
     return `You added yourself as ${name}'s guardian, so you cannot erase their data. Ask a guardian another adult invited.`;
   }

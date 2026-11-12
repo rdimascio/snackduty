@@ -122,6 +122,22 @@ describe("child erasure", () => {
     expect(await databaseText()).not.toContain("Grandma Placeholder");
   });
 
+  it("refuses to erase a child who is on more than one team", async () => {
+    const at = new Date().toISOString();
+    await sql.exec(
+      `INSERT INTO memberships (id, team_id, season_id, member_kind, member_participant_id, status, created_at, updated_at) VALUES ('membership_erase_test', '${SEED_TEAMS.second.teamId}', '${SEED_TEAMS.second.seasonId}', 'participant', '${avery.participantId}', 'active', '${at}', '${at}')`,
+    );
+
+    const erased = await post(
+      `/api/participants/${avery.participantId}/erase`,
+      await cookieFor("parent"),
+      { confirmName: avery.displayName },
+    );
+
+    expect(erased.status).toBe(409);
+    expect(await databaseText()).toContain(avery.participantId);
+  });
+
   it("refuses an owner who made themselves the child's guardian", async () => {
     const coach = await cookieFor("head-coach");
     const casey = SEED_CHILDREN.casey;
