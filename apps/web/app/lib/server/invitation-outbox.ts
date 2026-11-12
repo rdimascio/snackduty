@@ -1,4 +1,4 @@
-import { createDb, createTableSql, defineTable, dropTableSql, eq, text } from "@lesto/db";
+import { and, createDb, createTableSql, defineTable, dropTableSql, eq, gt, text } from "@lesto/db";
 import type { Db, Dialect, SqlDatabase } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import { isPermanentFailure, permanentFailure, Queue } from "@lesto/queue";
@@ -15,7 +15,7 @@ import { ownedActiveTeam } from "./teams";
 const JOB_NAME = "invitation.delivery";
 const QUEUE_NAME = "invitation-delivery";
 
-export const invitationOutbox = defineTable("invitation_delivery_outbox", {
+const outboxColumnsV012 = {
   id: text("id").primaryKey(),
   invitationId: text("invitation_id")
     .notNull()
@@ -28,13 +28,40 @@ export const invitationOutbox = defineTable("invitation_delivery_outbox", {
   updatedAt: text("updated_at").notNull(),
   queuedAt: text("queued_at"),
   deliveredAt: text("delivered_at"),
+};
+const invitationOutboxV012 = defineTable("invitation_delivery_outbox", outboxColumnsV012);
+
+export const invitationOutbox = defineTable("invitation_delivery_outbox", {
+  ...outboxColumnsV012,
+  /** The adult whose create or resend queued this send; null on rows from before 018. */
+  queuedByPersonId: text("queued_by_person_id"),
 });
+
+export const addOutboxQueuedBy: MigrationEntry = {
+  version: "018_add_invitation_outbox_queued_by",
+  migration: {
+    up: async (schema) => {
+      await schema.execute(
+        "ALTER TABLE invitation_delivery_outbox ADD COLUMN queued_by_person_id TEXT",
+      );
+      await schema.execute(
+        "CREATE INDEX invitation_delivery_outbox_queued_by_idx ON invitation_delivery_outbox (queued_by_person_id, created_at)",
+      );
+    },
+    down: async (schema) => {
+      await schema.execute("DROP INDEX invitation_delivery_outbox_queued_by_idx");
+      await schema.execute(
+        "ALTER TABLE invitation_delivery_outbox DROP COLUMN queued_by_person_id",
+      );
+    },
+  },
+};
 
 export const createInvitationOutbox: MigrationEntry = {
   version: "012_create_invitation_outbox",
   migration: {
     up: async (schema) => {
-      await schema.execute(createTableSql(invitationOutbox, schema.dialect));
+      await schema.execute(createTableSql(invitationOutboxV012, schema.dialect));
       await schema.execute(
         "CREATE INDEX invitation_delivery_outbox_invitation_id_idx ON invitation_delivery_outbox (invitation_id)",
       );
@@ -127,6 +154,8 @@ export interface InvitationDeliveryIntent {
   readonly invitationId: string;
   readonly tokenHash: string;
   readonly delivery: InviteDelivery;
+  /** The acting adult, charged against the per-person send budget. */
+  readonly queuedByPersonId: string;
 }
 
 export interface InvitationOutbox {
@@ -147,6 +176,44 @@ export interface InvitationOutboxOptions {
   readonly cipher: InvitationPayloadCipher;
   readonly clock?: () => number;
   readonly onSchedulingError: (error: unknown) => void;
+}
+
+const INVITATION_SEND_WINDOW_MS = 24 * 60 * 60 * 1_000;
+/** Invitation emails (creates and resends) one team may queue per window. */
+export const INVITATION_SENDS_PER_TEAM_PER_WINDOW = 100;
+/**
+ * Invitation emails one person's invitations may queue per window, across
+ * every team, so opening a new team does not reset the budget.
+ */
+export const INVITATION_SENDS_PER_PERSON_PER_WINDOW = 200;
+
+/** Counts queued sends, not invitation rows, so resends spend the same budget. */
+export async function invitationSendLimitReached(
+  tx: Db,
+  scope: { readonly teamId: string; readonly personId: string },
+  nowMs: number,
+): Promise<boolean> {
+  const windowStart = new Date(nowMs - INVITATION_SEND_WINDOW_MS).toISOString();
+  const sendsWhere = (owner: ReturnType<typeof eq>) =>
+    tx
+      .select()
+      .from(invitationOutbox)
+      .innerJoin(invitations, eq(invitationOutbox.invitationId, invitations.id))
+      .where(and(gt(invitationOutbox.createdAt, windowStart), owner))
+      .all();
+  const teamSends = await sendsWhere(eq(invitations.teamId, scope.teamId));
+  if (teamSends.length >= INVITATION_SENDS_PER_TEAM_PER_WINDOW) return true;
+  const personSends = await tx
+    .select()
+    .from(invitationOutbox)
+    .where(
+      and(
+        gt(invitationOutbox.createdAt, windowStart),
+        eq(invitationOutbox.queuedByPersonId, scope.personId),
+      ),
+    )
+    .all();
+  return personSends.length >= INVITATION_SENDS_PER_PERSON_PER_WINDOW;
 }
 
 function deliveryKey(invitationId: string, tokenHash: string): string {
@@ -301,6 +368,7 @@ export function createInvitationOutboxOperations(
               invitationId: intent.invitationId,
               deliveryKey: key,
               tokenHash: intent.tokenHash,
+              queuedByPersonId: intent.queuedByPersonId,
               encryptedPayload,
               status: "pending",
               createdAt: nowIso,

@@ -14,6 +14,7 @@ import type { RuntimeConfiguration, RuntimeEnvironment } from "./config";
 import { runtimeConfiguration } from "./config";
 import { redactingRequestTracer } from "./tracing";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
+import { resendEmailTransport } from "./resend-email";
 
 type ServeRuntime = (app: App, options: GracefulShutdownOptions) => Promise<Server>;
 
@@ -103,12 +104,24 @@ export async function runRuntimeFromEnvironment(
   const invitationCipher =
     adapters.invitationCipher ??
     (decodedKey === undefined ? undefined : aesGcmInvitationPayloadCipher(decodedKey));
-  if (adapters.inviteDelivery !== undefined && invitationCipher === undefined) {
+  const emailTransport =
+    adapters.emailTransport ??
+    (configuration.email === undefined
+      ? undefined
+      : resendEmailTransport({
+          apiKey: configuration.email.apiKey,
+          from: configuration.email.from,
+        }));
+  if (
+    (adapters.inviteDelivery !== undefined || emailTransport !== undefined) &&
+    invitationCipher === undefined
+  ) {
     throw new Error("Configured invitation delivery requires an outbox encryption key.");
   }
   const running = await startRuntimeServer(configuration, {
     ...adapters,
     ...(invitationCipher === undefined ? {} : { invitationCipher }),
+    ...(emailTransport === undefined ? {} : { emailTransport }),
   });
   console.log(
     JSON.stringify({

@@ -105,9 +105,6 @@ describe("remote runtime configuration", () => {
     expect(() => runtimeConfiguration({ ...valid, SNACKDAY_RUNTIME_MODE: undefined })).toThrow(
       RuntimeConfigurationError,
     );
-    expect(() => runtimeConfiguration({ ...valid, SNACKDAY_APPLE_CLIENT_ID: undefined })).toThrow(
-      RuntimeConfigurationError,
-    );
     expect(() => runtimeConfiguration({ ...valid, SNACKDAY_RUNTIME_MODE: "development" })).toThrow(
       RuntimeConfigurationError,
     );
@@ -126,6 +123,33 @@ describe("remote runtime configuration", () => {
     expect(() =>
       runtimeConfiguration({ ...valid, SNACKDAY_PUBLIC_BASE_URL: "https://staging.invalid/app" }),
     ).toThrow(RuntimeConfigurationError);
+  });
+
+  it("runs without Apple sign-in when no Apple client ID is configured", () => {
+    const configured = runtimeConfiguration({ ...valid, SNACKDAY_APPLE_CLIENT_ID: undefined });
+    expect(configured.appleClientId).toBeUndefined();
+    expect(runtimeConfiguration(valid).appleClientId).toBe("com.snackday.runtime-fixture");
+  });
+
+  it("enables email only when the sender and the provider key are both set", () => {
+    expect(runtimeConfiguration(valid).email).toBeUndefined();
+    expect(
+      runtimeConfiguration({
+        ...valid,
+        SNACKDAY_EMAIL_FROM: "Snackday <team@mail.snackduty.test>",
+        RESEND_API_KEY: "re_fixture",
+      }).email,
+    ).toEqual({
+      provider: "resend",
+      from: "Snackday <team@mail.snackduty.test>",
+      apiKey: "re_fixture",
+    });
+    expect(() =>
+      runtimeConfiguration({ ...valid, SNACKDAY_EMAIL_FROM: "team@mail.snackduty.test" }),
+    ).toThrow(RuntimeConfigurationError);
+    expect(() => runtimeConfiguration({ ...valid, RESEND_API_KEY: "re_fixture" })).toThrow(
+      RuntimeConfigurationError,
+    );
   });
 
   it("defaults to a container listener and withholds credential paths until explicitly safe", () => {

@@ -14,6 +14,9 @@ import type {
   InvitationPayloadCipher,
 } from "../app/lib/server/invitation-outbox";
 import type { InviteDeliverer } from "../app/lib/server/invite-delivery";
+import { verifiedRecipientEmails } from "../app/lib/server/authentication";
+import type { EmailTransport } from "../app/lib/server/email";
+import { emailInviteDeliverer } from "../app/lib/server/invite-email";
 import type { RuntimeConfiguration } from "./config";
 import { openRuntimeDatabase } from "./database";
 import type { RuntimeDatabase, RuntimeDatabaseTarget } from "./database";
@@ -27,6 +30,7 @@ export interface RuntimeApplicationAdapters {
   readonly openDatabase?: (target: RuntimeDatabaseTarget) => Promise<RuntimeDatabase>;
   readonly createKernelApplication?: (config: LestoAppConfig) => Promise<App>;
   readonly inviteDelivery?: InviteDeliverer;
+  readonly emailTransport?: EmailTransport;
   readonly appleVerifier?: AppleIdentityVerifier;
   readonly invitationCipher?: InvitationPayloadCipher;
 }
@@ -82,7 +86,24 @@ export async function openRuntimeApplication(
     const clock = adapters.clock ?? Date.now;
     const { sessions } = await identityServices(database.sql, { mode: "verified", clock });
     const db = createDb(database.sql, { dialect: database.dialect });
-    const inviteDelivery = adapters.inviteDelivery ?? unavailableInviteDeliverer();
+    const emailInviteDelivery =
+      adapters.emailTransport === undefined
+        ? undefined
+        : emailInviteDeliverer({
+            transport: adapters.emailTransport,
+            publicBaseUrl: configuration.publicBaseUrl,
+            recipientEmails: (recipient) =>
+              recipient.kind === "verified_email"
+                ? Promise.resolve([recipient.email])
+                : verifiedRecipientEmails(db, recipient.personId),
+          });
+    const configuredInviteDelivery = adapters.inviteDelivery ?? emailInviteDelivery;
+    const inviteDelivery = configuredInviteDelivery ?? unavailableInviteDeliverer();
+    const appleVerifier =
+      adapters.appleVerifier ??
+      (configuration.appleClientId === undefined
+        ? undefined
+        : createAppleIdentityVerifier({ audience: configuration.appleClientId, clock }));
     const application = createApplication({
       sql: database.sql,
       db,
@@ -93,9 +114,15 @@ export async function openRuntimeApplication(
       developmentSignIn: false,
       inviteDelivery,
       exposeCalendarFeeds: configuration.upstreamCredentialPathLoggingSafe,
-      appleVerifier:
-        adapters.appleVerifier ??
-        createAppleIdentityVerifier({ audience: configuration.appleClientId, clock }),
+      ...(appleVerifier === undefined ? {} : { appleVerifier }),
+      ...(adapters.emailTransport === undefined
+        ? {}
+        : {
+            emailSignIn: {
+              transport: adapters.emailTransport,
+              publicBaseUrl: configuration.publicBaseUrl,
+            },
+          }),
       ...(adapters.invitationCipher === undefined
         ? {}
         : { invitationCipher: adapters.invitationCipher }),
@@ -108,7 +135,7 @@ export async function openRuntimeApplication(
     const app = withBrandPolicy(
       remoteSafetyPolicy(withRuntimeRelease(withRuntimeAssets(kernel), configuration.release), {
         invitationDeliveryAvailable:
-          adapters.inviteDelivery !== undefined && application.outbox !== undefined,
+          configuredInviteDelivery !== undefined && application.outbox !== undefined,
         upstreamCredentialPathLoggingSafe: configuration.upstreamCredentialPathLoggingSafe,
       }),
     );

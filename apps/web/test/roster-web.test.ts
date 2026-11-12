@@ -316,7 +316,8 @@ describe("/app/roster page", () => {
     expect(html).toContain("(caregiver)");
     expect(html).toContain("Guardian invitations: 1 invited");
     expect(html).toContain("Guardian invitations: none sent");
-    expect(html).not.toContain("dad");
+    // The leading space matters: random hex ids such as `season_71cbadad` contain "dad".
+    expect(html).not.toContain(" dad");
     expect(html).not.toContain("rowan-dad@example.test");
     expect(html).toContain(`href="${cardHref(teamId, casey, seasonId)}"`);
     expect(html).toContain(`href="${cardHref(teamId, rowan, seasonId)}"`);

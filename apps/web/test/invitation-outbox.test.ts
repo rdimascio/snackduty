@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { accounts, createIdentity, people } from "../app/lib/server/identity";
 import type { InviteDeliverer, InviteDelivery } from "../app/lib/server/invite-delivery";
 import {
+  addOutboxQueuedBy,
   aesGcmInvitationPayloadCipher,
   createInvitationOutbox,
   createInvitationOutboxOperations,
@@ -55,6 +56,7 @@ async function openDatabase(path: string) {
       createInvitations,
       createInvitationRecipientBinding,
       createInvitationOutbox,
+      addOutboxQueuedBy,
     ],
     schemas: [installQueueSchema],
   });
@@ -122,10 +124,12 @@ function delivery(tokenHash = TOKEN_HASH): {
   tokenHash: string;
   delivery: InviteDelivery;
   invitationId: string;
+  queuedByPersonId: string;
 } {
   return {
     invitationId: "invitation_outbox",
     tokenHash,
+    queuedByPersonId: "person_owner",
     delivery: {
       invitationId: "invitation_outbox",
       teamName: "Outbox Falcons",

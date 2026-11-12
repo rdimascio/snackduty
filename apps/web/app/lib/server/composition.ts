@@ -15,6 +15,12 @@ import {
 } from "./authentication";
 import { registerSessionRoutes } from "./session-routes";
 import {
+  createEmailSignIn,
+  createEmailSignInSchema,
+  registerEmailSignInRoutes,
+} from "./email-sign-in";
+import type { EmailSignInDelivery } from "./email-sign-in";
+import {
   authenticatedAdult,
   createIdentity,
   devPersonaFromBody,
@@ -35,7 +41,11 @@ import {
   registerInvitationRoutes,
 } from "./invitations";
 import type { InvitationRouteOptions } from "./invitations";
-import { createInvitationOutbox, createInvitationOutboxOperations } from "./invitation-outbox";
+import {
+  addOutboxQueuedBy,
+  createInvitationOutbox,
+  createInvitationOutboxOperations,
+} from "./invitation-outbox";
 import type { InvitationPayloadCipher } from "./invitation-outbox";
 import { registerRosterImportRoutes } from "./roster-import";
 import { createRoster, registerRosterRoutes } from "./roster";
@@ -135,6 +145,7 @@ export interface ApplicationOptions {
   readonly exposeCalendarFeeds?: boolean;
   readonly appleVerifier?: import("./application-contracts").AppleIdentityVerifier;
   readonly invitationCipher?: InvitationPayloadCipher;
+  readonly emailSignIn?: EmailSignInDelivery;
   readonly dialect?: Dialect;
   readonly lessons?: LessonOptions;
 }
@@ -153,6 +164,8 @@ export const applicationMigrations = [
   createLessonAnswers,
   addSeasonLessonAgeBand,
   createSkillEvents,
+  createEmailSignInSchema,
+  addOutboxQueuedBy,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 function registerLessonSurface(app: Lesto, options: ApplicationOptions): Lesto {
@@ -201,14 +214,23 @@ export function createApplication(options: ApplicationOptions) {
   );
   const config: LestoAppConfig = {
     db: options.sql,
-    app: registerSessionRoutes(
-      registerLessonSurface(domainApp, options),
-      createAuthentication({
+    app: registerEmailSignInRoutes(
+      registerSessionRoutes(
+        registerLessonSurface(domainApp, options),
+        createAuthentication({
+          db: options.db,
+          sessions: options.sessions,
+          clock: options.clock,
+          secureCookies: options.mode !== "development",
+          ...(options.appleVerifier === undefined ? {} : { appleVerifier: options.appleVerifier }),
+        }),
+      ),
+      createEmailSignIn({
         db: options.db,
         sessions: options.sessions,
         clock: options.clock,
         secureCookies: options.mode !== "development",
-        ...(options.appleVerifier === undefined ? {} : { appleVerifier: options.appleVerifier }),
+        ...(options.emailSignIn === undefined ? {} : { delivery: options.emailSignIn }),
       }),
     ),
     migrations: applicationMigrations,

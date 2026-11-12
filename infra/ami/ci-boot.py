@@ -29,6 +29,8 @@ from urllib.request import Request, urlopen
 ROOT = Path('/opt/snackday')
 LOG = Path('/var/log/snackday/runtime.jsonl')
 PG = '/usr/lib/postgresql/16/bin/'
+# apps/web/test/boot-harness-migrations.test.ts keeps this in step with the app.
+EXPECTED_MIGRATIONS = 16
 checks = []
 phase = 'preconditions'
 canaries = []
@@ -276,9 +278,9 @@ except Exception as error:
         status, body, headers = request('/__snackday/release')
         require(status == 200 and json.loads(body) == {'releaseCommit': commit, 'artifactDigest': digest})
         require(headers['Cache-Control'] == 'no-store')
-        require(len(events()) == 1 and len(events()[0]['migrations_applied']) == 14)
+        require(len(events()) == 1 and len(events()[0]['migrations_applied']) == EXPECTED_MIGRATIONS)
         ledger = sql('SELECT version FROM schema_migrations ORDER BY version;')
-        require(len(ledger.splitlines()) == 14)
+        require(len(ledger.splitlines()) == EXPECTED_MIGRATIONS)
         require(sql("SELECT count(*) FROM pg_stat_ssl s JOIN pg_stat_activity a USING(pid) "
                     "WHERE a.usename='snackday' AND a.datname='snackday' AND s.ssl;") != '0')
         passed('startup-migrations-tls-readiness-release-identity')

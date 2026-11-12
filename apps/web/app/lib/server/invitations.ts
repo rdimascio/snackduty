@@ -17,6 +17,7 @@ import { verifiedRecipientEmails } from "./authentication";
 import { accounts, authenticatedAdult, people } from "./identity";
 import type { AdultIdentity } from "./identity";
 import type { InvitedRole, InviteDeliverer } from "./invite-delivery";
+import { invitationSendLimitReached } from "./invitation-outbox";
 import type { InvitationOutbox } from "./invitation-outbox";
 import {
   DEFAULT_GUARDIAN_PERMISSIONS,
@@ -188,6 +189,7 @@ const invitationAlreadyPending = {
   error: "invitation already pending",
 } as const;
 const invitationNotPending = { error: "invitation is not pending" } as const;
+const invitationLimitReached = { error: "invitation limit reached" } as const;
 const invitationAlreadyAccepted = {
   error: "invitation already accepted",
 } as const;
@@ -500,6 +502,15 @@ async function createInvitation(
       )
       .get();
     if (pending !== undefined) return "duplicate" as const;
+    if (
+      await invitationSendLimitReached(
+        tx,
+        { teamId: team.id, personId: identity.person.id },
+        now.getTime(),
+      )
+    ) {
+      return "limit" as const;
+    }
 
     const row = await tx
       .insert(invitations)
@@ -526,13 +537,19 @@ async function createInvitation(
       .get();
 
     const delivery = deliveryFor(row, team.name, identity, token, input.recipientBinding);
-    await persist({ invitationId: row.id, tokenHash, delivery });
+    await persist({
+      invitationId: row.id,
+      tokenHash,
+      delivery,
+      queuedByPersonId: identity.person.id,
+    });
     return { row, teamName: team.name, recipient: input.recipientBinding };
   });
 
   if (outcome === null) return c.json(teamNotFound, 404);
   if (outcome === "no-participant") return c.json(participantNotFound, 404);
   if (outcome === "duplicate") return c.json(invitationAlreadyPending, 409);
+  if (outcome === "limit") return c.json(invitationLimitReached, 429);
   if (outcome === "invalid-recipient" || outcome === "invalid-replacement") {
     return c.json(invitationRecipientInvalid, 422);
   }
@@ -586,6 +603,15 @@ async function resendInvitation(
       .get();
     if (row === undefined) return null;
     if (row.status !== "pending") return "not-pending" as const;
+    if (
+      await invitationSendLimitReached(
+        tx,
+        { teamId: team.id, personId: identity.person.id },
+        options.clock?.() ?? Date.now(),
+      )
+    ) {
+      return "limit" as const;
+    }
 
     const requestedBinding = parsedInput.data.recipientBinding;
     if (
@@ -628,13 +654,19 @@ async function resendInvitation(
     if (rotated === undefined) throw new Error("Invitation disappeared during resend.");
 
     const delivery = deliveryFor(rotated, team.name, identity, token, recipient);
-    await persist({ invitationId: rotated.id, tokenHash, delivery });
+    await persist({
+      invitationId: rotated.id,
+      tokenHash,
+      delivery,
+      queuedByPersonId: identity.person.id,
+    });
     return { row: rotated, teamName: team.name, recipient };
   });
 
   if (outcome === "no-team") return c.json(teamNotFound, 404);
   if (outcome === null) return c.json(invitationNotFound, 404);
   if (outcome === "not-pending") return c.json(invitationNotPending, 409);
+  if (outcome === "limit") return c.json(invitationLimitReached, 429);
   if (outcome === "invalid-recipient") return c.json(invitationRecipientInvalid, 422);
   await options.outbox.requestSchedule();
   if (deliverer.environment === "development") {
