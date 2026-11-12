@@ -60,7 +60,7 @@ Blockers 1–4 and 6 gate both paths. Blocker 5 gates only the iOS path.
 ### Decisions needed before work starts
 
 1. **Path — decided 2026-11-07: web pilot first.**
-2. **Host — decided 2026-11-07: a managed container host running the Bun server, with managed PostgreSQL.** The specific provider is still open. The runtime (`runtime/server.ts`) is a long-running Bun server that starts the invitation outbox worker in process, and it already supports TLS PostgreSQL. `@lesto/deploy@0.2.0` targets AWS and Cloudflare only. The candidates:
+2. **Host — decided 2026-11-07: a managed container host running the Bun server, with managed PostgreSQL.** Provider decided 2026-11-11: Fly.io for the Bun server, with managed PostgreSQL. The runtime (`runtime/server.ts`) is a long-running Bun server that starts the invitation outbox worker in process, and it already supports TLS PostgreSQL. `@lesto/deploy@0.2.0` targets AWS and Cloudflare only. The candidates:
    - The existing AWS graph (EC2 + RDS, about $62–67/month per `aws-staging-costs.md`, many attended prerequisites, never applied).
    - A managed container host running the Bun server, with managed PostgreSQL. No Lesto deploy target exists for it.
    - Vercel with managed PostgreSQL. It needs a custom Lesto request adapter and a scheduled job to drain the outbox, because a serverless function does not keep the in-process worker alive. No Lesto deploy target exists for it.
@@ -74,14 +74,14 @@ Blockers 1–4 and 6 gate both paths. Blocker 5 gates only the iOS path.
 
 ### Execution order (web pilot)
 
-| Step | Work                                                                                               | Exit check                                                                                        | Size estimate                   |
-| ---- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------- |
-| W0   | Make decisions 1–5; refresh `launch-backlog.json` statuses against merged PRs                      | Backlog statuses match `origin/main`                                                              | Hours, plus owner time          |
-| W1   | Web sign-in for real adults (decision 3) with session restore and logout                           | e2e signs in a non-dev adult on the remote runtime config; `SNACKDAY_DEV_SIGN_IN` stays forbidden | 2–4 days                        |
-| W2   | Email provider adapter for invitations and sign-in links; verified sender                          | An invitation reaches a real inbox; a forced failure retries from the outbox without a duplicate  | 2–3 days, plus DNS verification |
-| W3   | Deploy the runtime to the chosen host with HTTPS, persistent database, backups, logs and one alert | `/readyz` passes on the public hostname; one backup restores into a fresh instance                | 2–5 days (AWS at the high end)  |
-| W4   | Privacy policy, account and child deletion, and a support contact                                  | A guardian deletes a child and the roster, cards and logs hold no remaining child data            | 2–4 days                        |
-| W5   | Owner's-team pilot                                                                                 | One full recurring week per the pilot success criteria in section 8                               | 1 week                          |
+| Step | Work                                                                                               | Exit check                                                                                        | Size estimate                                                                       |
+| ---- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| W0   | Make decisions 1–5; refresh `launch-backlog.json` statuses against merged PRs                      | Backlog statuses match `origin/main`                                                              | Hours, plus owner time                                                              |
+| W1   | Web sign-in for real adults (decision 3) with session restore and logout                           | e2e signs in a non-dev adult on the remote runtime config; `SNACKDAY_DEV_SIGN_IN` stays forbidden | Done: PR #32 (merged 2026-11-11)                                                    |
+| W2   | Email provider adapter for invitations and sign-in links; verified sender                          | An invitation reaches a real inbox; a forced failure retries from the outbox without a duplicate  | Done: PR #32; 2026-11-09 sign-in email reached the inbox, the invite landed in spam |
+| W3   | Deploy the runtime to the chosen host with HTTPS, persistent database, backups, logs and one alert | `/readyz` passes on the public hostname; one backup restores into a fresh instance                | 2–5 days (AWS at the high end)                                                      |
+| W4   | Privacy policy, account and child deletion, and a support contact                                  | A guardian deletes a child and the roster, cards and logs hold no remaining child data            | Done: PR #33 (merged 2026-11-11); legal review of /privacy still open               |
+| W5   | Owner's-team pilot                                                                                 | One full recurring week per the pilot success criteria in section 8                               | 1 week                                                                              |
 
 The estimates assume the agent-driven pace of PRs #19–#30 (twelve PRs merged between 2026-10-27 and 2026-10-28) and prompt owner decisions. They are not commitments. Owner decisions, DNS and provider verification set the real start date. W1, W2 and W4 can run in parallel; W3 depends on the host decision. On this basis, the first real coach can sign in about **two to three weeks** after decisions 1–5 are made.
 
