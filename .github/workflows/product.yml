@@ -75,6 +75,19 @@ jobs:
         shell: bash
         run: bun run gate 2>&1 | tee "$RUNNER_TEMP/product-gate.log"
 
+      # Raw .xcresult bundles need Xcode to open; PNGs open anywhere.
+      - name: Export native test screenshots
+        if: always()
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for bundle in "$GITHUB_WORKSPACE"/DerivedData-CI/Logs/Test/*.xcresult; do
+            target="$RUNNER_TEMP/xcresult-attachments/$(basename "$bundle" .xcresult)"
+            mkdir -p "$target"
+            xcrun xcresulttool export attachments --path "$bundle" --output-path "$target" \
+              || echo "::warning::Could not export attachments from $(basename "$bundle")"
+          done
+
       - name: Upload acceptance receipt
         if: success()
         uses: actions/upload-artifact@v4
@@ -90,7 +103,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: product-native-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ github.workspace }}/DerivedData-CI/Logs/Test/*.xcresult
+          path: |
+            ${{ github.workspace }}/DerivedData-CI/Logs/Test/*.xcresult
+            ${{ runner.temp }}/xcresult-attachments/
           if-no-files-found: error
           retention-days: 7
 
@@ -103,6 +118,7 @@ jobs:
           path: |
             ${{ runner.temp }}/product-gate.log
             ${{ github.workspace }}/DerivedData-CI/Logs/Test/*.xcresult
+            ${{ runner.temp }}/xcresult-attachments/
             ${{ github.workspace }}/.artifacts/acceptance/
           if-no-files-found: ignore
           retention-days: 7
