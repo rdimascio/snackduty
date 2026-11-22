@@ -185,4 +185,31 @@ describe("inline style and script detection", () => {
     expect(hasInlineStyle('<link rel="stylesheet" href="/styles.css">')).toBe(false);
     expect(hasInlineScript('<script type="module" src="/client.js"></script>')).toBe(false);
   });
+
+  it("allows a JSON-LD block with exactly the ld+json type and nothing else", () => {
+    const block = '{"@type":"Person","name":"x"}';
+    expect(hasInlineScript(`<script type="application/ld+json">${block}</script>`)).toBe(false);
+    expect(hasInlineScript(`<script type='application/ld+json'>${block}</script>`)).toBe(false);
+    expect(
+      findThirdPartyRisks(`<script type="application/ld+json">${block}</script>`, "markup"),
+    ).toEqual([]);
+  });
+
+  it.each([
+    "<script>go()</script>",
+    '<script type="application/json">{}</script>',
+    '<script type="module">go()</script>',
+    '<script type="text/javascript">go()</script>',
+    '<script type="application/ld+json+x">{}</script>',
+    '<script type="x-application/ld+json">{}</script>',
+    '<script type="APPLICATION/LD+JSON">{}</script>',
+    "<script type=application/ld+json>{}</script>",
+    '<script type="application/ld+json" id="x">{}</script>',
+    '<script type="application/ld+json" src="/x.js">go()</script>',
+    '<script id="x" type="application/ld+json">{}</script>',
+    '<script type="application/ld+json">{}</script><script>go()</script>',
+  ])("still flags %s", (markup) => {
+    expect(hasInlineScript(markup)).toBe(true);
+    expect(findThirdPartyRisks(markup, "markup")).toContain(inlineScriptFinding);
+  });
 });

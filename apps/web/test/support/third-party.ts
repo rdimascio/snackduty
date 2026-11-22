@@ -24,7 +24,9 @@ export const inlineScriptFinding = "<script> with an inline body";
 
 export const srcdocFinding = "srcdoc attribute";
 
-const inlineScript = /<script\b[^>]*>([^]*?)(?:<\/script|$)/giu;
+const inlineScript = /<script\b([^>]*)>([^]*?)(?:<\/script|$)/giu;
+
+const jsonLdOnlyAttributes = /^\s+type=(["'])application\/ld\+json\1\s*$/u;
 
 const srcdocAttribute = /(?<=[\s"'/])srcdoc(?=[\s=/>]|$)/iu;
 
@@ -52,7 +54,8 @@ function normalizedViews(text: string, kind: SourceKind): string[] {
 
 function hasInlineScriptBody(view: string): boolean {
   for (const match of view.matchAll(inlineScript)) {
-    if ((match[1] ?? "").trim() !== "") {
+    const [, attributes = "", body = ""] = match;
+    if (body.trim() !== "" && !jsonLdOnlyAttributes.test(attributes)) {
       return true;
     }
   }
