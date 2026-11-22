@@ -13,10 +13,18 @@ import type {
 import { BALLPLAYER_APP_PAGE_PATH } from "../ballplayer/app-data";
 import type { BallplayerAppModule, BallplayerAppPage } from "../ballplayer/app-data";
 import { brandOfRequest } from "../brand/brand";
+import { COACH_ARTICLE_PATH, COACH_ARTICLES_PATH } from "../coach/articles";
+import type { CoachArticles } from "../coach/articles";
 import { readBookingForm } from "../coach/booking-form";
 import type { CoachBooking } from "../coach/booking-pages";
 import { COACH_BOOK_PATH, COACH_BOOK_RETRY_PATH, COACH_BOOK_SENT_PATH } from "../coach/content";
 import type { LessonRequestOperations } from "../coach/lesson-requests";
+import {
+  COACH_ROBOTS_PATH,
+  COACH_SITEMAP_PATH,
+  coachRobotsResponse,
+  coachSitemapResponse,
+} from "../coach/sitemap";
 import { contentSecurityPolicyFor, withContentSecurityPolicy } from "./content-security-policy";
 import { FONT_ROUTE, fontResponse } from "./fonts";
 
@@ -29,6 +37,8 @@ export type RequestHandle = (
 export interface BrandPages {
   readonly ballplayerHome: PageDef<"/">;
   readonly coachHome: PageDef<"/">;
+  /** Without it the article, sitemap and robots paths are a 404 on the coach host. */
+  readonly coachArticles?: CoachArticles;
 }
 
 const BALLPLAYER_PAGE_PATHS: ReadonlySet<string> = new Set(["/"]);
@@ -41,6 +51,12 @@ const COACH_BOOKING_PAGE_PATHS: ReadonlySet<string> = new Set([
 ]);
 
 const COACH_BOOKING_FORM_PATHS: ReadonlySet<string> = new Set([COACH_BOOK_PATH]);
+
+const COACH_ARTICLE_PAGE_PATHS: ReadonlySet<string> = new Set([
+  COACH_ARTICLES_PATH,
+  COACH_SITEMAP_PATH,
+  COACH_ROBOTS_PATH,
+]);
 
 const FORM_METHOD = "POST";
 
@@ -84,13 +100,24 @@ function isBallplayerRoute(method: string, path: string): boolean {
   );
 }
 
-function isCoachRoute(method: string, path: string, bookingOpen: boolean): boolean {
+function isCoachArticleRoute(path: string, articles: CoachArticles | undefined): boolean {
+  if (articles === undefined) return false;
+  return COACH_ARTICLE_PAGE_PATHS.has(path) || articles.library.findByPath(path) !== undefined;
+}
+
+function isCoachRoute(
+  method: string,
+  path: string,
+  bookingOpen: boolean,
+  articles: CoachArticles | undefined,
+): boolean {
   const upper = method.toUpperCase();
   if (READ_METHODS.has(upper)) {
     return (
       COACH_PAGE_PATHS.has(path) ||
       path.startsWith(FONT_PATH_PREFIX) ||
-      (bookingOpen && COACH_BOOKING_PAGE_PATHS.has(path))
+      (bookingOpen && COACH_BOOKING_PAGE_PATHS.has(path)) ||
+      isCoachArticleRoute(path, articles)
     );
   }
   return bookingOpen && upper === FORM_METHOD && COACH_BOOKING_FORM_PATHS.has(path);
@@ -133,8 +160,25 @@ async function submitLessonRequest(
   return withPrivateNoStore(c.redirect(COACH_BOOK_SENT_PATH, SEE_OTHER));
 }
 
-function coachSite(home: PageDef<"/">, booking: CoachBooking | undefined): Lesto {
-  const site = brandSite(home);
+function withCoachArticles(
+  site: Lesto,
+  articles: CoachArticles | undefined,
+  bookingOpen: boolean,
+): Lesto {
+  if (articles === undefined) return site;
+  return site
+    .page(COACH_ARTICLES_PATH, articles.pages.list)
+    .page(COACH_ARTICLE_PATH, articles.pages.article)
+    .get(COACH_SITEMAP_PATH, () => coachSitemapResponse(articles.library, bookingOpen))
+    .get(COACH_ROBOTS_PATH, () => coachRobotsResponse());
+}
+
+function coachSite(
+  home: PageDef<"/">,
+  booking: CoachBooking | undefined,
+  articles: CoachArticles | undefined,
+): Lesto {
+  const site = withCoachArticles(brandSite(home), articles, booking !== undefined);
   if (booking === undefined) return site;
   return site
     .page(COACH_BOOK_PATH, booking.pages.book)
@@ -161,14 +205,14 @@ export function withBrandRoutes(
   coachBooking?: CoachBooking,
 ): RequestHandle {
   const ballplayer = brandSite(pages.ballplayerHome);
-  const coach = coachSite(pages.coachHome, coachBooking);
+  const coach = coachSite(pages.coachHome, coachBooking, pages.coachArticles);
   const bookingOpen = coachBooking !== undefined;
   return async (method, path, options) => {
     if (isBallplayerInternalPath(path)) return notFound;
     const brand = brandOfRequest(options?.headers);
     if (brand === "snackday") return handle(method, path, options);
     if (brand === "coach") {
-      if (isCoachRoute(method, path, bookingOpen))
+      if (isCoachRoute(method, path, bookingOpen, pages.coachArticles))
         return coach.handle(method.toUpperCase(), path, options);
       if (isPlatformPath(path)) return handle(method, path, options);
       return notFound;

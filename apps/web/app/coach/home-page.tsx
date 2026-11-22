@@ -2,13 +2,18 @@ import type { ReactNode } from "react";
 
 import type { PageDef } from "@lesto/web";
 
-import { COACH_BOOK_PATH, coachTitle, lessonTypes, playerAgeRange } from "./content";
+import { COACH_ARTICLES_PATH } from "./articles";
+import {
+  COACH_BOOK_PATH,
+  COACH_LEARN_URL,
+  coachTitle,
+  lessonTypes,
+  playerAgeRange,
+} from "./content";
 
-export { coachTitle, lessonTypes } from "./content";
+export { COACH_LEARN_URL, coachTitle, lessonTypes } from "./content";
 
 export const coachTagline = "Private baseball lessons in Orange County.";
-
-export const COACH_LEARN_URL = "https://learn.dimasciobaseball.com/";
 
 function Intro(): ReactNode {
   return (
@@ -70,6 +75,24 @@ function CoachHome(): ReactNode {
             href={COACH_LEARN_URL}
           >
             Watch episodes
+          </a>
+        </section>
+
+        <section aria-labelledby="parents-heading" className="mt-20">
+          <h2
+            className="font-display text-3xl font-bold uppercase tracking-tight"
+            id="parents-heading"
+          >
+            For parents
+          </h2>
+          <p className="mt-4 max-w-xl text-muted">
+            Short guides on gear, first seasons, and simple drills you can do together at home.
+          </p>
+          <a
+            className="mt-8 inline-flex min-h-11 items-center justify-center rounded-lg border border-line px-6 py-2 text-sm font-bold tracking-[0.2em] uppercase"
+            href={COACH_ARTICLES_PATH}
+          >
+            Read the guides
           </a>
         </section>
       </main>

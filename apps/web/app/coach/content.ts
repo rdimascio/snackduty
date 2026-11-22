@@ -7,6 +7,10 @@ export const COACH_BOOK_RETRY_PATH = "/__coach/book-retry";
 
 export const coachTitle = "DiMascio Baseball";
 
+export const COACH_ORIGIN = "https://dimasciobaseball.com";
+
+export const COACH_LEARN_URL = "https://learn.dimasciobaseball.com/";
+
 export const PLAYER_AGE_MIN = 5;
 
 export const PLAYER_AGE_MAX = 14;
