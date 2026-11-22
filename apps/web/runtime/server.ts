@@ -19,14 +19,24 @@ import { resendEmailTransport } from "./resend-email";
 
 type ServeRuntime = (app: App, options: GracefulShutdownOptions) => Promise<Server>;
 
+export const VPC_ADDRESS_PREFIX = "10.42.";
+
+const IPV4_MAPPED_PREFIX = "::ffff:";
+
+export function isVpcAddress(address: string): boolean {
+  const ipv4 = address.startsWith(IPV4_MAPPED_PREFIX)
+    ? address.slice(IPV4_MAPPED_PREFIX.length)
+    : address;
+  return ipv4.startsWith(VPC_ADDRESS_PREFIX);
+}
+
 /**
- * Only the load balancer's security group may reach the app port
- * (`infra/alchemy/alchemy.run.ts`), so the one trusted hop is the load
- * balancer and the client is the right-most `X-Forwarded-For` entry.
- * Without it, every client shares the load balancer's address as its
- * rate-limit key.
+ * The load balancer reaches the app from inside the VPC; a peer outside it
+ * (a laptop running `runtime:serve`, a direct caller) is never trusted, so it
+ * cannot forge `X-Forwarded-For`. Without this, every client behind the load
+ * balancer shares the load balancer's address as its rate-limit key.
  */
-export const LOAD_BALANCER_TRUST_PROXY: TrustProxy = true;
+export const LOAD_BALANCER_TRUST_PROXY: TrustProxy = isVpcAddress;
 
 export interface RuntimeServerAdapters extends RuntimeApplicationAdapters {
   readonly serve?: ServeRuntime;
