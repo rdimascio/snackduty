@@ -3,9 +3,9 @@ import { secureStack } from "@lesto/kernel";
 import { currentContext, fromRequestMiddleware } from "@lesto/web";
 import type { Handler } from "@lesto/web";
 
-export const BOOKING_POSTS_PER_WINDOW = 5;
+export const BOOKING_BURST_POSTS = 5;
 
-export const BOOKING_WINDOW_MS = 10 * 60 * 1_000;
+export const BOOKING_REFILL_MS_PER_POST = 2 * 60 * 1_000;
 
 const MS_PER_SECOND = 1_000;
 
@@ -27,12 +27,12 @@ export interface BookingRateLimitOptions {
   readonly dialect?: Dialect;
 }
 
-/** A per-client limit on lesson request posts, kept in the app's SQL rate-limit store. */
+/** A per-client token bucket on lesson request posts: a burst, then one post per refill period. */
 export function bookingPostRateLimit(options: BookingRateLimitOptions): Handler {
   const [limit] = secureStack({
     rateLimit: {
-      capacity: BOOKING_POSTS_PER_WINDOW,
-      refillPerSecond: BOOKING_POSTS_PER_WINDOW / (BOOKING_WINDOW_MS / MS_PER_SECOND),
+      capacity: BOOKING_BURST_POSTS,
+      refillPerSecond: MS_PER_SECOND / BOOKING_REFILL_MS_PER_POST,
       keyFor: bookingClientKey,
     },
     db: options.sql,

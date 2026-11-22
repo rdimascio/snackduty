@@ -7,6 +7,7 @@ import {
   COACH_BOOK_PATH,
   COACH_LEARN_URL,
   COACH_NAME,
+  COACH_ORIGIN,
   coachTagline,
   coachTitle,
   lessonTypes,
@@ -108,6 +109,6 @@ export const coachHome: PageDef<"/"> = {
   metadata: () => ({
     title: coachTitle,
     description: coachTagline,
-    links: [{ rel: "canonical", href: "/" }],
+    links: [{ rel: "canonical", href: `${COACH_ORIGIN}/` }],
   }),
 };

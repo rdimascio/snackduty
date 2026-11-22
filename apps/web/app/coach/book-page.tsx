@@ -14,6 +14,7 @@ import {
   COACH_BOOK_PATH,
   COACH_BOOK_RETRY_PATH,
   COACH_BOOK_SENT_PATH,
+  COACH_ORIGIN,
   coachTitle,
   lessonTypes,
   PLAYER_AGE_MAX,
@@ -195,7 +196,7 @@ function BookPage(form: BookFormData): ReactNode {
           Please fix the fields marked below.
         </p>
       ) : null}
-      <form action={COACH_BOOK_PATH} className="mt-10 grid gap-8" method="post" noValidate>
+      <form action={COACH_BOOK_PATH} className="mt-10 grid gap-8" method="post">
         <TextField autoComplete="name" field="parentName" form={form} label="Your name" />
         <TextField
           autoComplete="email"
@@ -263,7 +264,7 @@ function SentPage(): ReactNode {
 const bookMetadata = () => ({
   title: `Request a lesson | ${coachTitle}`,
   description: "Request a private baseball lesson.",
-  links: [{ rel: "canonical", href: COACH_BOOK_PATH }],
+  links: [{ rel: "canonical", href: `${COACH_ORIGIN}${COACH_BOOK_PATH}` }],
 });
 
 export const coachBook: PageDef<typeof COACH_BOOK_PATH, BookFormData> = {

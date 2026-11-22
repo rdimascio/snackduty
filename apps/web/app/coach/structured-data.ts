@@ -45,7 +45,7 @@ export function coachArticleJsonLd(article: CoachArticle): CoachArticleJsonLd {
   };
 }
 
-/** JSON whose every `<` is `<`, so the text can never close the script element it sits in. */
+/** JSON whose every `<` is written as the six characters `\u003c`, so the text can never close the script element it sits in. */
 export function jsonLdText(value: CoachJsonLd): string {
   return JSON.stringify(value).replace(LESS_THAN, ESCAPED_LESS_THAN);
 }
