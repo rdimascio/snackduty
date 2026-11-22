@@ -1,11 +1,22 @@
 import { createElement } from "react";
 
 import { lesto } from "@lesto/web";
-import type { HandleOptions, Lesto, LestoResponse, PageDef } from "@lesto/web";
+import type {
+  AnyLestoResponse,
+  Context,
+  HandleOptions,
+  Lesto,
+  LestoResponse,
+  PageDef,
+} from "@lesto/web";
 
 import { BALLPLAYER_APP_PAGE_PATH } from "../ballplayer/app-data";
 import type { BallplayerAppModule, BallplayerAppPage } from "../ballplayer/app-data";
 import { brandOfRequest } from "../brand/brand";
+import { readBookingForm } from "../coach/booking-form";
+import type { CoachBooking } from "../coach/booking-pages";
+import { COACH_BOOK_PATH, COACH_BOOK_RETRY_PATH, COACH_BOOK_SENT_PATH } from "../coach/content";
+import type { LessonRequestOperations } from "../coach/lesson-requests";
 import { contentSecurityPolicyFor, withContentSecurityPolicy } from "./content-security-policy";
 import { FONT_ROUTE, fontResponse } from "./fonts";
 
@@ -23,6 +34,17 @@ export interface BrandPages {
 const BALLPLAYER_PAGE_PATHS: ReadonlySet<string> = new Set(["/"]);
 
 const COACH_PAGE_PATHS: ReadonlySet<string> = new Set(["/"]);
+
+const COACH_BOOKING_PAGE_PATHS: ReadonlySet<string> = new Set([
+  COACH_BOOK_PATH,
+  COACH_BOOK_SENT_PATH,
+]);
+
+const COACH_BOOKING_FORM_PATHS: ReadonlySet<string> = new Set([COACH_BOOK_PATH]);
+
+const FORM_METHOD = "POST";
+
+const SEE_OTHER = 303;
 
 const FONT_PATH_PREFIX = "/fonts/";
 
@@ -46,7 +68,7 @@ const CACHE_CONTROL_HEADER = "cache-control";
 
 const PRIVATE_NO_STORE = "private, no-store";
 
-function withPrivateNoStore(response: LestoResponse): LestoResponse {
+function withPrivateNoStore<R extends AnyLestoResponse>(response: R): R {
   const headers: LestoResponse["headers"] = {};
   for (const [name, value] of Object.entries(response.headers)) {
     if (name.toLowerCase() !== CACHE_CONTROL_HEADER) headers[name] = value;
@@ -62,11 +84,16 @@ function isBallplayerRoute(method: string, path: string): boolean {
   );
 }
 
-function isCoachRoute(method: string, path: string): boolean {
-  return (
-    READ_METHODS.has(method.toUpperCase()) &&
-    (COACH_PAGE_PATHS.has(path) || path.startsWith(FONT_PATH_PREFIX))
-  );
+function isCoachRoute(method: string, path: string, bookingOpen: boolean): boolean {
+  const upper = method.toUpperCase();
+  if (READ_METHODS.has(upper)) {
+    return (
+      COACH_PAGE_PATHS.has(path) ||
+      path.startsWith(FONT_PATH_PREFIX) ||
+      (bookingOpen && COACH_BOOKING_PAGE_PATHS.has(path))
+    );
+  }
+  return bookingOpen && upper === FORM_METHOD && COACH_BOOKING_FORM_PATHS.has(path);
 }
 
 function isBallplayerAppRoute(method: string, path: string): boolean {
@@ -88,6 +115,36 @@ function brandSite(home: PageDef<"/">): Lesto {
     .get(FONT_ROUTE, (c) => fontResponse(c.param("file")));
 }
 
+async function submitLessonRequest(
+  c: Context,
+  site: Lesto,
+  requests: LessonRequestOperations,
+): Promise<AnyLestoResponse> {
+  const submission = readBookingForm(c.req.body);
+  if (submission.kind === "invalid") {
+    return withPrivateNoStore(
+      await site.handle("GET", COACH_BOOK_RETRY_PATH, {
+        headers: c.req.headers,
+        body: c.req.body,
+      }),
+    );
+  }
+  if (submission.kind === "valid") await requests.record(submission.request);
+  return withPrivateNoStore(c.redirect(COACH_BOOK_SENT_PATH, SEE_OTHER));
+}
+
+function coachSite(home: PageDef<"/">, booking: CoachBooking | undefined): Lesto {
+  const site = brandSite(home);
+  if (booking === undefined) return site;
+  return site
+    .page(COACH_BOOK_PATH, booking.pages.book)
+    .page(COACH_BOOK_SENT_PATH, booking.pages.bookSent)
+    .page(COACH_BOOK_RETRY_PATH, booking.pages.bookRetry)
+    .post(COACH_BOOK_PATH, booking.postLimit, (c) =>
+      submitLessonRequest(c, site, booking.requests),
+    );
+}
+
 export function withBrandSecurity(handle: RequestHandle): RequestHandle {
   return async (method, path, options) => {
     const response = await handle(method, path, options);
@@ -98,15 +155,21 @@ export function withBrandSecurity(handle: RequestHandle): RequestHandle {
   };
 }
 
-export function withBrandRoutes(handle: RequestHandle, pages: BrandPages): RequestHandle {
+export function withBrandRoutes(
+  handle: RequestHandle,
+  pages: BrandPages,
+  coachBooking?: CoachBooking,
+): RequestHandle {
   const ballplayer = brandSite(pages.ballplayerHome);
-  const coach = brandSite(pages.coachHome);
+  const coach = coachSite(pages.coachHome, coachBooking);
+  const bookingOpen = coachBooking !== undefined;
   return async (method, path, options) => {
     if (isBallplayerInternalPath(path)) return notFound;
     const brand = brandOfRequest(options?.headers);
     if (brand === "snackday") return handle(method, path, options);
     if (brand === "coach") {
-      if (isCoachRoute(method, path)) return coach.handle(method.toUpperCase(), path, options);
+      if (isCoachRoute(method, path, bookingOpen))
+        return coach.handle(method.toUpperCase(), path, options);
       if (isPlatformPath(path)) return handle(method, path, options);
       return notFound;
     }
@@ -150,11 +213,11 @@ const ballplayerAppPage: BallplayerAppPage = {
 
 const routedApps = new WeakSet<Lesto>();
 
-export function routeBrands(app: Lesto, pages: BrandPages): Lesto {
+export function routeBrands(app: Lesto, pages: BrandPages, coachBooking?: CoachBooking): Lesto {
   if (routedApps.has(app)) return app;
   routedApps.add(app);
   app.page(BALLPLAYER_APP_PAGE_PATH, ballplayerAppPage);
-  app.handle = withBrandRoutes(app.handle.bind(app), pages);
+  app.handle = withBrandRoutes(app.handle.bind(app), pages, coachBooking);
   return app;
 }
 

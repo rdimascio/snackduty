@@ -47,6 +47,21 @@ describe("Resend email transport", () => {
     });
   });
 
+  it("sends a reply address as reply_to only when the message has one", async () => {
+    const { fetcher, requests } = respondingWith(200, '{"id":"email_2"}');
+    const transport = resendEmailTransport({ apiKey: "k", from: "a@b.test", fetch: fetcher });
+
+    await transport.send({ ...message, replyTo: "parent@example.test" });
+
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({
+      from: "a@b.test",
+      to: ["coach@example.test"],
+      subject: "Subject",
+      text: message.text,
+      reply_to: "parent@example.test",
+    });
+  });
+
   it("marks a request the provider will always reject as permanent", async () => {
     const { fetcher } = respondingWith(422, '{"message":"coach@example.test is invalid"}');
     const transport = resendEmailTransport({
@@ -108,6 +123,7 @@ describe("email invite deliverer", () => {
     ]);
     expect(transport.messages[0]?.text).toContain("https://staging.snackduty.test/invite#token");
     expect(deliverer.currentLink("invitation_1")).toBeUndefined();
+    expect(transport.messages.map((sent) => sent.replyTo)).toEqual([undefined, undefined]);
   });
 
   it("keeps user-typed names on one quoted line with no live links", () => {

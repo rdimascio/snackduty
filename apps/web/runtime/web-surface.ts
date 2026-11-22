@@ -7,6 +7,8 @@ import { contentTypeOf, nodeStaticReader, staticCacheControl } from "@lesto/runt
 import { applyFileRoutes, loadFileRoutes } from "@lesto/web";
 import type { Lesto, PageDef } from "@lesto/web";
 
+import type { CoachBookingPagesModule, CoachBookingServices } from "../app/coach/booking-pages";
+
 import { routeBrands, withBrandSecurity } from "../app/server/brand-routing";
 
 const webRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -20,7 +22,10 @@ interface CoachHomeModule {
 }
 
 /** Use the same file-route discovery and layout composition as the Lesto CLI. */
-export async function registerRuntimePages(app: Lesto): Promise<void> {
+export async function registerRuntimePages(
+  app: Lesto,
+  coachBooking?: CoachBookingServices,
+): Promise<void> {
   const directory = join(webRoot, "app/routes");
   const files = await scanRoutes(
     async (path) =>
@@ -39,10 +44,19 @@ export async function registerRuntimePages(app: Lesto): Promise<void> {
     join(webRoot, "app/ballplayer/home-page.tsx")
   );
   const coachHomePage: CoachHomeModule = await import(join(webRoot, "app/coach/home-page.tsx"));
-  routeBrands(app, {
-    ballplayerHome: ballplayerHomePage.ballplayerHome,
-    coachHome: coachHomePage.coachHome,
-  });
+  const coachBookPage: CoachBookingPagesModule = await import(
+    join(webRoot, "app/coach/book-page.tsx")
+  );
+  routeBrands(
+    app,
+    {
+      ballplayerHome: ballplayerHomePage.ballplayerHome,
+      coachHome: coachHomePage.coachHome,
+    },
+    coachBooking === undefined
+      ? undefined
+      : { ...coachBooking, pages: coachBookPage.coachBookingPages },
+  );
 }
 
 /** Only the two public build outputs are exposed; database/source files never are. */

@@ -28,16 +28,18 @@ export interface EmailInviteDelivererOptions {
  * so a name cannot pose as instructions or as a second link.
  */
 export function quotedEmailName(name: string): string {
-  const neutral = name
+  return quotedEmailText(name, MAX_QUOTED_NAME_LENGTH);
+}
+
+/** {@link quotedEmailName} for any typed text, cut to `maxLength` characters. */
+export function quotedEmailText(value: string, maxLength: number): string {
+  const neutral = value
     .replace(CONTROL_OR_LINE_BREAK, " ")
     .replace(URL_SEPARATORS, " ")
     .replace(DOT_BETWEEN_WORDS, " ")
     .replace(/\s+/gu, " ")
     .trim();
-  const shortened =
-    neutral.length > MAX_QUOTED_NAME_LENGTH
-      ? `${neutral.slice(0, MAX_QUOTED_NAME_LENGTH - 1)}…`
-      : neutral;
+  const shortened = neutral.length > maxLength ? `${neutral.slice(0, maxLength - 1)}…` : neutral;
   return `"${shortened}"`;
 }
 

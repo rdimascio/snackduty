@@ -30,7 +30,7 @@ ROOT = Path('/opt/snackday')
 LOG = Path('/var/log/snackday/runtime.jsonl')
 PG = '/usr/lib/postgresql/16/bin/'
 # apps/web/test/boot-harness-migrations.test.ts keeps this in step with the app.
-EXPECTED_MIGRATIONS = 16
+EXPECTED_MIGRATIONS = 17
 checks = []
 phase = 'preconditions'
 canaries = []

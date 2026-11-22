@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
+import { z } from "zod";
 import { runtimeRelease } from "./release";
 import type { RuntimeRelease } from "./release";
 
@@ -17,6 +18,7 @@ interface SharedRuntimeConfiguration {
   readonly publicBaseUrl: URL;
   readonly appleClientId?: string;
   readonly email?: EmailConfiguration;
+  readonly coachRequestTo?: string;
   readonly upstreamCredentialPathLoggingSafe: boolean;
   readonly release?: RuntimeRelease;
 }
@@ -176,6 +178,18 @@ function emailConfiguration(environment: RuntimeEnvironment): EmailConfiguration
   return { provider: "resend", from, apiKey };
 }
 
+const COACH_REQUEST_TO = "SNACKDAY_COACH_REQUEST_TO";
+
+function coachRequestTo(environment: RuntimeEnvironment): string | undefined {
+  const value = optional(environment, COACH_REQUEST_TO);
+  if (value === undefined) return undefined;
+  if (!z.email().safeParse(value).success) {
+    throw new RuntimeConfigurationError(`${COACH_REQUEST_TO} must be one email address.`);
+  }
+
+  return value;
+}
+
 export function runtimeConfiguration(environment: RuntimeEnvironment): RuntimeConfiguration {
   if (explicitBoolean(environment["SNACKDAY_DEV_SIGN_IN"], "SNACKDAY_DEV_SIGN_IN")) {
     throw new RuntimeConfigurationError(
@@ -185,7 +199,9 @@ export function runtimeConfiguration(environment: RuntimeEnvironment): RuntimeCo
   const release = runtimeRelease(environment);
   const appleClientId = optional(environment, "SNACKDAY_APPLE_CLIENT_ID");
   const email = emailConfiguration(environment);
+  const coachRequestRecipient = coachRequestTo(environment);
   const shared = {
+    ...(coachRequestRecipient === undefined ? {} : { coachRequestTo: coachRequestRecipient }),
     ...(release === undefined ? {} : { release }),
     ...(appleClientId === undefined ? {} : { appleClientId }),
     ...(email === undefined ? {} : { email }),

@@ -56,6 +56,10 @@ import { createLessonAnswers, lessonServices, registerLessonRoutes } from "../..
 import type { LessonOptions } from "../../lessons/lessons";
 import { registerSkillCardRoutes } from "../../skills/skill-card";
 import { createSkillEvents } from "../../skills/skill-events";
+import { createLessonRequestOperations, createLessonRequests } from "../../coach/lesson-requests";
+import type { LessonRequestDelivery } from "../../coach/lesson-requests";
+import { bookingPostRateLimit } from "../../coach/booking-rate-limit";
+import type { CoachBookingServices } from "../../coach/booking-pages";
 
 // The client/styles surface every route composes onto. Domain routes are
 // registered by their own modules below — each owns its schema, migration, and
@@ -149,6 +153,7 @@ export interface ApplicationOptions {
   readonly emailSignIn?: EmailSignInDelivery;
   readonly dialect?: Dialect;
   readonly lessons?: LessonOptions;
+  readonly lessonRequestDelivery?: LessonRequestDelivery;
 }
 export const applicationMigrations = [
   createIdentity,
@@ -167,6 +172,7 @@ export const applicationMigrations = [
   createSkillEvents,
   createEmailSignInSchema,
   addOutboxQueuedBy,
+  createLessonRequests,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 function registerLessonSurface(app: Lesto, options: ApplicationOptions): Lesto {
@@ -200,6 +206,16 @@ export function createApplication(options: ApplicationOptions) {
               JSON.stringify({ level: "error", event: "invitation.scheduling_failed" }),
             ),
         });
+  const lessonRequests = createLessonRequestOperations({
+    sql: options.sql,
+    ...(options.dialect === undefined ? {} : { dialect: options.dialect }),
+    clock: options.clock,
+    ...(options.lessonRequestDelivery === undefined
+      ? {}
+      : { delivery: options.lessonRequestDelivery }),
+    onSchedulingError: () =>
+      console.error(JSON.stringify({ level: "error", event: "lesson_request.scheduling_failed" })),
+  });
   const domainApp = buildApp(
     options.db,
     options.sessions,
@@ -249,5 +265,13 @@ export function createApplication(options: ApplicationOptions) {
     config,
     services: { db: options.db, sessions: options.sessions, clock: options.clock },
     outbox,
+    lessonRequests,
+    coachBooking: {
+      requests: lessonRequests,
+      postLimit: bookingPostRateLimit({
+        sql: options.sql,
+        ...(options.dialect === undefined ? {} : { dialect: options.dialect }),
+      }),
+    } satisfies CoachBookingServices,
   };
 }

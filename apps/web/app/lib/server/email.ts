@@ -10,6 +10,8 @@ export interface EmailMessage {
   readonly to: string;
   readonly subject: string;
   readonly text: string;
+  /** The provider's Reply-To header. */
+  readonly replyTo?: string;
   /** Forwarded to the provider so a retried send never delivers twice. */
   readonly idempotencyKey: string;
 }
