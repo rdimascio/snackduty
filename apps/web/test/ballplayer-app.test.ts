@@ -17,6 +17,7 @@ import {
   SNACKDAY_CONTENT_SECURITY_POLICY,
 } from "../app/server/content-security-policy";
 import { ballplayerHome } from "../app/ballplayer/home-page";
+import { coachHome } from "../app/coach/home-page";
 import { routeBrands, secureBrands } from "../app/server/brand-routing";
 import { playerIdFor } from "../app/skills/skill-events";
 import { registerRuntimePages } from "../runtime/web-surface";
@@ -48,7 +49,7 @@ const routed = registerDevSkillEventRoutes(config.app, {
   sessions: services.sessions,
   clock,
 });
-const branded = routeBrands(routed, { home: ballplayerHome });
+const branded = routeBrands(routed, { ballplayerHome, coachHome });
 await registerRuntimePages(branded);
 const app: App = await createApp({ ...config, app: secureBrands(branded) });
 

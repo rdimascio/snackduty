@@ -1,6 +1,43 @@
 import { describe, expect, it } from "vitest";
 
-import { BALLPLAYER_DEV_HOST, brandForHost, brandOfRequest, hostName } from "../app/brand/brand";
+import {
+  BALLPLAYER_DEV_HOST,
+  COACH_DEV_HOST,
+  brandForHost,
+  brandOfRequest,
+  hostName,
+} from "../app/brand/brand";
+
+describe("brandForHost for the coach brand", () => {
+  it.each([
+    "dimasciobaseball.com",
+    "www.dimasciobaseball.com",
+    COACH_DEV_HOST,
+    "DiMascioBaseball.COM",
+    "dimasciobaseball.com:443",
+    "coach.localhost:3000",
+    "dimasciobaseball.com.",
+    " www.dimasciobaseball.com ",
+  ])("maps %j to the coach brand", (host) => {
+    expect(brandForHost(host)).toBe("coach");
+  });
+
+  it.each([
+    "learn.dimasciobaseball.com",
+    "media.dimasciobaseball.com",
+    "dimasciobaseball.com.evil.test",
+    "evil-dimasciobaseball.com",
+    "dimasciobaseball.co",
+    "coach.localhost.evil.test",
+  ])("maps %j to Snackday", (host) => {
+    expect(brandForHost(host)).toBe("snackday");
+  });
+
+  it("reads only the host request header", () => {
+    expect(brandOfRequest({ host: "dimasciobaseball.com" })).toBe("coach");
+    expect(brandOfRequest({ "x-forwarded-host": "dimasciobaseball.com" })).toBe("snackday");
+  });
+});
 
 describe("brandForHost", () => {
   it.each([

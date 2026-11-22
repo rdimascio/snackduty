@@ -187,7 +187,9 @@
 }
 
 :root:has([data-brand="ballplayer"]),
-[data-brand="ballplayer"] {
+[data-brand="ballplayer"],
+:root:has([data-brand="coach"]),
+[data-brand="coach"] {
   --background: oklch(0.15 0.012 255);
   --foreground: oklch(0.97 0.005 85);
   --muted: oklch(0.72 0.015 255);
