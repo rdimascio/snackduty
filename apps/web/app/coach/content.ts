@@ -7,6 +7,12 @@ export const COACH_BOOK_RETRY_PATH = "/__coach/book-retry";
 
 export const coachTitle = "DiMascio Baseball";
 
+export const PLAYER_AGE_MIN = 5;
+
+export const PLAYER_AGE_MAX = 14;
+
+export const playerAgeRange = `${PLAYER_AGE_MIN} to ${PLAYER_AGE_MAX}`;
+
 export const LESSON_TYPE_IDS = ["private", "small-group", "team-clinic"] as const;
 
 export type LessonTypeId = (typeof LESSON_TYPE_IDS)[number];

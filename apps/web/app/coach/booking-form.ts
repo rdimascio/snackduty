@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { LESSON_TYPE_IDS } from "./content";
+import { LESSON_TYPE_IDS, PLAYER_AGE_MAX, PLAYER_AGE_MIN, playerAgeRange } from "./content";
 
 export const BOOKING_FIELDS = [
   "parentName",
@@ -21,10 +21,6 @@ export type BookingErrors = Readonly<Partial<Record<BookingField, string>>>;
 
 /** A real visitor never sees this field, so any value in it marks the post as automated. */
 export const HONEYPOT_FIELD = "website";
-
-export const PLAYER_AGE_MIN = 4;
-
-export const PLAYER_AGE_MAX = 18;
 
 export const BOOKING_FIELD_MAX_LENGTH: Readonly<Record<BookingField, number>> = {
   parentName: 80,
@@ -57,7 +53,7 @@ function optionalText(field: BookingField) {
     .transform((value) => (value === "" ? null : value));
 }
 
-const AGE_MESSAGE = `Enter an age from ${PLAYER_AGE_MIN} to ${PLAYER_AGE_MAX}.`;
+const AGE_MESSAGE = `Enter an age from ${playerAgeRange}.`;
 
 export const lessonRequestSchema = z.object({
   parentName: requiredText("parentName", "Enter your name."),

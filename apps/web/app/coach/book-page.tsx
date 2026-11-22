@@ -6,8 +6,6 @@ import {
   BOOKING_FIELD_MAX_LENGTH,
   EMPTY_BOOKING_VALUES,
   HONEYPOT_FIELD,
-  PLAYER_AGE_MAX,
-  PLAYER_AGE_MIN,
   readBookingForm,
 } from "./booking-form";
 import type { BookingErrors, BookingField } from "./booking-form";
@@ -18,6 +16,9 @@ import {
   COACH_BOOK_SENT_PATH,
   coachTitle,
   lessonTypes,
+  PLAYER_AGE_MAX,
+  PLAYER_AGE_MIN,
+  playerAgeRange,
 } from "./content";
 
 const UNPROCESSABLE_CONTENT = 422;
@@ -226,7 +227,7 @@ function BookPage(form: BookFormData): ReactNode {
         <TextField
           field="playerAge"
           form={form}
-          hint={`Ages ${PLAYER_AGE_MIN} to ${PLAYER_AGE_MAX}.`}
+          hint={`Ages ${playerAgeRange}.`}
           label="Player age"
           type="number"
         />

@@ -7,8 +7,14 @@ import type { App } from "@lesto/kernel";
 import type { AnyLestoResponse, HandleOptions } from "@lesto/web";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { BOOKING_FIELDS, HONEYPOT_FIELD } from "../app/coach/booking-form";
-import { COACH_BOOK_PATH, COACH_BOOK_SENT_PATH, lessonTypes } from "../app/coach/content";
+import { BOOKING_FIELDS, HONEYPOT_FIELD, readBookingForm } from "../app/coach/booking-form";
+import {
+  COACH_BOOK_PATH,
+  COACH_BOOK_SENT_PATH,
+  lessonTypes,
+  PLAYER_AGE_MAX,
+  PLAYER_AGE_MIN,
+} from "../app/coach/content";
 import { LESSON_REQUEST_EMAIL_SUBJECT } from "../app/coach/lesson-requests";
 import { recordingEmailTransport } from "../app/lib/server/email";
 import type { EmailTransport, RecordingEmailTransport } from "../app/lib/server/email";
@@ -190,6 +196,7 @@ describe("the lesson request form on the coach host", () => {
     expect(home).toContain(`href="${COACH_BOOK_PATH}"`);
     expect(home).toContain("Request a lesson");
     expect(home).not.toContain("Booking opens soon");
+    expect(home).toContain(`Ages ${PLAYER_AGE_MIN} to ${PLAYER_AGE_MAX}.`);
   });
 
   it("renders the form with the coach policy and no script or inline style", async () => {
@@ -211,6 +218,9 @@ describe("the lesson request form on the coach host", () => {
       expect(html).toContain(`value="${lesson.id}"`);
     }
     expect(html).toContain(`name="${HONEYPOT_FIELD}"`);
+    expect(html).toContain(`min="${PLAYER_AGE_MIN}"`);
+    expect(html).toContain(`max="${PLAYER_AGE_MAX}"`);
+    expect(html).toContain(`Ages ${PLAYER_AGE_MIN} to ${PLAYER_AGE_MAX}.`);
     expect(html).not.toContain("<script");
     expect(html).not.toContain("/client.js");
     expect(hasInlineScript(html)).toBe(false);
@@ -293,7 +303,7 @@ describe("the lesson request form on the coach host", () => {
     expect(html).toContain("Visit evil.example/login now</textarea>");
     expect(html).toContain("Enter your name.");
     expect(html).toContain("Enter an email address like name@example.com.");
-    expect(html).toContain("Enter an age from 4 to 18.");
+    expect(html).toContain(`Enter an age from ${PLAYER_AGE_MIN} to ${PLAYER_AGE_MAX}.`);
     expect(html).toContain("Choose a lesson type.");
     expect(html.match(/id="parentEmail-error"/gu)).toHaveLength(1);
     expect(html).toContain('aria-invalid="true"');
@@ -369,6 +379,23 @@ describe("the lesson request form on the coach host", () => {
       expect(policyOf(response)).toBe(policy);
     }
     expect(await countRows(runtime(), "lesson_requests")).toBe(before);
+  });
+});
+
+describe("the player age range", () => {
+  function ageAccepted(age: number): boolean {
+    return readBookingForm(formBody({ ...VALID_FORM, playerAge: String(age) })).kind === "valid";
+  }
+
+  it("is 5 to 14", () => {
+    expect([PLAYER_AGE_MIN, PLAYER_AGE_MAX]).toEqual([5, 14]);
+  });
+
+  it("accepts both ends and refuses the ages just outside", () => {
+    expect(ageAccepted(PLAYER_AGE_MIN)).toBe(true);
+    expect(ageAccepted(PLAYER_AGE_MAX)).toBe(true);
+    expect(ageAccepted(PLAYER_AGE_MIN - 1)).toBe(false);
+    expect(ageAccepted(PLAYER_AGE_MAX + 1)).toBe(false);
   });
 });
 

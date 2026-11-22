@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import type { PageDef } from "@lesto/web";
 
-import { COACH_BOOK_PATH, coachTitle, lessonTypes } from "./content";
+import { COACH_BOOK_PATH, coachTitle, lessonTypes, playerAgeRange } from "./content";
 
 export { coachTitle, lessonTypes } from "./content";
 
@@ -19,7 +19,7 @@ function Intro(): ReactNode {
       </h1>
       <p className="mt-6 max-w-xl text-xl text-muted sm:text-2xl">{coachTagline}</p>
       <p className="mt-4 max-w-xl text-base text-muted">
-        Ages 5 to 14. Lessons at a park or field near you.
+        {`Ages ${playerAgeRange}. Lessons at a park or field near you.`}
       </p>
       <a
         className="mt-8 inline-flex min-h-11 items-center justify-center rounded-lg bg-clay px-6 py-2 text-sm font-bold tracking-[0.2em] text-ink uppercase transition-colors hover:bg-clay/90"
