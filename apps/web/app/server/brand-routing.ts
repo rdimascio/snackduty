@@ -140,7 +140,9 @@ function coachSite(home: PageDef<"/">, booking: CoachBooking | undefined): Lesto
     .page(COACH_BOOK_PATH, booking.pages.book)
     .page(COACH_BOOK_SENT_PATH, booking.pages.bookSent)
     .page(COACH_BOOK_RETRY_PATH, booking.pages.bookRetry)
-    .post(COACH_BOOK_PATH, (c) => submitLessonRequest(c, site, booking.requests));
+    .post(COACH_BOOK_PATH, booking.postLimit, (c) =>
+      submitLessonRequest(c, site, booking.requests),
+    );
 }
 
 export function withBrandSecurity(handle: RequestHandle): RequestHandle {

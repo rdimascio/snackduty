@@ -28,7 +28,7 @@ export default async function applicationConfig() {
     clock: Date.now,
   });
   const audience = env.SNACKDAY_APPLE_CLIENT_ID?.trim();
-  const { config, lessonRequests } = createApplication({
+  const { config, coachBooking } = createApplication({
     sql,
     db,
     sessions,
@@ -63,7 +63,7 @@ export default async function applicationConfig() {
       routeBrands(
         app,
         { ballplayerHome, coachHome },
-        { pages: coachBookingPages, requests: lessonRequests },
+        { ...coachBooking, pages: coachBookingPages },
       ),
     ),
   };

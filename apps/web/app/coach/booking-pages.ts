@@ -1,4 +1,4 @@
-import type { PageDef } from "@lesto/web";
+import type { Handler, PageDef } from "@lesto/web";
 
 import type { BookingErrors, BookingValues } from "./booking-form";
 import type { COACH_BOOK_PATH, COACH_BOOK_RETRY_PATH, COACH_BOOK_SENT_PATH } from "./content";
@@ -19,8 +19,12 @@ export interface CoachBookingPagesModule {
   readonly coachBookingPages: CoachBookingPages;
 }
 
-/** What the coach host needs to take lesson requests; without it the booking paths are a 404. */
-export interface CoachBooking {
-  readonly pages: CoachBookingPages;
+export interface CoachBookingServices {
   readonly requests: LessonRequestOperations;
+  readonly postLimit: Handler;
+}
+
+/** What the coach host needs to take lesson requests; without it the booking paths are a 404. */
+export interface CoachBooking extends CoachBookingServices {
+  readonly pages: CoachBookingPages;
 }

@@ -4,10 +4,12 @@ import { join } from "node:path";
 
 import { createApp } from "@lesto/kernel";
 import type { App } from "@lesto/kernel";
+import { runWithContext } from "@lesto/web";
 import type { AnyLestoResponse, HandleOptions } from "@lesto/web";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { BOOKING_FIELDS, HONEYPOT_FIELD, readBookingForm } from "../app/coach/booking-form";
+import { BOOKING_POSTS_PER_WINDOW, BOOKING_WINDOW_MS } from "../app/coach/booking-rate-limit";
 import {
   COACH_BOOK_PATH,
   COACH_BOOK_SENT_PATH,
@@ -162,8 +164,22 @@ async function expectNothingStored(runtime: RuntimeApplication): Promise<void> {
   expect(await countRows(runtime, "lesto_jobs")).toBe(0);
 }
 
-function submit(app: App, fields: Readonly<Record<string, string>>, fetchSite?: string) {
-  return app.handle("POST", COACH_BOOK_PATH, postOptions(COACH_HOST, formBody(fields), fetchSite));
+let nextClient = 0;
+
+function freshClientIp(): string {
+  nextClient += 1;
+  return `198.51.100.${nextClient}`;
+}
+
+function submit(
+  app: App,
+  fields: Readonly<Record<string, string>>,
+  fetchSite?: string,
+  ip = freshClientIp(),
+) {
+  return runWithContext({ requestId: `request-${ip}`, ip }, () =>
+    app.handle("POST", COACH_BOOK_PATH, postOptions(COACH_HOST, formBody(fields), fetchSite)),
+  );
 }
 
 describe("the lesson request form on the coach host", () => {
@@ -380,6 +396,52 @@ describe("the lesson request form on the coach host", () => {
       expect(policyOf(response)).toBe(policy);
     }
     expect(await countRows(runtime(), "lesson_requests")).toBe(before);
+  });
+});
+
+describe("the booking post rate limit", () => {
+  it("is 5 posts per client per 10 minutes", () => {
+    expect([BOOKING_POSTS_PER_WINDOW, BOOKING_WINDOW_MS]).toEqual([5, 600_000]);
+  });
+
+  it("answers 429 with the coach policy past the limit, stores nothing, and spares other clients", async () => {
+    const { runtime } = await openRuntime({ coachRequestTo: COACH_EMAIL });
+    const client = "203.0.113.7";
+    try {
+      const allowed = [];
+      for (let post = 0; post < BOOKING_POSTS_PER_WINDOW; post += 1) {
+        allowed.push(await submit(runtime.app, VALID_FORM, "same-origin", client));
+      }
+      expect(allowed.map((response) => response.status)).toEqual(
+        Array.from({ length: BOOKING_POSTS_PER_WINDOW }, () => 303),
+      );
+
+      const limited = await submit(runtime.app, VALID_FORM, "same-origin", client);
+      expect(limited.status).toBe(429);
+      expect(policyOf(limited)).toBe(COACH_CONTENT_SECURITY_POLICY);
+      expect(headerNamed(limited, "retry-after")).toBeDefined();
+      expect(await countRows(runtime, "lesson_requests")).toBe(BOOKING_POSTS_PER_WINDOW);
+      expect(await countRows(runtime, "lesson_request_outbox")).toBe(BOOKING_POSTS_PER_WINDOW);
+
+      const invalidAfterLimit = await submit(
+        runtime.app,
+        { ...VALID_FORM, parentEmail: "" },
+        "same-origin",
+        client,
+      );
+      expect(invalidAfterLimit.status).toBe(429);
+
+      const otherClient = await submit(runtime.app, VALID_FORM, "same-origin", "203.0.113.8");
+      expect(otherClient.status).toBe(303);
+      expect(await countRows(runtime, "lesson_requests")).toBe(BOOKING_POSTS_PER_WINDOW + 1);
+
+      const form = await runWithContext({ requestId: "form-read", ip: client }, () =>
+        runtime.app.handle("GET", COACH_BOOK_PATH, { headers: { host: COACH_HOST } }),
+      );
+      expect(form.status).toBe(200);
+    } finally {
+      await runtime.close();
+    }
   });
 });
 

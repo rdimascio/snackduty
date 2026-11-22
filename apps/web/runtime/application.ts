@@ -137,7 +137,7 @@ export async function openRuntimeApplication(
             },
           }),
     });
-    await registerRuntimePages(application.config.app, application.lessonRequests);
+    await registerRuntimePages(application.config.app, application.coachBooking);
     const kernel = await (adapters.createKernelApplication ?? createApp)({
       ...application.config,
       dialect: database.dialect,

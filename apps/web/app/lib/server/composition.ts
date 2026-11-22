@@ -58,6 +58,8 @@ import { registerSkillCardRoutes } from "../../skills/skill-card";
 import { createSkillEvents } from "../../skills/skill-events";
 import { createLessonRequestOperations, createLessonRequests } from "../../coach/lesson-requests";
 import type { LessonRequestDelivery } from "../../coach/lesson-requests";
+import { bookingPostRateLimit } from "../../coach/booking-rate-limit";
+import type { CoachBookingServices } from "../../coach/booking-pages";
 
 // The client/styles surface every route composes onto. Domain routes are
 // registered by their own modules below — each owns its schema, migration, and
@@ -264,5 +266,12 @@ export function createApplication(options: ApplicationOptions) {
     services: { db: options.db, sessions: options.sessions, clock: options.clock },
     outbox,
     lessonRequests,
+    coachBooking: {
+      requests: lessonRequests,
+      postLimit: bookingPostRateLimit({
+        sql: options.sql,
+        ...(options.dialect === undefined ? {} : { dialect: options.dialect }),
+      }),
+    } satisfies CoachBookingServices,
   };
 }

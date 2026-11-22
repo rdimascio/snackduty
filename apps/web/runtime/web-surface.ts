@@ -7,8 +7,7 @@ import { contentTypeOf, nodeStaticReader, staticCacheControl } from "@lesto/runt
 import { applyFileRoutes, loadFileRoutes } from "@lesto/web";
 import type { Lesto, PageDef } from "@lesto/web";
 
-import type { CoachBookingPagesModule } from "../app/coach/booking-pages";
-import type { LessonRequestOperations } from "../app/coach/lesson-requests";
+import type { CoachBookingPagesModule, CoachBookingServices } from "../app/coach/booking-pages";
 
 import { routeBrands, withBrandSecurity } from "../app/server/brand-routing";
 
@@ -25,7 +24,7 @@ interface CoachHomeModule {
 /** Use the same file-route discovery and layout composition as the Lesto CLI. */
 export async function registerRuntimePages(
   app: Lesto,
-  lessonRequests?: LessonRequestOperations,
+  coachBooking?: CoachBookingServices,
 ): Promise<void> {
   const directory = join(webRoot, "app/routes");
   const files = await scanRoutes(
@@ -54,9 +53,9 @@ export async function registerRuntimePages(
       ballplayerHome: ballplayerHomePage.ballplayerHome,
       coachHome: coachHomePage.coachHome,
     },
-    lessonRequests === undefined
+    coachBooking === undefined
       ? undefined
-      : { pages: coachBookPage.coachBookingPages, requests: lessonRequests },
+      : { ...coachBooking, pages: coachBookPage.coachBookingPages },
   );
 }
 
