@@ -10,6 +10,7 @@ import { aesGcmInvitationPayloadCipher } from "./app/lib/server/invitation-outbo
 import { reelLessonCatalog } from "./app/lessons/catalog";
 import { routeBrands, secureBrands } from "./app/server/brand-routing";
 import { ballplayerHome } from "./app/ballplayer/home-page";
+import { coachHome } from "./app/coach/home-page";
 import { registerDevSkillEventRoutes } from "./app/dev/skill-events";
 import { registerDevSignIn } from "./app/dev/sign-in";
 
@@ -55,5 +56,5 @@ export default async function applicationConfig() {
     }),
     { enabled: env.SNACKDAY_DEV_SIGN_IN, db, sessions },
   );
-  return { ...config, app: secureBrands(routeBrands(app, { home: ballplayerHome })) };
+  return { ...config, app: secureBrands(routeBrands(app, { ballplayerHome, coachHome })) };
 }

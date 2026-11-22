@@ -15,6 +15,10 @@ interface BallplayerHomeModule {
   readonly ballplayerHome: PageDef<"/">;
 }
 
+interface CoachHomeModule {
+  readonly coachHome: PageDef<"/">;
+}
+
 /** Use the same file-route discovery and layout composition as the Lesto CLI. */
 export async function registerRuntimePages(app: Lesto): Promise<void> {
   const directory = join(webRoot, "app/routes");
@@ -34,7 +38,11 @@ export async function registerRuntimePages(app: Lesto): Promise<void> {
   const ballplayerHomePage: BallplayerHomeModule = await import(
     join(webRoot, "app/ballplayer/home-page.tsx")
   );
-  routeBrands(app, { home: ballplayerHomePage.ballplayerHome });
+  const coachHomePage: CoachHomeModule = await import(join(webRoot, "app/coach/home-page.tsx"));
+  routeBrands(app, {
+    ballplayerHome: ballplayerHomePage.ballplayerHome,
+    coachHome: coachHomePage.coachHome,
+  });
 }
 
 /** Only the two public build outputs are exposed; database/source files never are. */

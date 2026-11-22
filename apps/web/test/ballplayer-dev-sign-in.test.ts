@@ -5,6 +5,7 @@ import type { AnyLestoResponse } from "@lesto/web";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ballplayerHome } from "../app/ballplayer/home-page";
+import { coachHome } from "../app/coach/home-page";
 import { applySeed } from "../app/dev/seed-database";
 import { SEED_CHILDREN, seedPersona } from "../app/dev/seed-personas";
 import { registerDevSignIn } from "../app/dev/sign-in";
@@ -36,7 +37,7 @@ const signedIn = registerDevSignIn(config.app, {
   db: services.db,
   sessions: services.sessions,
 });
-const branded = routeBrands(signedIn, { home: ballplayerHome });
+const branded = routeBrands(signedIn, { ballplayerHome, coachHome });
 await registerRuntimePages(branded);
 const app: App = await createApp({ ...config, app: secureBrands(branded) });
 await applySeed(opened.db);

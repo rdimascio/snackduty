@@ -45,16 +45,22 @@ function withExtraSources(
 
 export const BALLPLAYER_CONTENT_SECURITY_POLICY = serializePolicy(STRICT_DIRECTIVES);
 
+export const COACH_CONTENT_SECURITY_POLICY = serializePolicy(STRICT_DIRECTIVES);
+
 export const SNACKDAY_CONTENT_SECURITY_POLICY = serializePolicy(
   withExtraSources(STRICT_DIRECTIVES, SNACKDAY_EXTRA_SOURCES),
 );
 
 export const CONTENT_SECURITY_POLICY_HEADER = "content-security-policy";
 
+const POLICY_BY_BRAND: Readonly<Record<Brand, string>> = {
+  ballplayer: BALLPLAYER_CONTENT_SECURITY_POLICY,
+  coach: COACH_CONTENT_SECURITY_POLICY,
+  snackday: SNACKDAY_CONTENT_SECURITY_POLICY,
+};
+
 export function contentSecurityPolicyFor(brand: Brand): string {
-  return brand === "ballplayer"
-    ? BALLPLAYER_CONTENT_SECURITY_POLICY
-    : SNACKDAY_CONTENT_SECURITY_POLICY;
+  return POLICY_BY_BRAND[brand];
 }
 
 export function withContentSecurityPolicy<R extends { readonly headers: HeaderMap }>(

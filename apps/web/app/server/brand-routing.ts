@@ -15,11 +15,14 @@ export type RequestHandle = (
   options?: HandleOptions,
 ) => Promise<LestoResponse>;
 
-export interface BallplayerPages {
-  readonly home: PageDef<"/">;
+export interface BrandPages {
+  readonly ballplayerHome: PageDef<"/">;
+  readonly coachHome: PageDef<"/">;
 }
 
 const BALLPLAYER_PAGE_PATHS: ReadonlySet<string> = new Set(["/"]);
+
+const COACH_PAGE_PATHS: ReadonlySet<string> = new Set(["/"]);
 
 const FONT_PATH_PREFIX = "/fonts/";
 
@@ -27,9 +30,9 @@ const BALLPLAYER_APP_PATH = "/app";
 
 const BALLPLAYER_INTERNAL_PREFIX = "/__ballplayer/";
 
-const BALLPLAYER_PLATFORM_PATHS: ReadonlySet<string> = new Set(["/styles.css", "/client.js"]);
+const PLATFORM_PATHS: ReadonlySet<string> = new Set(["/styles.css", "/client.js"]);
 
-const BALLPLAYER_PLATFORM_PREFIXES: readonly string[] = ["/api/", "/__lesto/"];
+const PLATFORM_PREFIXES: readonly string[] = ["/api/", "/__lesto/"];
 
 const READ_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
 
@@ -59,6 +62,13 @@ function isBallplayerRoute(method: string, path: string): boolean {
   );
 }
 
+function isCoachRoute(method: string, path: string): boolean {
+  return (
+    READ_METHODS.has(method.toUpperCase()) &&
+    (COACH_PAGE_PATHS.has(path) || path.startsWith(FONT_PATH_PREFIX))
+  );
+}
+
 function isBallplayerAppRoute(method: string, path: string): boolean {
   return READ_METHODS.has(method.toUpperCase()) && path === BALLPLAYER_APP_PATH;
 }
@@ -67,17 +77,14 @@ function isBallplayerInternalPath(path: string): boolean {
   return path.startsWith(BALLPLAYER_INTERNAL_PREFIX);
 }
 
-function isBallplayerPlatformPath(path: string): boolean {
-  return (
-    BALLPLAYER_PLATFORM_PATHS.has(path) ||
-    BALLPLAYER_PLATFORM_PREFIXES.some((prefix) => path.startsWith(prefix))
-  );
+function isPlatformPath(path: string): boolean {
+  return PLATFORM_PATHS.has(path) || PLATFORM_PREFIXES.some((prefix) => path.startsWith(prefix));
 }
 
-function ballplayerSite(pages: BallplayerPages): Lesto {
+function brandSite(home: PageDef<"/">): Lesto {
   return lesto()
     .styles("/styles.css")
-    .page("/", pages.home)
+    .page("/", home)
     .get(FONT_ROUTE, (c) => fontResponse(c.param("file")));
 }
 
@@ -91,16 +98,25 @@ export function withBrandSecurity(handle: RequestHandle): RequestHandle {
   };
 }
 
-export function withBrandRoutes(handle: RequestHandle, pages: BallplayerPages): RequestHandle {
-  const site = ballplayerSite(pages);
+export function withBrandRoutes(handle: RequestHandle, pages: BrandPages): RequestHandle {
+  const ballplayer = brandSite(pages.ballplayerHome);
+  const coach = brandSite(pages.coachHome);
   return async (method, path, options) => {
     if (isBallplayerInternalPath(path)) return notFound;
-    if (brandOfRequest(options?.headers) !== "ballplayer") return handle(method, path, options);
-    if (isBallplayerRoute(method, path)) return site.handle(method.toUpperCase(), path, options);
+    const brand = brandOfRequest(options?.headers);
+    if (brand === "snackday") return handle(method, path, options);
+    if (brand === "coach") {
+      if (isCoachRoute(method, path)) return coach.handle(method.toUpperCase(), path, options);
+      if (isPlatformPath(path)) return handle(method, path, options);
+      return notFound;
+    }
+    if (isBallplayerRoute(method, path)) {
+      return ballplayer.handle(method.toUpperCase(), path, options);
+    }
     if (isBallplayerAppRoute(method, path)) {
       return withPrivateNoStore(await handle(method, BALLPLAYER_APP_PAGE_PATH, options));
     }
-    if (isBallplayerPlatformPath(path)) return handle(method, path, options);
+    if (isPlatformPath(path)) return handle(method, path, options);
     return notFound;
   };
 }
@@ -134,7 +150,7 @@ const ballplayerAppPage: BallplayerAppPage = {
 
 const routedApps = new WeakSet<Lesto>();
 
-export function routeBrands(app: Lesto, pages: BallplayerPages): Lesto {
+export function routeBrands(app: Lesto, pages: BrandPages): Lesto {
   if (routedApps.has(app)) return app;
   routedApps.add(app);
   app.page(BALLPLAYER_APP_PAGE_PATH, ballplayerAppPage);
