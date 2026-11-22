@@ -170,6 +170,7 @@ export function createLessonRequestOperations(
         to: options.delivery.to,
         subject: LESSON_REQUEST_EMAIL_SUBJECT,
         text: lessonRequestEmailText(request),
+        replyTo: request.parentEmail,
         idempotencyKey: outbox.deliveryKey,
       });
     } catch (error) {

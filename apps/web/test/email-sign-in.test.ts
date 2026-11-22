@@ -115,6 +115,7 @@ describe("email-link sign-in", () => {
     expect(transport.messages).toHaveLength(1);
     expect(transport.messages[0]?.to).toBe("coach@example.test");
     expect(transport.messages[0]?.subject).toBe("Your Snackday sign-in link");
+    expect(transport.messages[0]?.replyTo).toBeUndefined();
     const session = await runtime.app.handle("GET", "/api/session", { headers: { cookie } });
     expect(session.status).toBe(200);
     expect(JSON.parse(session.body)).toMatchObject({ person: { displayName: "Casey Coach" } });

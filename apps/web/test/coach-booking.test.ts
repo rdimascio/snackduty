@@ -267,6 +267,7 @@ describe("the lesson request form on the coach host", () => {
     expect(transport.messages).toHaveLength(1);
     const [message] = transport.messages;
     expect(message?.to).toBe(COACH_EMAIL);
+    expect(message?.replyTo).toBe(VALID_FORM.parentEmail);
     expect(message?.subject).toBe(LESSON_REQUEST_EMAIL_SUBJECT);
     expect(message?.text).toContain('Parent: "Pat Parent"');
     expect(message?.text).toContain('Email: "pat.parent@example.test"');

@@ -41,6 +41,7 @@ export function resendEmailTransport(options: ResendEmailOptions): EmailTranspor
             to: [message.to],
             subject: message.subject,
             text: message.text,
+            ...(message.replyTo === undefined ? {} : { reply_to: message.replyTo }),
           }),
         });
       } catch {
