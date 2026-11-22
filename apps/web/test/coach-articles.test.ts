@@ -469,6 +469,7 @@ describe("coach articles in dev (lesto.app.ts)", () => {
 
   beforeAll(async () => {
     process.env["LESTO_DB"] = ":memory:";
+    process.env["SNACKDAY_DEV_SIGN_IN"] = "true";
     const { default: applicationConfig } = await import("../lesto.app");
     const config = await applicationConfig();
     await registerRuntimePages(config.app);
