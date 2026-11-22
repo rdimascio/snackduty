@@ -2,35 +2,13 @@ import type { ReactNode } from "react";
 
 import type { PageDef } from "@lesto/web";
 
-export const coachTitle = "DiMascio Baseball";
+import { COACH_BOOK_PATH, coachTitle, lessonTypes } from "./content";
+
+export { coachTitle, lessonTypes } from "./content";
 
 export const coachTagline = "Private baseball lessons in Orange County.";
 
 export const COACH_LEARN_URL = "https://learn.dimasciobaseball.com/";
-
-interface LessonType {
-  readonly name: string;
-  readonly who: string;
-  readonly detail: string;
-}
-
-export const lessonTypes: readonly LessonType[] = [
-  {
-    name: "Private lesson",
-    who: "One player",
-    detail: "Hitting, throwing, fielding or catching, built around what your player needs next.",
-  },
-  {
-    name: "Small group",
-    who: "Two to four players",
-    detail: "Siblings or teammates train together. Good reps, and a little friendly competition.",
-  },
-  {
-    name: "Team clinic",
-    who: "A whole team",
-    detail: "A practice plan and a run clinic for your rec or travel team, at your field.",
-  },
-];
 
 function Intro(): ReactNode {
   return (
@@ -41,8 +19,14 @@ function Intro(): ReactNode {
       </h1>
       <p className="mt-6 max-w-xl text-xl text-muted sm:text-2xl">{coachTagline}</p>
       <p className="mt-4 max-w-xl text-base text-muted">
-        Ages 5 to 14. Lessons at a park or field near you. Booking opens soon.
+        Ages 5 to 14. Lessons at a park or field near you.
       </p>
+      <a
+        className="mt-8 inline-flex min-h-11 items-center justify-center rounded-lg bg-clay px-6 py-2 text-sm font-bold tracking-[0.2em] text-ink uppercase transition-colors hover:bg-clay/90"
+        href={COACH_BOOK_PATH}
+      >
+        Request a lesson
+      </a>
     </section>
   );
 }
@@ -62,7 +46,7 @@ function CoachHome(): ReactNode {
           </h2>
           <ul className="mt-8 grid gap-6 sm:grid-cols-3">
             {lessonTypes.map((lesson) => (
-              <li className="rounded-lg border border-line p-6" key={lesson.name}>
+              <li className="rounded-lg border border-line p-6" key={lesson.id}>
                 <h3 className="text-lg font-bold">{lesson.name}</h3>
                 <p className="mt-1 text-sm text-clay">{lesson.who}</p>
                 <p className="mt-4 text-sm text-muted">{lesson.detail}</p>

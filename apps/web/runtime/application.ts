@@ -17,6 +17,7 @@ import type { InviteDeliverer } from "../app/lib/server/invite-delivery";
 import { verifiedRecipientEmails } from "../app/lib/server/authentication";
 import type { EmailTransport } from "../app/lib/server/email";
 import { emailInviteDeliverer } from "../app/lib/server/invite-email";
+import type { LessonRequestOperations } from "../app/coach/lesson-requests";
 import type { RuntimeConfiguration } from "./config";
 import { openRuntimeDatabase } from "./database";
 import type { RuntimeDatabase, RuntimeDatabaseTarget } from "./database";
@@ -42,6 +43,7 @@ export interface RuntimeApplication {
   readonly sessions: Sessions;
   readonly migrationsApplied: readonly string[];
   readonly outbox: InvitationOutbox | undefined;
+  readonly lessonRequests: LessonRequestOperations;
   close(): Promise<void>;
 }
 
@@ -126,8 +128,16 @@ export async function openRuntimeApplication(
       ...(adapters.invitationCipher === undefined
         ? {}
         : { invitationCipher: adapters.invitationCipher }),
+      ...(adapters.emailTransport === undefined || configuration.coachRequestTo === undefined
+        ? {}
+        : {
+            lessonRequestDelivery: {
+              transport: adapters.emailTransport,
+              to: configuration.coachRequestTo,
+            },
+          }),
     });
-    await registerRuntimePages(application.config.app);
+    await registerRuntimePages(application.config.app, application.lessonRequests);
     const kernel = await (adapters.createKernelApplication ?? createApp)({
       ...application.config,
       dialect: database.dialect,
@@ -147,6 +157,7 @@ export async function openRuntimeApplication(
       sessions,
       migrationsApplied: kernel.migrationsApplied,
       outbox: application.outbox,
+      lessonRequests: application.lessonRequests,
       close,
     };
   } catch (error) {

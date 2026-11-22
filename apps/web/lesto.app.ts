@@ -11,6 +11,7 @@ import { reelLessonCatalog } from "./app/lessons/catalog";
 import { routeBrands, secureBrands } from "./app/server/brand-routing";
 import { ballplayerHome } from "./app/ballplayer/home-page";
 import { coachHome } from "./app/coach/home-page";
+import { coachBookingPages } from "./app/coach/book-page";
 import { registerDevSkillEventRoutes } from "./app/dev/skill-events";
 import { registerDevSignIn } from "./app/dev/sign-in";
 
@@ -27,7 +28,7 @@ export default async function applicationConfig() {
     clock: Date.now,
   });
   const audience = env.SNACKDAY_APPLE_CLIENT_ID?.trim();
-  const { config } = createApplication({
+  const { config, lessonRequests } = createApplication({
     sql,
     db,
     sessions,
@@ -56,5 +57,14 @@ export default async function applicationConfig() {
     }),
     { enabled: env.SNACKDAY_DEV_SIGN_IN, db, sessions },
   );
-  return { ...config, app: secureBrands(routeBrands(app, { ballplayerHome, coachHome })) };
+  return {
+    ...config,
+    app: secureBrands(
+      routeBrands(
+        app,
+        { ballplayerHome, coachHome },
+        { pages: coachBookingPages, requests: lessonRequests },
+      ),
+    ),
+  };
 }

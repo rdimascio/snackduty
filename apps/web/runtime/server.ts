@@ -51,11 +51,13 @@ export async function startRuntimeServer(
 
   try {
     const worker = await application.outbox?.work();
+    const lessonRequestWorker = await application.lessonRequests.work();
     let resourcesClosed = false;
     closeResources = async () => {
       if (resourcesClosed) return;
       resourcesClosed = true;
       await worker?.stop();
+      await lessonRequestWorker.stop();
       await application.close();
     };
     const server = await serveRuntime(application.app, {

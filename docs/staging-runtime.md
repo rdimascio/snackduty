@@ -35,18 +35,19 @@ The runtime fails closed:
 
 ## Required configuration
 
-| Variable                                         | Example                        | Requirement                                                                     |
-| ------------------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------- |
-| `SNACKDAY_RUNTIME_MODE`                          | `staging`                      | Explicitly `staging` or `production`                                            |
-| `LESTO_DB`                                       | `/data/snackduty/snackduty.db` | Absolute path on the mounted persistent volume                                  |
-| `SNACKDAY_PUBLIC_BASE_URL`                       | `https://staging.example.com`  | Public HTTPS origin, without credentials/query/fragment                         |
-| `SNACKDAY_APPLE_CLIENT_ID`                       | `com.snackday.app`             | Optional exact registered Apple token audience; unset disables Apple sign-in    |
-| `SNACKDAY_EMAIL_FROM`                            | `Snackday <team@mail.example>` | Optional sender on a Resend-verified domain; set together with `RESEND_API_KEY` |
-| `RESEND_API_KEY`                                 | Secret store only              | Optional Resend API key; set together with `SNACKDAY_EMAIL_FROM`                |
-| `SNACKDAY_INVITATION_OUTBOX_KEY`                 | Secret store only              | Canonical base64 32-byte encryption key, required when email is configured      |
-| `HOST`                                           | `0.0.0.0`                      | Optional; defaults to `0.0.0.0`                                                 |
-| `PORT`                                           | `3000`                         | Optional; defaults to `3000`                                                    |
-| `SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE` | `false`                        | Optional explicit Boolean; defaults to false                                    |
+| Variable                                         | Example                        | Requirement                                                                       |
+| ------------------------------------------------ | ------------------------------ | --------------------------------------------------------------------------------- |
+| `SNACKDAY_RUNTIME_MODE`                          | `staging`                      | Explicitly `staging` or `production`                                              |
+| `LESTO_DB`                                       | `/data/snackduty/snackduty.db` | Absolute path on the mounted persistent volume                                    |
+| `SNACKDAY_PUBLIC_BASE_URL`                       | `https://staging.example.com`  | Public HTTPS origin, without credentials/query/fragment                           |
+| `SNACKDAY_APPLE_CLIENT_ID`                       | `com.snackday.app`             | Optional exact registered Apple token audience; unset disables Apple sign-in      |
+| `SNACKDAY_EMAIL_FROM`                            | `Snackday <team@mail.example>` | Optional sender on a Resend-verified domain; set together with `RESEND_API_KEY`   |
+| `RESEND_API_KEY`                                 | Secret store only              | Optional Resend API key; set together with `SNACKDAY_EMAIL_FROM`                  |
+| `SNACKDAY_INVITATION_OUTBOX_KEY`                 | Secret store only              | Canonical base64 32-byte encryption key, required when email is configured        |
+| `SNACKDAY_COACH_REQUEST_TO`                      | `coach@example.com`            | Optional; one address for coach lesson request emails; unset stores requests only |
+| `HOST`                                           | `0.0.0.0`                      | Optional; defaults to `0.0.0.0`                                                   |
+| `PORT`                                           | `3000`                         | Optional; defaults to `3000`                                                      |
+| `SNACKDAY_UPSTREAM_CREDENTIAL_PATH_LOGGING_SAFE` | `false`                        | Optional explicit Boolean; defaults to false                                      |
 
 `bun run runtime:serve` starts this runtime; runtime sources are included in the
 web TypeScript project. The configured Apple audience creates the real Apple JWKS
