@@ -7,6 +7,8 @@ import { contentTypeOf, nodeStaticReader, staticCacheControl } from "@lesto/runt
 import { applyFileRoutes, loadFileRoutes } from "@lesto/web";
 import type { Lesto, PageDef } from "@lesto/web";
 
+import { loadCoachArticles } from "../app/coach/articles";
+import type { ArticleVisibility, CoachArticlePagesModule } from "../app/coach/articles";
 import type { CoachBookingPagesModule, CoachBookingServices } from "../app/coach/booking-pages";
 
 import { routeBrands, withBrandSecurity } from "../app/server/brand-routing";
@@ -16,6 +18,8 @@ const webRoot = fileURLToPath(new URL("../", import.meta.url));
 interface BallplayerHomeModule {
   readonly ballplayerHome: PageDef<"/">;
 }
+
+const REMOTE_ARTICLE_VISIBILITY: ArticleVisibility = "published-only";
 
 interface CoachHomeModule {
   readonly coachHome: PageDef<"/">;
@@ -47,11 +51,19 @@ export async function registerRuntimePages(
   const coachBookPage: CoachBookingPagesModule = await import(
     join(webRoot, "app/coach/book-page.tsx")
   );
+  const coachArticlePage: CoachArticlePagesModule = await import(
+    join(webRoot, "app/coach/article-pages.tsx")
+  );
+  const articleLibrary = loadCoachArticles(REMOTE_ARTICLE_VISIBILITY);
   routeBrands(
     app,
     {
       ballplayerHome: ballplayerHomePage.ballplayerHome,
       coachHome: coachHomePage.coachHome,
+      coachArticles: {
+        library: articleLibrary,
+        pages: coachArticlePage.coachArticlePages(articleLibrary),
+      },
     },
     coachBooking === undefined
       ? undefined

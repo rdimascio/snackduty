@@ -9,13 +9,14 @@ import type { AnyLestoResponse, HandleOptions } from "@lesto/web";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { BOOKING_FIELDS, HONEYPOT_FIELD, readBookingForm } from "../app/coach/booking-form";
-import { BOOKING_POSTS_PER_WINDOW, BOOKING_WINDOW_MS } from "../app/coach/booking-rate-limit";
+import { BOOKING_BURST_POSTS, BOOKING_REFILL_MS_PER_POST } from "../app/coach/booking-rate-limit";
 import {
   COACH_BOOK_PATH,
   COACH_BOOK_SENT_PATH,
   lessonTypes,
   PLAYER_AGE_MAX,
   PLAYER_AGE_MIN,
+  COACH_ORIGIN,
 } from "../app/coach/content";
 import { LESSON_REQUEST_EMAIL_SUBJECT } from "../app/coach/lesson-requests";
 import { recordingEmailTransport } from "../app/lib/server/email";
@@ -241,7 +242,8 @@ describe("the lesson request form on the coach host", () => {
     expect(html).not.toContain("/client.js");
     expect(hasInlineScript(html)).toBe(false);
     expect(hasInlineStyle(html)).toBe(false);
-    expect(findThirdPartyRisks(html, "markup")).toEqual([]);
+    expect(findThirdPartyRisks(html, "markup")).toEqual([`${COACH_ORIGIN}${COACH_BOOK_PATH}`]);
+    expect(html).not.toContain("novalidate");
   });
 
   it("stores one request, queues one email and redirects to the sent page", async () => {
@@ -400,8 +402,8 @@ describe("the lesson request form on the coach host", () => {
 });
 
 describe("the booking post rate limit", () => {
-  it("is 5 posts per client per 10 minutes", () => {
-    expect([BOOKING_POSTS_PER_WINDOW, BOOKING_WINDOW_MS]).toEqual([5, 600_000]);
+  it("is a burst of 5 posts per client, then one post every 2 minutes", () => {
+    expect([BOOKING_BURST_POSTS, BOOKING_REFILL_MS_PER_POST]).toEqual([5, 120_000]);
   });
 
   it("answers 429 with the coach policy past the limit, stores nothing, and spares other clients", async () => {
@@ -409,19 +411,19 @@ describe("the booking post rate limit", () => {
     const client = "203.0.113.7";
     try {
       const allowed = [];
-      for (let post = 0; post < BOOKING_POSTS_PER_WINDOW; post += 1) {
+      for (let post = 0; post < BOOKING_BURST_POSTS; post += 1) {
         allowed.push(await submit(runtime.app, VALID_FORM, "same-origin", client));
       }
       expect(allowed.map((response) => response.status)).toEqual(
-        Array.from({ length: BOOKING_POSTS_PER_WINDOW }, () => 303),
+        Array.from({ length: BOOKING_BURST_POSTS }, () => 303),
       );
 
       const limited = await submit(runtime.app, VALID_FORM, "same-origin", client);
       expect(limited.status).toBe(429);
       expect(policyOf(limited)).toBe(COACH_CONTENT_SECURITY_POLICY);
       expect(headerNamed(limited, "retry-after")).toBeDefined();
-      expect(await countRows(runtime, "lesson_requests")).toBe(BOOKING_POSTS_PER_WINDOW);
-      expect(await countRows(runtime, "lesson_request_outbox")).toBe(BOOKING_POSTS_PER_WINDOW);
+      expect(await countRows(runtime, "lesson_requests")).toBe(BOOKING_BURST_POSTS);
+      expect(await countRows(runtime, "lesson_request_outbox")).toBe(BOOKING_BURST_POSTS);
 
       const invalidAfterLimit = await submit(
         runtime.app,
@@ -433,7 +435,7 @@ describe("the booking post rate limit", () => {
 
       const otherClient = await submit(runtime.app, VALID_FORM, "same-origin", "203.0.113.8");
       expect(otherClient.status).toBe(303);
-      expect(await countRows(runtime, "lesson_requests")).toBe(BOOKING_POSTS_PER_WINDOW + 1);
+      expect(await countRows(runtime, "lesson_requests")).toBe(BOOKING_BURST_POSTS + 1);
 
       const form = await runWithContext({ requestId: "form-read", ip: client }, () =>
         runtime.app.handle("GET", COACH_BOOK_PATH, { headers: { host: COACH_HOST } }),

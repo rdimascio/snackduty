@@ -7,6 +7,44 @@ export const COACH_BOOK_RETRY_PATH = "/__coach/book-retry";
 
 export const coachTitle = "DiMascio Baseball";
 
+export const COACH_ORIGIN = "https://dimasciobaseball.com";
+
+export const COACH_LEARN_URL = "https://learn.dimasciobaseball.com/";
+
+export const coachTagline = "Private baseball lessons in Orange County.";
+
+export const COACH_NAME = "Coach Ryan";
+
+export const COACH_AREA_SERVED = "Orange County, CA";
+
+export interface CoachPersonSchema {
+  readonly "@type": "Person";
+  readonly name: string;
+}
+
+export interface CoachBusinessSchema {
+  readonly "@type": "SportsActivityLocation";
+  readonly name: string;
+  readonly url: string;
+  readonly description: string;
+  readonly areaServed: string;
+  readonly founder: CoachPersonSchema;
+  readonly employee: CoachPersonSchema;
+}
+
+export const coachPersonSchema: CoachPersonSchema = { "@type": "Person", name: COACH_NAME };
+
+/** Only facts the site already states; no address, phone, price, rating, hours or geo. */
+export const coachBusinessSchema: CoachBusinessSchema = {
+  "@type": "SportsActivityLocation",
+  name: coachTitle,
+  url: `${COACH_ORIGIN}/`,
+  description: coachTagline,
+  areaServed: COACH_AREA_SERVED,
+  founder: coachPersonSchema,
+  employee: coachPersonSchema,
+};
+
 export const PLAYER_AGE_MIN = 5;
 
 export const PLAYER_AGE_MAX = 14;

@@ -12,6 +12,8 @@ import { routeBrands, secureBrands } from "./app/server/brand-routing";
 import { ballplayerHome } from "./app/ballplayer/home-page";
 import { coachHome } from "./app/coach/home-page";
 import { coachBookingPages } from "./app/coach/book-page";
+import { coachArticlePages } from "./app/coach/article-pages";
+import { articleVisibilityFor, loadCoachArticles } from "./app/coach/articles";
 import { registerDevSkillEventRoutes } from "./app/dev/skill-events";
 import { registerDevSignIn } from "./app/dev/sign-in";
 
@@ -57,12 +59,17 @@ export default async function applicationConfig() {
     }),
     { enabled: env.SNACKDAY_DEV_SIGN_IN, db, sessions },
   );
+  const articleLibrary = loadCoachArticles(articleVisibilityFor(mode));
   return {
     ...config,
     app: secureBrands(
       routeBrands(
         app,
-        { ballplayerHome, coachHome },
+        {
+          ballplayerHome,
+          coachHome,
+          coachArticles: { library: articleLibrary, pages: coachArticlePages(articleLibrary) },
+        },
         { ...coachBooking, pages: coachBookingPages },
       ),
     ),

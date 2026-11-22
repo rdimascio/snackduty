@@ -59,7 +59,11 @@ async function expectCoachHome(response: AnyLestoResponse): Promise<void> {
   expect(html).not.toContain('data-brand="ballplayer"');
   expect(hasInlineStyle(html)).toBe(false);
   expect(hasInlineScript(html)).toBe(false);
-  expect(findThirdPartyRisks(html, "markup")).toEqual([COACH_LEARN_URL]);
+  expect(findThirdPartyRisks(html, "markup").toSorted()).toEqual([
+    "https://dimasciobaseball.com/",
+    COACH_LEARN_URL,
+    "https://schema.org",
+  ]);
 }
 
 async function expectCoachNotFound(response: AnyLestoResponse): Promise<void> {
@@ -138,6 +142,7 @@ describe("the coach brand in dev (lesto.app.ts)", () => {
 
   beforeAll(async () => {
     process.env["LESTO_DB"] = ":memory:";
+    process.env["SNACKDAY_DEV_SIGN_IN"] = "true";
     const { default: applicationConfig } = await import("../lesto.app");
     const config = await applicationConfig();
     await registerRuntimePages(config.app);

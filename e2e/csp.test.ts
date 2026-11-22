@@ -9,6 +9,7 @@ import {
 } from "../apps/web/app/dev/seed-personas";
 import {
   BALLPLAYER_CONTENT_SECURITY_POLICY,
+  COACH_CONTENT_SECURITY_POLICY,
   SNACKDAY_CONTENT_SECURITY_POLICY,
 } from "../apps/web/app/server/content-security-policy";
 import {
@@ -22,6 +23,7 @@ import {
   main,
 } from "./support/pages";
 import { useScenario } from "./support/scenario";
+import type { Brand } from "./support/scenario";
 import { asRole } from "./support/session";
 import type { Role, RoleSession } from "./support/session";
 
@@ -32,6 +34,12 @@ const POSTER_SELECTOR = 'section[aria-label="Lesson of the week"] img';
 const REACT_PROGRESSIVE_CHUNK_SIZE = 12_800;
 const LARGE_ROSTER_SIZE = 60;
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+const BRAND_POLICIES: Readonly<Record<Brand, string>> = {
+  snackday: SNACKDAY_CONTENT_SECURITY_POLICY,
+  ballplayer: BALLPLAYER_CONTENT_SECURITY_POLICY,
+  coach: COACH_CONTENT_SECURITY_POLICY,
+};
+const JSON_LD_SELECTOR = 'script[type="application/ld+json"]';
 
 function largeRosterSql(): string {
   const { teamId, seasonId } = SEED_TEAMS.coached;
@@ -50,7 +58,7 @@ function largeRosterPlayer(index: number): string {
 async function expectPolicy(session: RoleSession, path: string, status = 200): Promise<void> {
   const response = await session.open(path, status);
   expect(`${path}: ${response.headers()["content-security-policy"]}`).toBe(
-    `${path}: ${session.brand === "ballplayer" ? BALLPLAYER_CONTENT_SECURITY_POLICY : SNACKDAY_CONTENT_SECURITY_POLICY}`,
+    `${path}: ${BRAND_POLICIES[session.brand]}`,
   );
   await session.page.waitForLoadState("networkidle");
 }
@@ -135,6 +143,27 @@ describe("csp: public pages", () => {
         await expectHydrated(session.page);
       },
       "ballplayer",
+    );
+  });
+
+  test("the coach home and an article load their JSON-LD under the unchanged coach policy and raise no violation", async () => {
+    await asRole(
+      scenario(),
+      "signed-out",
+      async (session) => {
+        for (const [path, type] of [
+          ["/", "SportsActivityLocation"],
+          ["/articles/what-is-coach-pitch", "Article"],
+        ] as const) {
+          await expectPolicy(session, path);
+          const blocks = await session.page
+            .locator(JSON_LD_SELECTOR)
+            .evaluateAll((scripts) => scripts.map((script) => script.textContent ?? ""));
+          expect(blocks.length).toBe(1);
+          expect((JSON.parse(blocks[0] ?? "") as { "@type": string })["@type"]).toBe(type);
+        }
+      },
+      "coach",
     );
   });
 });

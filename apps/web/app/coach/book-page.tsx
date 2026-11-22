@@ -14,12 +14,14 @@ import {
   COACH_BOOK_PATH,
   COACH_BOOK_RETRY_PATH,
   COACH_BOOK_SENT_PATH,
+  COACH_ORIGIN,
   coachTitle,
   lessonTypes,
   PLAYER_AGE_MAX,
   PLAYER_AGE_MIN,
   playerAgeRange,
 } from "./content";
+import { CoachShell } from "./shell";
 
 const UNPROCESSABLE_CONTENT = 422;
 
@@ -178,19 +180,6 @@ function Honeypot(): ReactNode {
   );
 }
 
-function CoachShell({ children }: { children: ReactNode }): ReactNode {
-  return (
-    <div className="min-h-dvh bg-field text-chalk" data-app-shell data-brand="coach">
-      <main className="mx-auto max-w-2xl px-6 py-20 lg:px-10" id="main-content">
-        <a className="text-sm font-bold tracking-[0.2em] text-clay uppercase" href="/">
-          {coachTitle}
-        </a>
-        {children}
-      </main>
-    </div>
-  );
-}
-
 function BookPage(form: BookFormData): ReactNode {
   const hasErrors = Object.keys(form.errors).length > 0;
   return (
@@ -207,7 +196,7 @@ function BookPage(form: BookFormData): ReactNode {
           Please fix the fields marked below.
         </p>
       ) : null}
-      <form action={COACH_BOOK_PATH} className="mt-10 grid gap-8" method="post" noValidate>
+      <form action={COACH_BOOK_PATH} className="mt-10 grid gap-8" method="post">
         <TextField autoComplete="name" field="parentName" form={form} label="Your name" />
         <TextField
           autoComplete="email"
@@ -275,7 +264,7 @@ function SentPage(): ReactNode {
 const bookMetadata = () => ({
   title: `Request a lesson | ${coachTitle}`,
   description: "Request a private baseball lesson.",
-  links: [{ rel: "canonical", href: COACH_BOOK_PATH }],
+  links: [{ rel: "canonical", href: `${COACH_ORIGIN}${COACH_BOOK_PATH}` }],
 });
 
 export const coachBook: PageDef<typeof COACH_BOOK_PATH, BookFormData> = {
