@@ -5,6 +5,7 @@ import type {
   RequestTracer,
   Server,
   TraceparentParser,
+  TrustProxy,
 } from "@lesto/runtime";
 
 import { logAccessLine, redactingLogRequest } from "../app/lib/server/access-log";
@@ -17,6 +18,15 @@ import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outb
 import { resendEmailTransport } from "./resend-email";
 
 type ServeRuntime = (app: App, options: GracefulShutdownOptions) => Promise<Server>;
+
+/**
+ * Only the load balancer's security group may reach the app port
+ * (`infra/alchemy/alchemy.run.ts`), so the one trusted hop is the load
+ * balancer and the client is the right-most `X-Forwarded-For` entry.
+ * Without it, every client shares the load balancer's address as its
+ * rate-limit key.
+ */
+export const LOAD_BALANCER_TRUST_PROXY: TrustProxy = true;
 
 export interface RuntimeServerAdapters extends RuntimeApplicationAdapters {
   readonly serve?: ServeRuntime;
@@ -61,6 +71,7 @@ export async function startRuntimeServer(
     const server = await serveRuntime(application.app, {
       host: configuration.host,
       port: configuration.port,
+      trustProxy: LOAD_BALANCER_TRUST_PROXY,
       health: { isReady: databaseReady(application) },
       logRequest: redactingLogRequest(logAccessLine),
       onClosed: closeResources,
