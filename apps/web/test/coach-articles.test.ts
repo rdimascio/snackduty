@@ -110,6 +110,8 @@ async function expectCleanCoachPage(response: AnyLestoResponse): Promise<string>
   return html;
 }
 
+const JSON_LD_URLS = ["https://dimasciobaseball.com/", "https://schema.org"];
+
 function absoluteUrlsIn(html: string): string[] {
   return findThirdPartyRisks(html, "markup").toSorted();
 }
@@ -308,7 +310,9 @@ describe("coach article routes with a published and a draft article", () => {
     expect(html).toContain("<h2");
     expect(html).toContain("<li>a</li>");
     expect(html).not.toContain(COACH_LEARN_URL);
-    expect(absoluteUrlsIn(html)).toEqual(["https://dimasciobaseball.com/articles/published-guide"]);
+    expect(absoluteUrlsIn(html)).toEqual(
+      ["https://dimasciobaseball.com/articles/published-guide", ...JSON_LD_URLS].toSorted(),
+    );
   });
 
   it("answers a draft with a plain 404 outside development", async () => {
@@ -334,10 +338,13 @@ describe("coach article routes with a published and a draft article", () => {
     expect(html).not.toContain("<iframe");
     expect(html).not.toContain("<video");
     expect(html).not.toContain("<img");
-    expect(absoluteUrlsIn(html)).toEqual([
-      "https://dimasciobaseball.com/articles/draft-guide",
-      episodeUrl("run-to-first"),
-    ]);
+    expect(absoluteUrlsIn(html)).toEqual(
+      [
+        "https://dimasciobaseball.com/articles/draft-guide",
+        episodeUrl("run-to-first"),
+        ...JSON_LD_URLS,
+      ].toSorted(),
+    );
     expect(await textOf(await get(withDrafts, "/sitemap.xml", DEV_COACH_HOST))).toContain(
       "<loc>https://dimasciobaseball.com/articles/draft-guide</loc>",
     );
@@ -492,7 +499,11 @@ describe("coach articles in dev (lesto.app.ts)", () => {
       expect(html).not.toContain("<video");
       const episodeLinks = article.episode === undefined ? [] : [episodeUrl(article.episode)];
       expect(absoluteUrlsIn(html)).toEqual(
-        [`https://dimasciobaseball.com/articles/${slug}`, ...episodeLinks].toSorted(),
+        [
+          `https://dimasciobaseball.com/articles/${slug}`,
+          ...episodeLinks,
+          ...JSON_LD_URLS,
+        ].toSorted(),
       );
     },
   );

@@ -6,19 +6,21 @@ import { COACH_ARTICLES_PATH } from "./articles";
 import {
   COACH_BOOK_PATH,
   COACH_LEARN_URL,
+  COACH_NAME,
+  coachTagline,
   coachTitle,
   lessonTypes,
   playerAgeRange,
 } from "./content";
+import { JsonLd } from "./json-ld";
+import { coachBusinessJsonLd } from "./structured-data";
 
-export { COACH_LEARN_URL, coachTitle, lessonTypes } from "./content";
-
-export const coachTagline = "Private baseball lessons in Orange County.";
+export { COACH_LEARN_URL, coachTagline, coachTitle, lessonTypes } from "./content";
 
 function Intro(): ReactNode {
   return (
     <section>
-      <p className="text-sm font-bold tracking-[0.2em] text-clay uppercase">Coach Ryan</p>
+      <p className="text-sm font-bold tracking-[0.2em] text-clay uppercase">{COACH_NAME}</p>
       <h1 className="mt-4 font-display text-6xl font-extrabold uppercase leading-[0.9] tracking-tight sm:text-7xl lg:text-8xl">
         {coachTitle}
       </h1>
@@ -39,6 +41,7 @@ function Intro(): ReactNode {
 function CoachHome(): ReactNode {
   return (
     <div className="min-h-dvh bg-field text-chalk" data-app-shell data-brand="coach">
+      <JsonLd value={coachBusinessJsonLd()} />
       <main className="mx-auto max-w-5xl px-6 py-20 lg:px-10" id="main-content">
         <Intro />
 

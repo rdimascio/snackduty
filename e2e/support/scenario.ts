@@ -17,12 +17,18 @@ const SERVER_READY_TIMEOUT_MS = 30_000;
 const DATABASE_BUSY_TIMEOUT_MS = 5_000;
 
 export const BALLPLAYER_HOST = "ballplayer.localhost";
+export const COACH_HOST = "coach.localhost";
 const UNREACHABLE_PROXY = {
   server: "http://127.0.0.1:9",
-  bypass: `127.0.0.1,localhost,[::1],*.localhost,${BALLPLAYER_HOST}`,
+  bypass: `127.0.0.1,localhost,[::1],*.localhost,${BALLPLAYER_HOST},${COACH_HOST}`,
 };
 
-export type Brand = "snackday" | "ballplayer";
+export type Brand = "snackday" | "ballplayer" | "coach";
+
+const BRAND_HOSTS: Readonly<Record<Exclude<Brand, "snackday">, string>> = {
+  ballplayer: BALLPLAYER_HOST,
+  coach: COACH_HOST,
+};
 
 export interface ScenarioOptions {
   readonly extraSql?: string;
@@ -167,9 +173,9 @@ function scenarioHandle(
     databasePath,
     browser,
     origin: (brand = "snackday") =>
-      brand === "ballplayer"
-        ? `http://${BALLPLAYER_HOST}:${server.port}`
-        : `http://127.0.0.1:${server.port}`,
+      brand === "snackday"
+        ? `http://127.0.0.1:${server.port}`
+        : `http://${BRAND_HOSTS[brand]}:${server.port}`,
     query: <T>(sql: string, ...params: (string | number | null)[]) =>
       withDatabase((database) => database.query(sql).all(...params) as T[]),
     execute: (sql) => withDatabase((database) => database.exec(sql)),

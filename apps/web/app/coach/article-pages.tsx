@@ -13,7 +13,9 @@ import type {
 } from "./articles";
 import { COACH_BOOK_PATH, COACH_ORIGIN, coachTitle } from "./content";
 import type { MarkdownBlock, MarkdownInline } from "./markdown";
+import { JsonLd } from "./json-ld";
 import { CoachShell } from "./shell";
+import { coachArticleJsonLd } from "./structured-data";
 
 const articlesTitle = "Guides for parents";
 
@@ -145,6 +147,7 @@ function EpisodeLink({ episode }: { episode: string }): ReactNode {
 function ArticlePage({ article }: ArticleData): ReactNode {
   return (
     <CoachShell>
+      <JsonLd value={coachArticleJsonLd(article)} />
       <article>
         <p className="mt-6 text-sm">
           <a className={linkClass} href={COACH_ARTICLES_PATH}>
