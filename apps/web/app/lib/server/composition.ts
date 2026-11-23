@@ -50,6 +50,7 @@ import {
 import type { InvitationPayloadCipher } from "./invitation-outbox";
 import { registerRosterImportRoutes } from "./roster-import";
 import { createRoster, registerRosterRoutes } from "./roster";
+import { addRosterNameKeys } from "./roster-name-keys";
 import { registerTeamReadRoutes } from "./team-reads";
 import { addSeasonLessonAgeBand, createTeamsAndSeasons, registerTeamRoutes } from "./teams";
 import { createLessonAnswers, lessonServices, registerLessonRoutes } from "../../lessons/lessons";
@@ -173,6 +174,7 @@ export const applicationMigrations = [
   createEmailSignInSchema,
   addOutboxQueuedBy,
   createLessonRequests,
+  addRosterNameKeys,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 function registerLessonSurface(app: Lesto, options: ApplicationOptions): Lesto {

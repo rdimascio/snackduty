@@ -19,6 +19,7 @@ import {
 import { hashBearerToken } from "../app/lib/server/bearer-tokens";
 import { instantFromWallTime, scheduleDates } from "../app/lib/server/event-time";
 import { ensureDevelopmentPersona } from "../app/lib/server/identity";
+import { childIdentityKey } from "../app/lib/server/people-identity";
 import { rateParticipant } from "../app/skills/skill-events";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -108,6 +109,30 @@ describe("the SQL dev seed against the current migrations", () => {
           [child.participantId],
         ),
       ).toEqual([{ display_name: child.displayName }]);
+    }
+  });
+
+  it("stores the roster name keys the app would write for every seeded row", async () => {
+    const db = await seeded();
+    const children = await rows<{ display_name: string; birth_date: string; key: string }>(
+      db,
+      "SELECT people.display_name, participants.birth_date, memberships.child_identity_key AS key FROM memberships JOIN participants ON participants.id = memberships.member_participant_id JOIN people ON people.id = participants.person_id WHERE memberships.member_kind = 'participant'",
+    );
+    expect(children.length).toBeGreaterThan(0);
+    for (const child of children) {
+      expect(child.key).toBe(
+        childIdentityKey({ displayName: child.display_name, birthDate: child.birth_date }),
+      );
+    }
+    const guardians = await rows<{ display_name: string; account_id: string | null; key: string }>(
+      db,
+      "SELECT people.display_name, accounts.id AS account_id, guardian_relationships.guardian_name_key AS key FROM guardian_relationships JOIN people ON people.id = guardian_relationships.guardian_person_id LEFT JOIN accounts ON accounts.person_id = people.id",
+    );
+    expect(guardians.filter((guardian) => guardian.account_id === null)).toEqual([
+      { display_name: "Morgan Placeholder", account_id: null, key: "morgan placeholder" },
+    ]);
+    for (const guardian of guardians.filter((row) => row.account_id !== null)) {
+      expect(guardian.key).toBeNull();
     }
   });
 

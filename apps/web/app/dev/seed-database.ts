@@ -8,6 +8,7 @@ import { Migrator } from "@lesto/migrate";
 import { openSqlite } from "@lesto/runtime";
 
 import { applicationMigrations } from "../lib/server/composition";
+import { backfillRosterNameKeys } from "../lib/server/roster-name-keys";
 
 export const SEED_DIRECTORY = fileURLToPath(new URL("../../../../seed/", import.meta.url));
 
@@ -50,6 +51,7 @@ export async function applySeed(sql: SqlDatabase, options: SeedOptions = {}): Pr
         throw new Error(`seed/${basename(file)}: ${reason}`, { cause: error });
       }
     }
+    await backfillRosterNameKeys(tx);
   });
   return files.map((file) => basename(file));
 }

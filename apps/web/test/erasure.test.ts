@@ -100,6 +100,7 @@ describe("child erasure", () => {
     expect(remaining).not.toContain(avery.participantId);
     expect(remaining).not.toContain(averyPerson);
     expect(remaining).not.toContain("Avery");
+    expect(remaining.toLowerCase()).not.toContain("avery");
     expect(remaining).toContain(blake.participantId);
     expect(remaining).toContain(blake.displayName);
   });
@@ -119,7 +120,7 @@ describe("child erasure", () => {
     );
 
     expect(erased.status).toBe(200);
-    expect(await databaseText()).not.toContain("Grandma Placeholder");
+    expect((await databaseText()).toLowerCase()).not.toContain("grandma placeholder");
   });
 
   it("refuses to erase a child who is on more than one team", async () => {

@@ -603,6 +603,15 @@ describe("roster actions against the real API", () => {
     expect(added).toEqual({ ok: true, message: "Added Morgan Kid." });
     expect(await rosterNames(ownerCookie, teamId, seasonId)).toContain("Morgan Kid");
 
+    expect(
+      await addParticipant(
+        teamId,
+        seasonId,
+        { displayName: "morgan  KID", birthDate: "2019-02-03" },
+        poster(app, ownerCookie),
+      ),
+    ).toEqual({ ok: false, message: "That player is already on this roster." });
+
     const invalid = await addParticipant(
       teamId,
       seasonId,

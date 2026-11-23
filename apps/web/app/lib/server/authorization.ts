@@ -107,7 +107,7 @@ export async function authorizationContext(db: Db, personId: string, target: Aut
       }),
     ),
     roles: [],
-    guardianRelationships: edges.map((edge) =>
+    guardianRelationships: edges.map(({ guardianNameKey: _nameKey, ...edge }) =>
       guardianRelationshipSchema.parse({
         ...edge,
         permissions: JSON.parse(edge.permissions) as unknown,

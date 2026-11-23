@@ -5,9 +5,24 @@
  * manager-reviewed duplicate hint:
  *
  *   1. Roster import, deciding whether a CSV row names a child who is already
- *      on this season's roster (or appears twice in the same file).
+ *      on this season's roster (or appears twice in the same file). The
+ *      single-child add uses the same key and answers 409 on a match.
  *   2. Manual guardian attachment, enforcing the duplicate-active-guardian
  *      invariant (`hasDuplicateActiveGuardian` in roster.ts).
+ *
+ * STORED KEYS: the comparable form is also stored, so the database enforces
+ * both invariants with a partial UNIQUE index (roster-name-keys.ts):
+ * `memberships.child_identity_key` holds `childIdentityKey` per season, and
+ * `guardian_relationships.guardian_name_key` holds `normalizeDisplayName` of a
+ * placeholder guardian per child + relationship. SQLite and Postgres cannot
+ * compute this normalization, and a database without interactive
+ * transactions (Cloudflare D1) cannot run the JS check and the write as one
+ * unit, so the index is what stops a race or a missed write path. The JS checks
+ * stay and decide the user-facing answer; the index is the backstop. Every
+ * write that sets a name, birth date, relationship or link status writes the
+ * key from these helpers, so there is still one definition. A stored key is
+ * still never identity proof: an account-bound guardian link stores no key.
+ *
  * Authentication, invitation acceptance, account linking and guardian authority
  * MUST NOT use these helpers. Those flows require a stable provider subject or
  * an exact owner-confirmed record ID; a name is never identity proof.
@@ -38,8 +53,8 @@
 /**
  * The comparable form of a display name: NFC (so a precomposed "e-acute" and a
  * decomposed one agree), internal whitespace collapsed, trimmed, lower-cased.
- * Never stored — the original casing and spacing the manager typed is what gets
- * written and shown.
+ * Stored only as a roster name key (above); the original casing and spacing the
+ * manager typed is what gets written to `people` and shown.
  */
 export function normalizeDisplayName(displayName: string): string {
   return displayName.normalize("NFC").replaceAll(/\s+/gu, " ").trim().toLowerCase();

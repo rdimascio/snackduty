@@ -20,9 +20,11 @@
  * already processed in this same request, and SKIPS any row that matches. A
  * double-submit therefore finds, on its second pass, that every child it created
  * on the first pass is already rostered — so it creates nothing and answers 200
- * with `created: 0` instead of 201. No second roster, no unique index, no token
- * to expire: the duplicate rule the manager already reviewed in the preview is
- * the same rule that makes a replay a no-op.
+ * with `created: 0` instead of 201. No second roster and no token to expire:
+ * the duplicate rule the manager already reviewed in the preview is the same
+ * rule that makes a replay a no-op. The stored child key and its UNIQUE index
+ * (roster-name-keys.ts) are only the backstop: when a concurrent write wins it,
+ * the commit runs again and this same check gives the verdict.
  *
  * PRIVACY: a CSV cell may hold a child's name or birth date, so no refusal from
  * this module ever quotes one. Every file-level and row-level problem is
@@ -54,6 +56,7 @@ import {
   projectParticipant,
   seasonChildIdentityKeys,
 } from "./roster";
+import { withRosterNameKeyBackstop } from "./roster-name-keys";
 import { manageableActiveTeam, seasons } from "./teams";
 
 /** How many guardian slots one CSV row may carry. */
@@ -63,6 +66,10 @@ export const MAX_IMPORT_ROWS = 200;
 
 const unauthorized = { error: "authentication required" } as const;
 const teamNotFound = { error: "team not found" } as const;
+const rosterChangedDuringImport = {
+  error: "The roster changed during this import. Preview the file again.",
+  code: "roster_changed",
+} as const;
 
 /**
  * One row's committable shape. The child half IS the single-add endpoint's
@@ -512,68 +519,73 @@ async function commitRosterImport(
   }
   const rows = parsedRows.flatMap((parsed) => (parsed.success ? [parsed.data] : []));
 
-  const outcome = await db.transaction(async (tx) => {
-    const target = await manageableSeason(
-      tx,
-      { teamId: c.param("teamId"), seasonId: c.param("seasonId") },
-      identity.person.id,
-    );
-    if (target === undefined) return null;
-
-    // Re-derived INSIDE the transaction, so a replay sees what the first pass
-    // wrote and a concurrent single-add is honored too.
-    const keys = await seasonChildIdentityKeys(tx, target.team.id, target.season.id);
-    const seen = new Set<string>();
-    const now = new Date(clock()).toISOString();
-    const results: CommitRow[] = [];
-
-    for (const [index, row] of rows.entries()) {
-      const key = childIdentityKey(row);
-      if (seen.has(key)) {
-        results.push({ index, outcome: "duplicate_in_payload" });
-        continue;
-      }
-      seen.add(key);
-      if (keys.has(key)) {
-        results.push({ index, outcome: "duplicate_in_roster" });
-        continue;
-      }
-
-      const { row: participantRow, person } = await createRosteredParticipant(
-        tx,
-        { teamId: target.team.id, seasonId: target.season.id },
-        row,
-        now,
-      );
-      keys.add(key);
-
-      const guardians = [];
-      for (const guardian of row.guardians) {
-        // The SAME invariant the single-add path enforces, so a row that names
-        // one guardian twice attaches them once instead of conflicting.
-        if (await hasDuplicateActiveGuardian(tx, participantRow.id, guardian)) continue;
-
-        const attached = await attachGuardianEdge(
+  const outcome = await withRosterNameKeyBackstop(
+    () =>
+      db.transaction(async (tx) => {
+        const target = await manageableSeason(
           tx,
-          participantRow.id,
-          { ...guardian, permissions: DEFAULT_GUARDIAN_PERMISSIONS },
-          now,
+          { teamId: c.param("teamId"), seasonId: c.param("seasonId") },
+          identity.person.id,
         );
-        guardians.push(projectGuardian(attached.edge, attached.person));
-      }
+        if (target === undefined) return null;
 
-      results.push({
-        index,
-        outcome: "created",
-        participant: projectParticipant(participantRow, person),
-        guardians,
-      });
-    }
+        // Re-derived INSIDE the transaction, so a replay sees what the first pass
+        // wrote and a concurrent single-add is honored too.
+        const keys = await seasonChildIdentityKeys(tx, target.team.id, target.season.id);
+        const seen = new Set<string>();
+        const now = new Date(clock()).toISOString();
+        const results: CommitRow[] = [];
 
-    return results;
-  });
+        for (const [index, row] of rows.entries()) {
+          const key = childIdentityKey(row);
+          if (seen.has(key)) {
+            results.push({ index, outcome: "duplicate_in_payload" });
+            continue;
+          }
+          seen.add(key);
+          if (keys.has(key)) {
+            results.push({ index, outcome: "duplicate_in_roster" });
+            continue;
+          }
+
+          const { row: participantRow, person } = await createRosteredParticipant(
+            tx,
+            { teamId: target.team.id, seasonId: target.season.id },
+            row,
+            now,
+          );
+          keys.add(key);
+
+          const guardians = [];
+          for (const guardian of row.guardians) {
+            // The SAME invariant the single-add path enforces, so a row that names
+            // one guardian twice attaches them once instead of conflicting.
+            if (await hasDuplicateActiveGuardian(tx, participantRow.id, guardian)) continue;
+
+            const attached = await attachGuardianEdge(
+              tx,
+              participantRow.id,
+              { ...guardian, permissions: DEFAULT_GUARDIAN_PERMISSIONS },
+              now,
+            );
+            guardians.push(projectGuardian(attached.edge, attached.person));
+          }
+
+          results.push({
+            index,
+            outcome: "created",
+            participant: projectParticipant(participantRow, person),
+            guardians,
+          });
+        }
+
+        return results;
+      }),
+    { retries: 1, conflict: "conflict" as const },
+  );
 
   if (outcome === null) return c.json(teamNotFound, 404);
+  if (outcome === "conflict") return c.json(rosterChangedDuringImport, 409);
 
   const created = outcome.filter((row) => row.outcome === "created").length;
 
