@@ -301,7 +301,15 @@ export function createLessonRequestOperations(
     },
     async work(workOptions = {}) {
       if (options.delivery === undefined) return idleWorker;
-      await this.recoverFailed();
+      try {
+        await this.recoverFailed();
+      } catch (error) {
+        try {
+          options.onSchedulingError(error);
+        } catch {
+          // A broken observer must not stop the worker from starting.
+        }
+      }
       await this.schedulePending();
       return queue.work({
         ...workOptions,

@@ -22,8 +22,44 @@ const REQUEST = lessonRequestSchema.parse({
   lessonType: "small-group",
   city: "Irvine",
   preferredTimes: "Weekday evenings",
-  notes: "",
+  notes: "Gate code 4412",
 });
+
+const PERSONAL_VALUES = [
+  REQUEST.parentName,
+  REQUEST.parentEmail,
+  REQUEST.phone ?? "",
+  REQUEST.city,
+  REQUEST.preferredTimes,
+  REQUEST.notes ?? "",
+];
+
+function expectNoPersonalData(lines: readonly string[]): void {
+  for (const line of lines) {
+    for (const value of PERSONAL_VALUES) {
+      expect({ line, leaked: line.includes(value) }).toEqual({ line, leaked: false });
+    }
+  }
+}
+
+function expectFailureLine(lines: readonly string[]): void {
+  const failure = lines.find((line) => line.includes("lesson_request.delivery_failed"));
+  expect(failure).toBeDefined();
+  expect(Object.keys(JSON.parse(failure ?? "{}")).toSorted()).toEqual(["event", "job_id", "level"]);
+}
+
+function countingTransport(
+  inner: EmailTransport,
+): EmailTransport & { readonly calls: () => number } {
+  let calls = 0;
+  return {
+    calls: () => calls,
+    send(message) {
+      calls += 1;
+      return inner.send(message);
+    },
+  };
+}
 
 const directories: string[] = [];
 
@@ -83,31 +119,78 @@ describe("a lesson request whose email failed for good", () => {
     }
     const logged = errors.mock.calls.map(([line]) => String(line));
     errors.mockRestore();
-    const failure = logged.find((line) => line.includes("lesson_request.delivery_failed"));
-    expect(failure).toBeDefined();
-    expect(Object.keys(JSON.parse(failure ?? "{}")).toSorted()).toEqual([
-      "event",
-      "job_id",
-      "level",
-    ]);
-    for (const line of logged) {
-      expect(line).not.toContain(REQUEST.parentEmail);
-      expect(line).not.toContain(REQUEST.parentName);
-    }
+    expectFailureLine(logged);
+    expectNoPersonalData(logged);
 
     const recorder = recordingEmailTransport();
-    const fixed = await boot(path, recorder);
+    const counted = countingTransport(recorder);
+    const fixed = await boot(path, counted);
     try {
       const worker = await fixed.lessonRequests.work({ pollMs: 10 });
       await worker.stop();
       await fixed.lessonRequests.drain();
 
+      expect(counted.calls()).toBe(1);
       expect(recorder.messages).toHaveLength(1);
       expect(recorder.messages[0]?.to).toBe(COACH_EMAIL);
+      expect(recorder.messages[0]?.idempotencyKey).toMatch(/^lesson-request:lesson_request_/u);
       expect(await outboxStatuses(fixed)).toEqual(["delivered"]);
       expect(await fixed.lessonRequests.recoverFailed()).toBe(0);
     } finally {
       await fixed.close();
+    }
+  });
+
+  it("logs the final failure from the running worker, the production path", async () => {
+    const path = await databasePath();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const runtime = await boot(path, rejecting);
+    try {
+      await runtime.lessonRequests.record(REQUEST);
+      let failed: () => void = () => {};
+      const finished = new Promise<void>((resolve) => {
+        failed = resolve;
+      });
+      const worker = await runtime.lessonRequests.work({
+        pollMs: 10,
+        onJob: (event) => {
+          if (event.outcome === "failed") failed();
+        },
+      });
+      await finished;
+      await worker.stop();
+
+      const logged = errors.mock.calls.map(([line]) => String(line));
+      expectFailureLine(logged);
+      expectNoPersonalData(logged);
+    } finally {
+      await runtime.close();
+      errors.mockRestore();
+    }
+  });
+
+  it("still starts the worker when a failed job's payload is corrupt", async () => {
+    const path = await databasePath();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const broken = await boot(path, rejecting);
+    try {
+      await broken.lessonRequests.record(REQUEST);
+      expect((await broken.lessonRequests.runOnce())?.outcome).toBe("failed");
+      await broken.sql.prepare("UPDATE lesto_jobs SET payload = '{not json'").run();
+    } finally {
+      await broken.close();
+    }
+
+    const fixed = await boot(path, recordingEmailTransport());
+    try {
+      const worker = await fixed.lessonRequests.work({ pollMs: 10 });
+      await worker.stop();
+
+      const logged = errors.mock.calls.map(([line]) => String(line));
+      expect(logged.some((line) => line.includes("lesson_request.scheduling_failed"))).toBe(true);
+    } finally {
+      await fixed.close();
+      errors.mockRestore();
     }
   });
 
