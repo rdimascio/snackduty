@@ -398,8 +398,8 @@ async function addParticipant(
  * column, so an arbitrary `guardianPersonId` reference could not be authorized
  * owner-scoped), which is exactly why identity here is a NAME question and not
  * an id question. The duplicate_active_guardian invariant is this lookup coming
- * back defined; invitation acceptance uses the same lookup to recognize the
- * placeholder a manager typed in and rebind it instead of duplicating it.
+ * back defined; manual attach and roster import call it. Invitation acceptance
+ * does not: an account-bound link may share a name with a placeholder.
  */
 export async function findActiveGuardianByIdentity(
   tx: Db,
