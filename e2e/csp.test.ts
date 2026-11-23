@@ -7,6 +7,7 @@ import {
   SEED_SCHEDULE,
   SEED_TEAMS,
 } from "../apps/web/app/dev/seed-personas";
+import { storedChildIdentityKey } from "../apps/web/app/lib/server/people-identity";
 import {
   BALLPLAYER_CONTENT_SECURITY_POLICY,
   COACH_CONTENT_SECURITY_POLICY,
@@ -41,19 +42,33 @@ const BRAND_POLICIES: Readonly<Record<Brand, string>> = {
 };
 const JSON_LD_SELECTOR = 'script[type="application/ld+json"]';
 
-function largeRosterSql(): string {
-  const { teamId, seasonId } = SEED_TEAMS.coached;
-  const players = `WITH RECURSIVE players(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM players WHERE n < ${LARGE_ROSTER_SIZE})`;
-  return [
-    `INSERT INTO people (id, display_name, status, created_at, updated_at) ${players} SELECT 'person_load_' || n, 'Roster Load ' || printf('%03d', n), 'active', ${NOW}, ${NOW} FROM players;`,
-    `INSERT INTO participants (id, person_id, birth_date, status, created_at, updated_at) ${players} SELECT 'participant_load_' || n, 'person_load_' || n, '2018-06-01', 'active', ${NOW}, ${NOW} FROM players;`,
-    `INSERT INTO memberships (id, team_id, season_id, member_kind, member_person_id, member_participant_id, status, created_at, updated_at) ${players} SELECT 'membership_load_' || n, '${teamId}', '${seasonId}', 'participant', NULL, 'participant_load_' || n, 'active', ${NOW}, ${NOW} FROM players;`,
-  ].join("\n");
-}
+const LARGE_ROSTER_BIRTH_DATE = "2018-06-01";
 
 function largeRosterPlayer(index: number): string {
   return `Roster Load ${String(index + 1).padStart(3, "0")}`;
 }
+
+async function largeRosterSql(): Promise<string> {
+  const { teamId, seasonId } = SEED_TEAMS.coached;
+  const players = `WITH RECURSIVE players(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM players WHERE n < ${LARGE_ROSTER_SIZE})`;
+  const memberships = await Promise.all(
+    Array.from({ length: LARGE_ROSTER_SIZE }, async (_, index) => {
+      const key = await storedChildIdentityKey({
+        displayName: largeRosterPlayer(index),
+        birthDate: LARGE_ROSTER_BIRTH_DATE,
+      });
+      const n = index + 1;
+      return `('membership_load_${n}', '${teamId}', '${seasonId}', 'participant', NULL, 'participant_load_${n}', 'active', ${NOW}, ${NOW}, '${key}')`;
+    }),
+  );
+  return [
+    `INSERT INTO people (id, display_name, status, created_at, updated_at) ${players} SELECT 'person_load_' || n, 'Roster Load ' || printf('%03d', n), 'active', ${NOW}, ${NOW} FROM players;`,
+    `INSERT INTO participants (id, person_id, birth_date, status, created_at, updated_at) ${players} SELECT 'participant_load_' || n, 'person_load_' || n, '${LARGE_ROSTER_BIRTH_DATE}', 'active', ${NOW}, ${NOW} FROM players;`,
+    `INSERT INTO memberships (id, team_id, season_id, member_kind, member_person_id, member_participant_id, status, created_at, updated_at, child_identity_key) VALUES ${memberships.join(", ")};`,
+  ].join("\n");
+}
+
+const LARGE_ROSTER_SQL = await largeRosterSql();
 
 async function expectPolicy(session: RoleSession, path: string, status = 200): Promise<void> {
   const response = await session.open(path, status);
@@ -256,7 +271,7 @@ describe("csp: the lesson card and its poster", () => {
 });
 
 describe(`csp: a ${LARGE_ROSTER_SIZE}-player roster streams past React's first chunk`, () => {
-  const scenario = useScenario({ extraSql: largeRosterSql() });
+  const scenario = useScenario({ extraSql: LARGE_ROSTER_SQL });
 
   test("head-coach: the overview renders every player, leaves the skeleton and raises no violation", async () => {
     await asRole(scenario(), "head-coach", async (session) => {

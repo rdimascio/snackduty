@@ -13,12 +13,13 @@ import { applicationMigrations, createApplication } from "../app/lib/server/comp
 import { identityServices } from "../app/lib/server/identity";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
-import { childIdentityKey } from "../app/lib/server/people-identity";
+import { storedChildIdentityKey, storedGuardianNameKey } from "../app/lib/server/people-identity";
 import {
   addRosterNameKeys,
   isRosterNameKeyConflict,
   ROSTER_NAME_KEY_CONFLICT,
   RosterNameKeyConflictError,
+  withRosterNameKeyBackstop,
 } from "../app/lib/server/roster-name-keys";
 
 const handles: (() => void)[] = [];
@@ -34,6 +35,7 @@ const falconsSeason = SEED_TEAMS.coached.seasonId;
 const falconsTeam = SEED_TEAMS.coached.teamId;
 const DECOMPOSED_E_ACUTE = "é";
 const PRECOMPOSED_E_ACUTE = "é";
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
 
 async function rows<T>(sql: SqlDatabase, query: string, params: unknown[] = []): Promise<T[]> {
   return (await sql.prepare(query).all(params)) as T[];
@@ -150,12 +152,16 @@ describe("the roster name key migration", () => {
     );
     expect(children.length).toBe(Object.keys(SEED_CHILDREN).length + 1);
     for (const child of children) {
+      expect(child.key).toMatch(SHA256_HEX);
       expect(child.key).toBe(
-        childIdentityKey({ displayName: child.display_name, birthDate: child.birth_date }),
+        await storedChildIdentityKey({
+          displayName: child.display_name,
+          birthDate: child.birth_date,
+        }),
       );
     }
     expect(children.find((child) => child.birth_date === null)?.key).toBe(
-      `8:ren${PRECOMPOSED_E_ACUTE} kid|0:`,
+      await storedChildIdentityKey({ displayName: `ren${PRECOMPOSED_E_ACUTE} kid` }),
     );
 
     const guardians = await rows<{ id: string; key: string | null }>(
@@ -163,7 +169,7 @@ describe("the roster name key migration", () => {
       "SELECT id, guardian_name_key AS key FROM guardian_relationships ORDER BY id",
     );
     expect(guardians.find((edge) => edge.id.includes("placeholder"))?.key).toBe(
-      "morgan placeholder",
+      await storedGuardianNameKey("Morgan Placeholder"),
     );
     expect(
       guardians.filter((edge) => !edge.id.includes("placeholder")).map((edge) => edge.key),
@@ -212,9 +218,17 @@ describe("the roster name key migration", () => {
       code: ROSTER_NAME_KEY_CONFLICT,
       guardianConflicts: 1,
       childConflicts: 1,
+      guardianRelationshipIds: [
+        ["guardian_relationship_morgan_again", "guardian_relationship_seed_placeholder_casey"],
+      ],
+      membershipIds: [["membership_avery_again", "membership_seed_falcons_avery"]],
     });
-    expect((failure as Error).message).toContain(ROSTER_NAME_KEY_CONFLICT);
-    expect((failure as Error).message.toLowerCase()).not.toContain("avery");
+    const message = (failure as Error).message;
+    expect(message).toContain(ROSTER_NAME_KEY_CONFLICT);
+    expect(message).toContain("membership_avery_again");
+    expect(message).toContain("guardian_relationship_morgan_again");
+    expect(message.toLowerCase()).not.toContain("scenario");
+    expect(message.toLowerCase()).not.toContain("morgan placeholder");
     expect(
       await rows(sql, "SELECT version FROM schema_migrations WHERE version = ?", [
         addRosterNameKeys.version,
@@ -303,7 +317,8 @@ describe("the roster name key indexes", () => {
       relationship: "guardian",
     };
 
-    const failure = await insertPlaceholderGuardian(sql, copy, "morgan placeholder").then(
+    const morganKey = await storedGuardianNameKey("Morgan Placeholder");
+    const failure = await insertPlaceholderGuardian(sql, copy, morganKey).then(
       () => undefined,
       (error: unknown) => error,
     );
@@ -312,9 +327,30 @@ describe("the roster name key indexes", () => {
     await insertPlaceholderGuardian(
       sql,
       { ...copy, id: "other_relationship", relationship: "caregiver" },
-      "morgan placeholder",
+      morganKey,
     );
     await insertPlaceholderGuardian(sql, { ...copy, id: "account_bound" }, null);
+  });
+
+  it("refuse a participant membership with no key, but not an adult one", async () => {
+    const sql = await migratedWithSeed();
+
+    const failure = await insertChild(
+      sql,
+      { id: "keyless", displayName: "Keyless Kid", birthDate: null },
+      false,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(String(failure)).toContain("memberships_participant_child_key_check");
+    expect(isRosterNameKeyConflict(failure)).toBe(false);
+    await sql
+      .prepare(
+        "INSERT INTO memberships (id, team_id, season_id, member_kind, member_person_id, status, created_at, updated_at) VALUES ('membership_adult_keyless', ?, ?, 'person', 'person_seed_parent', 'active', ?, ?)",
+      )
+      .run([falconsTeam, falconsSeason, NOW, NOW]);
   });
 
   it("does not take an unrelated UNIQUE violation for a name key conflict", async () => {
@@ -418,7 +454,7 @@ describe("roster writes keep the stored keys", () => {
         "SELECT child_identity_key AS key FROM memberships WHERE member_participant_id = ?",
         [participantId],
       ),
-    ).toEqual([{ key: childIdentityKey(riley) }]);
+    ).toEqual([{ key: await storedChildIdentityKey(riley) }]);
 
     const again = await context.post(`${context.seasonPath}/participants`, {
       displayName: " riley  RACE ",
@@ -459,19 +495,92 @@ describe("roster writes keep the stored keys", () => {
         context.sql,
         "SELECT guardian_name_key AS key, relationship FROM guardian_relationships ORDER BY key",
       ),
-    ).toEqual([
-      { key: "alex guardian", relationship: "parent" },
-      { key: "bo guardian", relationship: "guardian" },
-    ]);
+    ).toEqual(
+      [
+        { key: await storedGuardianNameKey("Alex Guardian"), relationship: "parent" },
+        { key: await storedGuardianNameKey("Bo Guardian"), relationship: "guardian" },
+      ].toSorted((left, right) => left.key.localeCompare(right.key)),
+    );
     expect(
       await rows(
         context.sql,
         "SELECT child_identity_key AS key FROM memberships WHERE member_kind = 'participant' ORDER BY key",
       ),
-    ).toEqual([
-      { key: childIdentityKey(riley) },
-      { key: childIdentityKey({ displayName: "Imported Kid" }) },
-    ]);
+    ).toEqual(
+      [
+        { key: await storedChildIdentityKey(riley) },
+        { key: await storedChildIdentityKey({ displayName: "Imported Kid" }) },
+      ].toSorted((left, right) => left.key.localeCompare(right.key)),
+    );
+  });
+
+  it("stores a 64-character hex digest, never the name, for any name length", async () => {
+    const context = await rosterApp();
+    const longName = `Long ${"Name".repeat(3_000)}`;
+    const added = await context.post(`${context.seasonPath}/participants`, {
+      displayName: longName,
+      birthDate: riley.birthDate,
+    });
+    expect(added.status).toBe(201);
+    const { participantId } = (body(added) as { participant: { participantId: string } })
+      .participant;
+    expect(
+      (
+        await context.post(`/api/participants/${participantId}/guardians`, {
+          displayName: "Alex Guardian",
+          relationship: "parent",
+        })
+      ).status,
+    ).toBe(201);
+
+    const keys = await rows<{ key: string }>(
+      context.sql,
+      "SELECT child_identity_key AS key FROM memberships WHERE member_kind = 'participant' UNION ALL SELECT guardian_name_key AS key FROM guardian_relationships",
+    );
+    expect(keys).toHaveLength(2);
+    for (const { key } of keys) {
+      expect(key).toMatch(SHA256_HEX);
+      expect(key).not.toContain("name");
+      expect(key).not.toContain("alex");
+      expect(key).not.toContain(riley.birthDate);
+    }
+  });
+});
+
+describe("the import backstop", () => {
+  const deadlock = Object.assign(new Error("deadlock detected"), { code: "40P01" });
+
+  it("runs an import again after a Postgres deadlock abort", async () => {
+    let attempts = 0;
+    const outcome = await withRosterNameKeyBackstop(
+      () => {
+        attempts += 1;
+        return attempts === 1 ? Promise.reject(deadlock) : Promise.resolve("committed");
+      },
+      { retries: 1, conflict: "conflict", deadlocks: true },
+    );
+
+    expect(outcome).toBe("committed");
+    expect(attempts).toBe(2);
+  });
+
+  it("answers the conflict value when the deadlock repeats", async () => {
+    await expect(
+      withRosterNameKeyBackstop(() => Promise.reject(new Error("wrapped", { cause: deadlock })), {
+        retries: 1,
+        conflict: "conflict",
+        deadlocks: true,
+      }),
+    ).resolves.toBe("conflict");
+  });
+
+  it("rethrows a deadlock where the caller did not ask for it", async () => {
+    await expect(
+      withRosterNameKeyBackstop(() => Promise.reject(deadlock), {
+        retries: 0,
+        conflict: "duplicate",
+      }),
+    ).rejects.toBe(deadlock);
   });
 });
 

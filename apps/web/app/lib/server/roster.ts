@@ -7,7 +7,7 @@ import { guardianRelationshipSchema, participantSchema, personSchema } from "@sn
 import { z } from "zod";
 
 import { authenticatedAdult, people } from "./identity";
-import { childIdentityKey, sameDisplayName } from "./people-identity";
+import { childIdentityKey, sameDisplayName, storedChildIdentityKey } from "./people-identity";
 import { guardianNameKey, withRosterNameKeyBackstop } from "./roster-name-keys";
 import { manageableActiveTeam, seasons, teams } from "./teams";
 
@@ -43,7 +43,7 @@ const guardianRelationshipsV005 = defineTable(
 
 export const guardianRelationships = defineTable("guardian_relationships", {
   ...guardianRelationshipColumnsV005,
-  /** `guardianNameKey` (roster-name-keys.ts); null on an account-bound link. */
+  /** `storedGuardianNameKey` digest (people-identity.ts); null on an account-bound link. */
   guardianNameKey: text("guardian_name_key"),
 });
 
@@ -66,7 +66,7 @@ const membershipsV005 = defineTable("memberships", membershipColumnsV005);
 
 export const memberships = defineTable("memberships", {
   ...membershipColumnsV005,
-  /** `childIdentityKey` of the rostered child; null on an adult membership. */
+  /** `storedChildIdentityKey` digest (people-identity.ts); null on an adult membership. */
   childIdentityKey: text("child_identity_key"),
 });
 
@@ -236,7 +236,7 @@ export async function createRosteredParticipant(
       seasonId: target.seasonId,
       memberKind: "participant",
       memberParticipantId: row.id,
-      childIdentityKey: childIdentityKey(input),
+      childIdentityKey: await storedChildIdentityKey(input),
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -266,7 +266,10 @@ export async function attachGuardianEdge(
       guardianPersonId: person.id,
       participantId,
       relationship: input.relationship,
-      guardianNameKey: guardianNameKey({ displayName: person.displayName, hasAccount: false }),
+      guardianNameKey: await guardianNameKey({
+        displayName: person.displayName,
+        hasAccount: false,
+      }),
       status: "active",
       permissions: JSON.stringify(input.permissions),
       createdAt: now,

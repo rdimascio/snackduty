@@ -10,18 +10,23 @@
  *   2. Manual guardian attachment, enforcing the duplicate-active-guardian
  *      invariant (`hasDuplicateActiveGuardian` in roster.ts).
  *
- * STORED KEYS: the comparable form is also stored, so the database enforces
- * both invariants with a partial UNIQUE index (roster-name-keys.ts):
- * `memberships.child_identity_key` holds `childIdentityKey` per season, and
- * `guardian_relationships.guardian_name_key` holds `normalizeDisplayName` of a
- * placeholder guardian per child + relationship. SQLite and Postgres cannot
- * compute this normalization, and a database without interactive
+ * STORED KEYS: a SHA-256 digest of each key is also stored, so the database
+ * enforces both invariants with a partial UNIQUE index (roster-name-keys.ts):
+ * `memberships.child_identity_key` holds `storedChildIdentityKey` per season,
+ * and `guardian_relationships.guardian_name_key` holds `storedGuardianNameKey`
+ * of a placeholder guardian per child + relationship. SQLite and Postgres
+ * cannot compute this normalization, and a database without interactive
  * transactions (Cloudflare D1) cannot run the JS check and the write as one
- * unit, so the index is what stops a race or a missed write path. The JS checks
- * stay and decide the user-facing answer; the index is the backstop. Every
- * write that sets a name, birth date, relationship or link status writes the
- * key from these helpers, so there is still one definition. A stored key is
- * still never identity proof: an account-bound guardian link stores no key.
+ * unit, so the index is what stops a race between two writes. The JS checks
+ * stay and decide the user-facing answer; the index is the backstop. The
+ * digest keeps a child's name and birth date out of index entries and the
+ * database's constraint-error log, and gives every key a fixed length. Every
+ * write that inserts a roster membership or a placeholder guardian link, or
+ * changes a child's name or birth date or a placeholder guardian's name, writes
+ * the key with the `stored*` helpers in this file, so there is one definition.
+ * A stored key is still never identity proof: an account-bound guardian link
+ * stores no key, and the database cannot tell a missing key on such a link from
+ * a missed write.
  *
  * Authentication, invitation acceptance, account linking and guardian authority
  * MUST NOT use these helpers. Those flows require a stable provider subject or
@@ -68,8 +73,9 @@ export function sameDisplayName(left: string, right: string): boolean {
 /**
  * Join key parts unambiguously WITHOUT a control character: each part is
  * length-prefixed, so no pair of values can collide across the join
- * (`"ab" + ""` and `"a" + "b"` produce different keys) and the key stays a
- * printable string that is safe to log if it ever needed to be.
+ * (`"ab" + ""` and `"a" + "b"` produce different keys). The key holds the
+ * normalized name and birth date in clear text, so it is never logged or
+ * stored; only its digest (`storedKeyDigest`) is.
  */
 function joinKeyParts(parts: readonly string[]): string {
   return parts.map((part) => `${part.length}:${part}`).join("|");
@@ -96,4 +102,32 @@ export function guardianIdentityKey(guardian: {
   readonly relationship: string;
 }): string {
   return joinKeyParts([normalizeDisplayName(guardian.displayName), guardian.relationship]);
+}
+
+const HEX_RADIX = 16;
+const HEX_BYTE_WIDTH = 2;
+
+/**
+ * The stored form of a roster name key: the lower-case hex SHA-256 digest, 64
+ * characters for any input. Equal keys give equal digests, so uniqueness is
+ * unchanged.
+ */
+export async function storedKeyDigest(key: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(HEX_RADIX).padStart(HEX_BYTE_WIDTH, "0"),
+  ).join("");
+}
+
+/** What `memberships.child_identity_key` stores for one rostered child. */
+export function storedChildIdentityKey(child: {
+  readonly displayName: string;
+  readonly birthDate?: string | null | undefined;
+}): Promise<string> {
+  return storedKeyDigest(childIdentityKey(child));
+}
+
+/** What `guardian_relationships.guardian_name_key` stores for a placeholder guardian. */
+export function storedGuardianNameKey(displayName: string): Promise<string> {
+  return storedKeyDigest(normalizeDisplayName(displayName));
 }

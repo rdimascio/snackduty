@@ -4,6 +4,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { DEV_PERSON_ID } from "../app/lib/server/identity";
 import { ensureDevelopmentPersona } from "../app/lib/server/identity";
 import { invitationAcceptedBy, previewInvitation } from "../app/lib/server/invitations";
+import { storedGuardianNameKey } from "../app/lib/server/people-identity";
 
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
@@ -1223,7 +1224,7 @@ describe("accepting a guardian invitation", () => {
     expect(edges).toContainEqual(
       expect.objectContaining({
         status: "active",
-        guardian_name_key: SECOND_ADULT_NAME.toLowerCase(),
+        guardian_name_key: await storedGuardianNameKey(SECOND_ADULT_NAME),
       }),
     );
   });

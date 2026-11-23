@@ -396,6 +396,45 @@ describe.skipIf(!databaseUrl)("real TLS PostgreSQL runtime", () => {
         )
         .get([season.id]),
     ).toEqual({ count: 2 });
+
+    // Opposite row order: each import inserts its first child, then waits on
+    // the other's uncommitted key, so Postgres may abort one with a deadlock.
+    const first = { displayName: "Order Kid A", guardians: [] };
+    const second = { displayName: "Order Kid B", guardians: [] };
+    const crossed = await race(
+      runtime,
+      team.id,
+      [
+        () => post(runtime, `${seasonPath}/roster/import`, { rows: [first, second] }),
+        () => post(peer, `${seasonPath}/roster/import`, { rows: [second, first] }),
+      ],
+      lockMemberships,
+    );
+    expect(statuses(crossed)).toEqual([200, 201]);
+    expect(crossed.find((response) => response.status === 200)?.body).toContain('"created":0');
+
+    // Random text does not compress, so the plain key would pass the B-tree row limit.
+    const longName = Array.from({ length: 340 }, () => crypto.randomUUID()).join(" ");
+    expect(
+      (await post(runtime, `${seasonPath}/participants`, { displayName: longName })).status,
+    ).toBe(201);
+    const keys = await runtime.sql
+      .prepare(
+        "SELECT child_identity_key AS key FROM memberships WHERE season_id = ? AND member_kind = 'participant'",
+      )
+      .all([season.id]);
+    expect(keys).toHaveLength(5);
+    for (const row of z.array(z.object({ key: z.string() })).parse(keys)) {
+      expect(row.key).toMatch(/^[0-9a-f]{64}$/u);
+    }
+    await expect(
+      runtime.sql
+        .prepare(
+          "INSERT INTO memberships (id, team_id, season_id, member_kind, member_participant_id, status, created_at, updated_at) SELECT 'membership_keyless', team_id, season_id, 'participant', member_participant_id, 'revoked', created_at, updated_at FROM memberships WHERE season_id = ? LIMIT 1",
+        )
+        .run([season.id]),
+    ).rejects.toMatchObject({ code: "23514" });
+
     expect(
       await runtime.sql
         .prepare(

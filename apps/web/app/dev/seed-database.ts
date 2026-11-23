@@ -42,16 +42,23 @@ export async function applySeed(sql: SqlDatabase, options: SeedOptions = {}): Pr
   const files = await seedFiles(directory);
   if (files.length === 0) throw new Error(`no seed files in ${directory}`);
   await sql.transaction(async (tx) => {
-    for (const file of files) {
-      const statements = atInstant(await readFile(file, "utf8"), options.now);
-      try {
-        await tx.exec(statements);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        throw new Error(`seed/${basename(file)}: ${reason}`, { cause: error });
+    // The seed SQL cannot compute the roster name keys, so the CHECK that
+    // requires one waits until the backfill below has written every key.
+    await tx.exec("PRAGMA ignore_check_constraints = ON");
+    try {
+      for (const file of files) {
+        const statements = atInstant(await readFile(file, "utf8"), options.now);
+        try {
+          await tx.exec(statements);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          throw new Error(`seed/${basename(file)}: ${reason}`, { cause: error });
+        }
       }
+      await backfillRosterNameKeys(tx);
+    } finally {
+      await tx.exec("PRAGMA ignore_check_constraints = OFF");
     }
-    await backfillRosterNameKeys(tx);
   });
   return files.map((file) => basename(file));
 }

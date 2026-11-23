@@ -66,6 +66,12 @@ export const MAX_IMPORT_ROWS = 200;
 
 const unauthorized = { error: "authentication required" } as const;
 const teamNotFound = { error: "team not found" } as const;
+/**
+ * A deadlock victim's first retry starts while the winner is still committing,
+ * so it can lose once more on the winner's key; the second retry sees the
+ * committed rows and gives the normal verdicts.
+ */
+const IMPORT_RACE_RETRIES = 2;
 const rosterChangedDuringImport = {
   error: "The roster changed during this import. Preview the file again.",
   code: "roster_changed",
@@ -581,7 +587,7 @@ async function commitRosterImport(
 
         return results;
       }),
-    { retries: 1, conflict: "conflict" as const },
+    { retries: IMPORT_RACE_RETRIES, conflict: "conflict" as const, deadlocks: true },
   );
 
   if (outcome === null) return c.json(teamNotFound, 404);

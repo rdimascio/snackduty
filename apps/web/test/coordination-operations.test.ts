@@ -8,6 +8,8 @@ import {
 } from "@snackday/domain";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
+import { storedChildIdentityKey } from "../app/lib/server/people-identity";
+
 const now = Date.parse("2029-01-10T12:00:00.000Z");
 const [{ default: config, services }, server] = await Promise.all([
   import("./support/application").then((module) => module.testApplication(() => now)),
@@ -117,6 +119,7 @@ async function fixture() {
         memberKind: "participant",
         memberPersonId: null,
         memberParticipantId: child.participantId,
+        childIdentityKey: await storedChildIdentityKey({ displayName: child.name }),
         status: "active",
         createdAt,
         updatedAt: createdAt,
