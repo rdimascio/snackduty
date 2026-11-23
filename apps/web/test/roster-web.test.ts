@@ -603,6 +603,15 @@ describe("roster actions against the real API", () => {
     expect(added).toEqual({ ok: true, message: "Added Morgan Kid." });
     expect(await rosterNames(ownerCookie, teamId, seasonId)).toContain("Morgan Kid");
 
+    expect(
+      await addParticipant(
+        teamId,
+        seasonId,
+        { displayName: "morgan  KID", birthDate: "2019-02-03" },
+        poster(app, ownerCookie),
+      ),
+    ).toEqual({ ok: false, message: "That player is already on this roster." });
+
     const invalid = await addParticipant(
       teamId,
       seasonId,
@@ -776,6 +785,29 @@ describe("roster actions against the real API", () => {
     );
     expect(commit.ok).toBe(false);
     expect(await rosterNames(ownerCookie, teamId, seasonId)).not.toContain("Taylor Kid");
+  });
+
+  it("asks for a new preview when the roster changed during the commit", async () => {
+    const changed: RosterPoster = () =>
+      Promise.resolve({
+        status: 409,
+        json: {
+          error: "The roster changed during this import. Preview the file again.",
+          code: "roster_changed",
+        },
+      });
+
+    expect(
+      await commitRosterImport(
+        "team",
+        "season",
+        [{ displayName: "Taylor Kid", guardians: [] }],
+        changed,
+      ),
+    ).toEqual({
+      ok: false,
+      message: "The roster changed during this import. Preview the file again.",
+    });
   });
 
   it("offers exactly the relationships the domain accepts", () => {

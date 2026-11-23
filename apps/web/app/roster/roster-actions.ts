@@ -62,6 +62,9 @@ export async function addParticipant(
       ...(birthDate === "" ? {} : { birthDate }),
     });
     if (response.status === 201) return { ok: true, message: `Added ${displayName}.` };
+    if (response.status === 409) {
+      return { ok: false, message: "That player is already on this roster." };
+    }
     return refusal(response.status, "Check the name and the birth date (YYYY-MM-DD).");
   } catch {
     return { ok: false, message: failed };
@@ -199,6 +202,12 @@ export async function commitRosterImport(
       const skipped =
         summary.skipped === 0 ? "" : ` Skipped ${summary.skipped} already on the roster.`;
       return { ok: true, message: `Imported ${added}.${skipped}` };
+    }
+    if (response.status === 409) {
+      return {
+        ok: false,
+        message: "The roster changed during this import. Preview the file again.",
+      };
     }
     return refusal(response.status, "Some rows changed. Preview the file again.");
   } catch {

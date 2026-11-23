@@ -25,6 +25,7 @@ import {
   memberships,
   participants,
 } from "./roster";
+import { ACCOUNT_BOUND_GUARDIAN_NAME_KEY } from "./roster-name-keys";
 import {
   adultMemberships,
   grantedAccess,
@@ -817,7 +818,11 @@ async function bindGuardianOnAccept(
       .update(guardianRelationships)
       .set(
         heldEdge === undefined
-          ? { guardianPersonId: input.guardian.id, updatedAt: input.nowIso }
+          ? {
+              guardianPersonId: input.guardian.id,
+              guardianNameKey: ACCOUNT_BOUND_GUARDIAN_NAME_KEY,
+              updatedAt: input.nowIso,
+            }
           : { status: "revoked", updatedAt: input.nowIso },
       )
       .where(eq(guardianRelationships.id, input.replacesGuardianRelationshipId))
@@ -832,6 +837,7 @@ async function bindGuardianOnAccept(
       guardianPersonId: input.guardian.id,
       participantId: input.participantId,
       relationship: input.relationship,
+      guardianNameKey: ACCOUNT_BOUND_GUARDIAN_NAME_KEY,
       status: "active",
       permissions: JSON.stringify(DEFAULT_GUARDIAN_PERMISSIONS),
       createdAt: input.nowIso,

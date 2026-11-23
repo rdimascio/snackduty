@@ -18,6 +18,7 @@ import { createApplication } from "../app/lib/server/composition";
 import { identityServices } from "../app/lib/server/identity";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
+import { storedChildIdentityKey } from "../app/lib/server/people-identity";
 import { reelSkillMap, taxonomySkillForReelSkill } from "../app/skills/reel-skill-map";
 import { LessonAnswers, submitLessonAnswer } from "../app/lessons/lesson-answers";
 import type { AnswerPoster, LessonAnswerPrompt } from "../app/lessons/lesson-answers";
@@ -747,9 +748,17 @@ describe("player card on /app", () => {
     await joinAsSecondAdult(app, ownerCookie, first.teamId, first.casey);
     const guardianCookie = await joinAsSecondAdult(app, ownerCookie, second.teamId, second.casey);
     const stamp = new Date(now).toISOString();
+    const caseyRow = (await sql
+      .prepare(
+        "SELECT people.display_name, participants.birth_date FROM participants JOIN people ON people.id = participants.person_id WHERE participants.id = ?",
+      )
+      .get([first.casey])) as {
+      display_name: string;
+      birth_date: string | null;
+    };
     await sql
       .prepare(
-        "INSERT INTO memberships (id, team_id, season_id, member_kind, member_person_id, member_participant_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO memberships (id, team_id, season_id, member_kind, member_person_id, member_participant_id, status, created_at, updated_at, child_identity_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run([
         "casey-on-second-team",
@@ -761,6 +770,10 @@ describe("player card on /app", () => {
         "active",
         stamp,
         stamp,
+        await storedChildIdentityKey({
+          displayName: caseyRow.display_name,
+          birthDate: caseyRow.birth_date,
+        }),
       ]);
 
     const html = await pageText(

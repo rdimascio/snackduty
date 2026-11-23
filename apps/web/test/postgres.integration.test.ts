@@ -80,6 +80,7 @@ async function race<T>(
   runtime: RuntimeApplication,
   teamId: string,
   requests: readonly (() => Promise<T>)[],
+  lockStatement: string = "UPDATE teams SET id = id WHERE id = ?",
 ): Promise<T[]> {
   let release = () => {};
   let locked = () => {};
@@ -90,7 +91,7 @@ async function race<T>(
     release = resolve;
   });
   const blocker = runtime.sql.transaction(async (sql) => {
-    await sql.prepare("UPDATE teams SET id = id WHERE id = ?").run([teamId]);
+    await sql.prepare(lockStatement).run(lockStatement.includes("?") ? [teamId] : []);
     locked();
     await gate;
   });
@@ -317,5 +318,132 @@ describe.skipIf(!databaseUrl)("real TLS PostgreSQL runtime", () => {
         await runtime.sql.prepare(`SELECT COUNT(*)::integer AS count FROM ${table}`).get(),
       ).toEqual({ count: 1 });
     }
+  }, 30_000);
+
+  it("answers a roster name key race with the same 409 or verdict as a sequential write", async () => {
+    const runtime = await boot();
+    const peer = await boot();
+    const owner = await adult(runtime, "key_owner");
+    const created = await runtime.app.handle("POST", "/api/teams", {
+      headers: headers(owner),
+      body: { name: "Postgres Keys" },
+    });
+    const { team } = z.object({ team: entity }).parse(JSON.parse(created.body));
+    const seasonResponse = await runtime.app.handle("POST", `/api/teams/${team.id}/seasons`, {
+      headers: headers(owner),
+      body: { label: "Keys", startDate: "2029-01-01", endDate: "2029-06-01", timeZone: "UTC" },
+    });
+    const { season } = z.object({ season: entity }).parse(JSON.parse(seasonResponse.body));
+    const seasonPath = `/api/teams/${team.id}/seasons/${season.id}`;
+    const post = (app: RuntimeApplication, path: string, body: unknown) =>
+      app.app.handle("POST", path, { headers: headers(owner), body });
+    // Reads pass the lock; every insert waits behind it, after its JS check.
+    const lockMemberships = "LOCK TABLE memberships IN EXCLUSIVE MODE";
+    const lockGuardians = "LOCK TABLE guardian_relationships IN EXCLUSIVE MODE";
+    const statuses = (responses: readonly { status: number }[]) =>
+      responses.map((response) => response.status).toSorted();
+
+    const child = { displayName: "Race Kid", birthDate: "2021-02-03" };
+    const added = await race(
+      runtime,
+      team.id,
+      [runtime, peer].map((app) => () => post(app, `${seasonPath}/participants`, child)),
+      lockMemberships,
+    );
+    expect(statuses(added)).toEqual([201, 409]);
+    expect(added.map((response) => response.body)).toContainEqual(
+      JSON.stringify({ error: "participant already rostered" }),
+    );
+    const winner = added.find((response) => response.status === 201);
+    const { participant } = z
+      .object({ participant: z.object({ participantId: z.string() }) })
+      .parse(JSON.parse(winner?.body ?? "{}"));
+
+    const guardian = { displayName: "Race Guardian", relationship: "parent" };
+    const attached = await race(
+      runtime,
+      team.id,
+      [runtime, peer].map(
+        (app) => () =>
+          post(app, `/api/participants/${participant.participantId}/guardians`, guardian),
+      ),
+      lockGuardians,
+    );
+    expect(statuses(attached)).toEqual([201, 409]);
+    expect(attached.map((response) => response.body)).toContainEqual(
+      JSON.stringify({ error: "guardian already attached" }),
+    );
+
+    const imported = await race(
+      runtime,
+      team.id,
+      [runtime, peer].map(
+        (app) => () =>
+          post(app, `${seasonPath}/roster/import`, {
+            rows: [{ displayName: "Imported Race Kid", guardians: [] }],
+          }),
+      ),
+      lockMemberships,
+    );
+    expect(statuses(imported)).toEqual([200, 201]);
+    expect(imported.find((response) => response.status === 200)?.body).toContain(
+      "duplicate_in_roster",
+    );
+    expect(
+      await runtime.sql
+        .prepare(
+          "SELECT COUNT(*)::integer AS count FROM memberships WHERE season_id = ? AND member_kind = 'participant'",
+        )
+        .get([season.id]),
+    ).toEqual({ count: 2 });
+
+    // Opposite row order: each import inserts its first child, then waits on
+    // the other's uncommitted key, so Postgres may abort one with a deadlock.
+    const first = { displayName: "Order Kid A", guardians: [] };
+    const second = { displayName: "Order Kid B", guardians: [] };
+    const crossed = await race(
+      runtime,
+      team.id,
+      [
+        () => post(runtime, `${seasonPath}/roster/import`, { rows: [first, second] }),
+        () => post(peer, `${seasonPath}/roster/import`, { rows: [second, first] }),
+      ],
+      lockMemberships,
+    );
+    expect(statuses(crossed)).toEqual([200, 201]);
+    expect(crossed.find((response) => response.status === 200)?.body).toContain('"created":0');
+
+    // Random text does not compress, so the plain key would pass the B-tree row limit.
+    const longName = Array.from({ length: 340 }, () => crypto.randomUUID()).join(" ");
+    expect(
+      (await post(runtime, `${seasonPath}/participants`, { displayName: longName })).status,
+    ).toBe(201);
+    const keys = await runtime.sql
+      .prepare(
+        "SELECT child_identity_key AS key FROM memberships WHERE season_id = ? AND member_kind = 'participant'",
+      )
+      .all([season.id]);
+    expect(keys).toHaveLength(5);
+    for (const row of z.array(z.object({ key: z.string() })).parse(keys)) {
+      expect(row.key).toMatch(/^[0-9a-f]{64}$/u);
+    }
+    await expect(
+      runtime.sql
+        .prepare(
+          "INSERT INTO memberships (id, team_id, season_id, member_kind, member_participant_id, status, created_at, updated_at) SELECT 'membership_keyless', team_id, season_id, 'participant', member_participant_id, 'revoked', created_at, updated_at FROM memberships WHERE season_id = ? LIMIT 1",
+        )
+        .run([season.id]),
+    ).rejects.toMatchObject({ code: "23514" });
+
+    expect(
+      await runtime.sql
+        .prepare(
+          "SELECT indexname FROM pg_indexes WHERE indexname IN ('memberships_active_child_identity_key_idx', 'guardian_relationships_active_guardian_name_key_idx') ORDER BY indexname",
+        )
+        .all(),
+    ).toEqual([
+      { indexname: "guardian_relationships_active_guardian_name_key_idx" },
+      { indexname: "memberships_active_child_identity_key_idx" },
+    ]);
   }, 30_000);
 });

@@ -10,6 +10,7 @@ import { registerDevSignIn } from "../app/dev/sign-in";
 import { createApplication } from "../app/lib/server/composition";
 import { ERASED_ADULT_DISPLAY_NAME } from "../app/lib/server/erasure";
 import { identityServices } from "../app/lib/server/identity";
+import { storedChildIdentityKey } from "../app/lib/server/people-identity";
 import { devInviteDeliverer } from "../app/lib/server/invite-delivery";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import { registerRuntimePages } from "../runtime/web-surface";
@@ -100,6 +101,7 @@ describe("child erasure", () => {
     expect(remaining).not.toContain(avery.participantId);
     expect(remaining).not.toContain(averyPerson);
     expect(remaining).not.toContain("Avery");
+    expect(remaining.toLowerCase()).not.toContain("avery");
     expect(remaining).toContain(blake.participantId);
     expect(remaining).toContain(blake.displayName);
   });
@@ -119,13 +121,25 @@ describe("child erasure", () => {
     );
 
     expect(erased.status).toBe(200);
-    expect(await databaseText()).not.toContain("Grandma Placeholder");
+    expect((await databaseText()).toLowerCase()).not.toContain("grandma placeholder");
   });
 
   it("refuses to erase a child who is on more than one team", async () => {
     const at = new Date().toISOString();
+    const averyRow = (await sql
+      .prepare(
+        "SELECT people.display_name, participants.birth_date FROM participants JOIN people ON people.id = participants.person_id WHERE participants.id = ?",
+      )
+      .get([avery.participantId])) as {
+      display_name: string;
+      birth_date: string | null;
+    };
+    const key = await storedChildIdentityKey({
+      displayName: averyRow.display_name,
+      birthDate: averyRow.birth_date,
+    });
     await sql.exec(
-      `INSERT INTO memberships (id, team_id, season_id, member_kind, member_participant_id, status, created_at, updated_at) VALUES ('membership_erase_test', '${SEED_TEAMS.second.teamId}', '${SEED_TEAMS.second.seasonId}', 'participant', '${avery.participantId}', 'active', '${at}', '${at}')`,
+      `INSERT INTO memberships (id, team_id, season_id, member_kind, member_participant_id, status, created_at, updated_at, child_identity_key) VALUES ('membership_erase_test', '${SEED_TEAMS.second.teamId}', '${SEED_TEAMS.second.seasonId}', 'participant', '${avery.participantId}', 'active', '${at}', '${at}', '${key}')`,
     );
 
     const erased = await post(

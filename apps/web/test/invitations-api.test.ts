@@ -4,6 +4,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { DEV_PERSON_ID } from "../app/lib/server/identity";
 import { ensureDevelopmentPersona } from "../app/lib/server/identity";
 import { invitationAcceptedBy, previewInvitation } from "../app/lib/server/invitations";
+import { storedGuardianNameKey } from "../app/lib/server/people-identity";
 
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
@@ -1133,7 +1134,7 @@ describe("accepting a guardian invitation", () => {
     // shows one guardian, and the accepting parent actually holds the edge.
     const edges = await config.db
       .prepare(
-        "SELECT id, guardian_person_id, relationship, status FROM guardian_relationships WHERE participant_id = ?",
+        "SELECT id, guardian_person_id, relationship, status, guardian_name_key FROM guardian_relationships WHERE participant_id = ?",
       )
       .all([participantId]);
     expect(edges).toEqual([
@@ -1142,6 +1143,7 @@ describe("accepting a guardian invitation", () => {
         guardian_person_id: SECOND_PERSON_ID,
         relationship: "parent",
         status: "active",
+        guardian_name_key: null,
       },
     ]);
 
@@ -1208,11 +1210,23 @@ describe("accepting a guardian invitation", () => {
     );
     expect((await accept(secondCookie, tokenOf(created))).status).toBe(200);
 
-    expect(
-      await config.db
-        .prepare("SELECT guardian_person_id FROM guardian_relationships WHERE participant_id = ?")
-        .all([participantId]),
-    ).toHaveLength(2);
+    const edges = await config.db
+      .prepare(
+        "SELECT guardian_person_id, status, guardian_name_key FROM guardian_relationships WHERE participant_id = ? ORDER BY guardian_name_key",
+      )
+      .all([participantId]);
+    expect(edges).toHaveLength(2);
+    expect(edges).toContainEqual({
+      guardian_person_id: SECOND_PERSON_ID,
+      status: "active",
+      guardian_name_key: null,
+    });
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        status: "active",
+        guardian_name_key: await storedGuardianNameKey(SECOND_ADULT_NAME),
+      }),
+    );
   });
 
   it("rechecks an exact placeholder before granting either team or child access", async () => {

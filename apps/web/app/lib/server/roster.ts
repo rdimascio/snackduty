@@ -7,7 +7,8 @@ import { guardianRelationshipSchema, participantSchema, personSchema } from "@sn
 import { z } from "zod";
 
 import { authenticatedAdult, people } from "./identity";
-import { childIdentityKey, sameDisplayName } from "./people-identity";
+import { childIdentityKey, sameDisplayName, storedChildIdentityKey } from "./people-identity";
+import { guardianNameKey, withRosterNameKeyBackstop } from "./roster-name-keys";
 import { manageableActiveTeam, seasons, teams } from "./teams";
 
 export const participants = defineTable("participants", {
@@ -21,7 +22,7 @@ export const participants = defineTable("participants", {
   updatedAt: text("updated_at").notNull(),
 });
 
-export const guardianRelationships = defineTable("guardian_relationships", {
+const guardianRelationshipColumnsV005 = {
   id: text("id").primaryKey(),
   guardianPersonId: text("guardian_person_id")
     .notNull()
@@ -34,9 +35,19 @@ export const guardianRelationships = defineTable("guardian_relationships", {
   permissions: text("permissions").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+};
+const guardianRelationshipsV005 = defineTable(
+  "guardian_relationships",
+  guardianRelationshipColumnsV005,
+);
+
+export const guardianRelationships = defineTable("guardian_relationships", {
+  ...guardianRelationshipColumnsV005,
+  /** `storedGuardianNameKey` digest (people-identity.ts); null on an account-bound link. */
+  guardianNameKey: text("guardian_name_key"),
 });
 
-export const memberships = defineTable("memberships", {
+const membershipColumnsV005 = {
   id: text("id").primaryKey(),
   teamId: text("team_id")
     .notNull()
@@ -50,6 +61,13 @@ export const memberships = defineTable("memberships", {
   status: text("status").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+};
+const membershipsV005 = defineTable("memberships", membershipColumnsV005);
+
+export const memberships = defineTable("memberships", {
+  ...membershipColumnsV005,
+  /** `storedChildIdentityKey` digest (people-identity.ts); null on an adult membership. */
+  childIdentityKey: text("child_identity_key"),
 });
 
 export const createRoster: MigrationEntry = {
@@ -57,8 +75,8 @@ export const createRoster: MigrationEntry = {
   migration: {
     up: async (schema) => {
       await schema.execute(createTableSql(participants, schema.dialect));
-      await schema.execute(createTableSql(guardianRelationships, schema.dialect));
-      await schema.execute(createTableSql(memberships, schema.dialect));
+      await schema.execute(createTableSql(guardianRelationshipsV005, schema.dialect));
+      await schema.execute(createTableSql(membershipsV005, schema.dialect));
       await schema.execute(
         "CREATE INDEX guardian_relationships_participant_id_idx ON guardian_relationships (participant_id)",
       );
@@ -67,8 +85,8 @@ export const createRoster: MigrationEntry = {
       );
     },
     down: async (schema) => {
-      await schema.execute(dropTableSql(memberships));
-      await schema.execute(dropTableSql(guardianRelationships));
+      await schema.execute(dropTableSql(membershipsV005));
+      await schema.execute(dropTableSql(guardianRelationshipsV005));
       await schema.execute(dropTableSql(participants));
     },
   },
@@ -98,6 +116,7 @@ const unauthorized = { error: "authentication required" } as const;
 const teamNotFound = { error: "team not found" } as const;
 const participantNotFound = { error: "participant not found" } as const;
 const guardianAlreadyAttached = { error: "guardian already attached" } as const;
+const participantAlreadyRostered = { error: "participant already rostered" } as const;
 
 interface PersonRow {
   id: string;
@@ -217,6 +236,7 @@ export async function createRosteredParticipant(
       seasonId: target.seasonId,
       memberKind: "participant",
       memberParticipantId: row.id,
+      childIdentityKey: await storedChildIdentityKey(input),
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -246,6 +266,10 @@ export async function attachGuardianEdge(
       guardianPersonId: person.id,
       participantId,
       relationship: input.relationship,
+      guardianNameKey: await guardianNameKey({
+        displayName: person.displayName,
+        hasAccount: false,
+      }),
       status: "active",
       permissions: JSON.stringify(input.permissions),
       createdAt: now,
@@ -335,28 +359,38 @@ async function addParticipant(
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const input = c.valid(addParticipantInputSchema);
-  const participant = await db.transaction(async (tx) => {
-    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
-    if (team === undefined) return null;
+  const outcome = await withRosterNameKeyBackstop(
+    () =>
+      db.transaction(async (tx) => {
+        const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
+        if (team === undefined) return null;
 
-    const season = await tx
-      .select()
-      .from(seasons)
-      .where(and(eq(seasons.id, c.param("seasonId")), eq(seasons.teamId, team.id)))
-      .get();
-    if (season === undefined) return null;
+        const season = await tx
+          .select()
+          .from(seasons)
+          .where(and(eq(seasons.id, c.param("seasonId")), eq(seasons.teamId, team.id)))
+          .get();
+        if (season === undefined) return null;
 
-    const { row, person } = await createRosteredParticipant(
-      tx,
-      { teamId: team.id, seasonId: season.id },
-      input,
-      new Date(clock()).toISOString(),
-    );
+        const rostered = await seasonChildIdentityKeys(tx, team.id, season.id);
+        if (rostered.has(childIdentityKey(input))) return "duplicate" as const;
 
-    return projectParticipant(row, person);
-  });
+        const { row, person } = await createRosteredParticipant(
+          tx,
+          { teamId: team.id, seasonId: season.id },
+          input,
+          new Date(clock()).toISOString(),
+        );
 
-  return participant === null ? c.json(teamNotFound, 404) : c.json({ participant }, 201);
+        return projectParticipant(row, person);
+      }),
+    { retries: 0, conflict: "duplicate" as const },
+  );
+
+  if (outcome === null) return c.json(teamNotFound, 404);
+  if (outcome === "duplicate") return c.json(participantAlreadyRostered, 409);
+
+  return c.json({ participant: outcome }, 201);
 }
 
 /**
@@ -367,8 +401,8 @@ async function addParticipant(
  * column, so an arbitrary `guardianPersonId` reference could not be authorized
  * owner-scoped), which is exactly why identity here is a NAME question and not
  * an id question. The duplicate_active_guardian invariant is this lookup coming
- * back defined; invitation acceptance uses the same lookup to recognize the
- * placeholder a manager typed in and rebind it instead of duplicating it.
+ * back defined; manual attach and roster import call it. Invitation acceptance
+ * does not: an account-bound link may share a name with a placeholder.
  */
 export async function findActiveGuardianByIdentity(
   tx: Db,
@@ -425,41 +459,48 @@ async function attachGuardian(
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const input = c.valid(attachGuardianInputSchema);
-  const outcome = await db.transaction(async (tx) => {
-    const participant = await tx
-      .select()
-      .from(participants)
-      .where(and(eq(participants.id, c.param("participantId")), eq(participants.status, "active")))
-      .get();
-    if (participant === undefined) return null;
+  const outcome = await withRosterNameKeyBackstop(
+    () =>
+      db.transaction(async (tx) => {
+        const participant = await tx
+          .select()
+          .from(participants)
+          .where(
+            and(eq(participants.id, c.param("participantId")), eq(participants.status, "active")),
+          )
+          .get();
+        if (participant === undefined) return null;
 
-    const membership = await tx
-      .select()
-      .from(memberships)
-      .where(
-        and(
-          eq(memberships.memberParticipantId, participant.id),
-          eq(memberships.memberKind, "participant"),
-          eq(memberships.status, "active"),
-        ),
-      )
-      .get();
-    if (membership === undefined) return null;
+        const membership = await tx
+          .select()
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.memberParticipantId, participant.id),
+              eq(memberships.memberKind, "participant"),
+              eq(memberships.status, "active"),
+            ),
+          )
+          .get();
+        if (membership === undefined) return null;
 
-    const team = await manageableActiveTeam(tx, membership.teamId, identity.person.id);
-    if (team === undefined) return null;
+        const team = await manageableActiveTeam(tx, membership.teamId, identity.person.id);
+        if (team === undefined) return null;
 
-    if (await hasDuplicateActiveGuardian(tx, participant.id, input)) return "duplicate" as const;
+        if (await hasDuplicateActiveGuardian(tx, participant.id, input))
+          return "duplicate" as const;
 
-    const { edge, person } = await attachGuardianEdge(
-      tx,
-      participant.id,
-      input,
-      new Date(clock()).toISOString(),
-    );
+        const { edge, person } = await attachGuardianEdge(
+          tx,
+          participant.id,
+          input,
+          new Date(clock()).toISOString(),
+        );
 
-    return projectGuardian(edge, person);
-  });
+        return projectGuardian(edge, person);
+      }),
+    { retries: 0, conflict: "duplicate" as const },
+  );
 
   if (outcome === null) return c.json(participantNotFound, 404);
   if (outcome === "duplicate") return c.json(guardianAlreadyAttached, 409);
