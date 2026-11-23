@@ -2,7 +2,7 @@ import { createDb, createTableSql, defineTable, dropTableSql, eq, integer, text 
 import type { Dialect, InferRow, SqlDatabase } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import { isPermanentFailure, permanentFailure, Queue } from "@lesto/queue";
-import type { RunResult, Worker, WorkOptions } from "@lesto/queue";
+import type { JobEvent, RunResult, Worker, WorkOptions } from "@lesto/queue";
 import { z } from "zod";
 
 import type { EmailTransport } from "../lib/server/email";
@@ -14,6 +14,7 @@ import { coachTitle, lessonTypes } from "./content";
 const JOB_NAME = "lesson_request.email";
 const QUEUE_NAME = "lesson-request-email";
 const MAX_ATTEMPTS = 8;
+const FAILED_JOB_PAGE_SIZE = 100;
 
 export const LESSON_REQUEST_EMAIL_SUBJECT = "New lesson request";
 
@@ -73,6 +74,8 @@ export interface LessonRequestOperations {
   record(request: LessonRequestInput): Promise<string>;
   requestSchedule(): Promise<void>;
   schedulePending(): Promise<number>;
+  /** Re-queues every failed email job whose request is still waiting for its email. */
+  recoverFailed(): Promise<number>;
   runOnce(): Promise<RunResult | null>;
   drain(): Promise<number>;
   work(options?: WorkOptions): Promise<Worker>;
@@ -84,7 +87,11 @@ export interface LessonRequestOptions {
   readonly clock?: () => number;
   readonly delivery?: LessonRequestDelivery;
   readonly onSchedulingError: (error: unknown) => void;
+  /** Receives only the queue job id; never the request or its contents. */
+  readonly onDeliveryFailed?: (jobId: number) => void;
 }
+
+const outboxJobPayload = z.strictObject({ outboxId: z.string().min(1) });
 
 function deliveryKey(lessonRequestId: string): string {
   return `lesson-request:${lessonRequestId}`;
@@ -138,7 +145,7 @@ export function createLessonRequestOperations(
   const nowIso = () => new Date(clock()).toISOString();
 
   queue.define(JOB_NAME, async (payload) => {
-    const parsed = z.strictObject({ outboxId: z.string().min(1) }).safeParse(payload);
+    const parsed = outboxJobPayload.safeParse(payload);
     if (!parsed.success) throw permanentFailure(new Error("Invalid lesson request outbox job."));
 
     const outbox = await db
@@ -184,6 +191,38 @@ export function createLessonRequestOperations(
       .where(eq(lessonRequestOutbox.id, outbox.id))
       .run();
   });
+
+  function observeJob(event: JobEvent): void {
+    if (event.name !== JOB_NAME || event.outcome !== "failed") return;
+    try {
+      options.onDeliveryFailed?.(event.id);
+    } catch {
+      // A broken observer must not change the queue's outcome.
+    }
+  }
+
+  async function isWaiting(outboxId: string): Promise<boolean> {
+    const row = await db
+      .select()
+      .from(lessonRequestOutbox)
+      .where(eq(lessonRequestOutbox.id, outboxId))
+      .get();
+    return row?.status === "pending";
+  }
+
+  async function failedEmailJobs() {
+    const failed = [];
+    for (let offset = 0; ; offset += FAILED_JOB_PAGE_SIZE) {
+      const page = await queue.list({
+        status: "failed",
+        queue: QUEUE_NAME,
+        limit: FAILED_JOB_PAGE_SIZE,
+        offset,
+      });
+      failed.push(...page.filter((job) => job.name === JOB_NAME));
+      if (page.length < FAILED_JOB_PAGE_SIZE) return failed;
+    }
+  }
 
   return {
     async record(input) {
@@ -244,7 +283,17 @@ export function createLessonRequestOperations(
       }
       return scheduled;
     },
-    runOnce: () => queue.runOnce({ queue: QUEUE_NAME }),
+    async recoverFailed() {
+      if (options.delivery === undefined) return 0;
+      let recovered = 0;
+      for (const job of await failedEmailJobs()) {
+        const payload = outboxJobPayload.safeParse(job.payload);
+        if (!payload.success || !(await isWaiting(payload.data.outboxId))) continue;
+        if (await queue.retry(job.id)) recovered += 1;
+      }
+      return recovered;
+    },
+    runOnce: () => queue.runOnce({ queue: QUEUE_NAME, onJob: observeJob }),
     async drain() {
       let processed = 0;
       while ((await this.runOnce()) !== null) processed += 1;
@@ -252,8 +301,16 @@ export function createLessonRequestOperations(
     },
     async work(workOptions = {}) {
       if (options.delivery === undefined) return idleWorker;
+      await this.recoverFailed();
       await this.schedulePending();
-      return queue.work({ ...workOptions, queue: QUEUE_NAME });
+      return queue.work({
+        ...workOptions,
+        queue: QUEUE_NAME,
+        onJob: (event) => {
+          observeJob(event);
+          workOptions.onJob?.(event);
+        },
+      });
     },
   };
 }
