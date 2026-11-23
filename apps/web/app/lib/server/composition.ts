@@ -215,6 +215,10 @@ export function createApplication(options: ApplicationOptions) {
       : { delivery: options.lessonRequestDelivery }),
     onSchedulingError: () =>
       console.error(JSON.stringify({ level: "error", event: "lesson_request.scheduling_failed" })),
+    onDeliveryFailed: (jobId) =>
+      console.error(
+        JSON.stringify({ level: "error", event: "lesson_request.delivery_failed", job_id: jobId }),
+      ),
   });
   const domainApp = buildApp(
     options.db,
