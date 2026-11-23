@@ -787,6 +787,29 @@ describe("roster actions against the real API", () => {
     expect(await rosterNames(ownerCookie, teamId, seasonId)).not.toContain("Taylor Kid");
   });
 
+  it("asks for a new preview when the roster changed during the commit", async () => {
+    const changed: RosterPoster = () =>
+      Promise.resolve({
+        status: 409,
+        json: {
+          error: "The roster changed during this import. Preview the file again.",
+          code: "roster_changed",
+        },
+      });
+
+    expect(
+      await commitRosterImport(
+        "team",
+        "season",
+        [{ displayName: "Taylor Kid", guardians: [] }],
+        changed,
+      ),
+    ).toEqual({
+      ok: false,
+      message: "The roster changed during this import. Preview the file again.",
+    });
+  });
+
   it("offers exactly the relationships the domain accepts", () => {
     expect([...GUARDIAN_RELATIONSHIPS].sort()).toEqual(
       [...guardianRelationshipSchema.shape.relationship.options].sort(),

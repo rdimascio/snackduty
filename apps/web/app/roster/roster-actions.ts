@@ -203,6 +203,12 @@ export async function commitRosterImport(
         summary.skipped === 0 ? "" : ` Skipped ${summary.skipped} already on the roster.`;
       return { ok: true, message: `Imported ${added}.${skipped}` };
     }
+    if (response.status === 409) {
+      return {
+        ok: false,
+        message: "The roster changed during this import. Preview the file again.",
+      };
+    }
     return refusal(response.status, "Some rows changed. Preview the file again.");
   } catch {
     return { ok: false, message: failed };
