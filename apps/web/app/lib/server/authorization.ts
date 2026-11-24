@@ -22,6 +22,51 @@ export interface AuthorizationTarget {
   readonly participantId?: string;
 }
 
+export interface SqlGuard {
+  readonly sql: string;
+  readonly params: readonly unknown[];
+}
+
+/**
+ * One primary-key EXISTS per evidence row the policy judged, each pinned to
+ * the stored values the policy read. A write that ANDs the proof into its
+ * WHERE lands only while that evidence is unchanged. Rows the loader looked
+ * for and did not find need no clause: `evaluatePolicy` is monotone in its
+ * evidence (strongest role wins, roster and guardian checks are `some`), so a
+ * row that appears later can only add access.
+ */
+export type EvidenceProof = readonly SqlGuard[];
+
+type StoredValue = string | null;
+
+function rowUnchanged(table: string, columns: Readonly<Record<string, StoredValue>>): SqlGuard {
+  const entries = Object.entries(columns);
+  return {
+    sql: `EXISTS (SELECT 1 FROM ${table} WHERE ${entries
+      .map(([column, value]) =>
+        value === null ? `${table}.${column} IS NULL` : `${table}.${column} = ?`,
+      )
+      .join(" AND ")})`,
+    params: entries.flatMap(([, value]) => (value === null ? [] : [value])),
+  };
+}
+
+const ALWAYS_TRUE: SqlGuard = { sql: "1 = 1", params: [] };
+
+/** AND several proofs into one WHERE fragment, keeping each identical clause once. */
+export function proofGuard(...proofs: readonly EvidenceProof[]): SqlGuard {
+  const clauses = new Map<string, SqlGuard>();
+  for (const clause of proofs.flat()) {
+    clauses.set(`${clause.sql}\u0000${JSON.stringify(clause.params)}`, clause);
+  }
+  const unique = [...clauses.values()];
+  if (unique.length === 0) return ALWAYS_TRUE;
+  return {
+    sql: unique.map((clause) => clause.sql).join(" AND "),
+    params: unique.flatMap((clause) => clause.params),
+  };
+}
+
 /** Load evidence inside the caller's transaction; the domain alone decides access. */
 export async function authorizationContext(db: Db, personId: string, target: AuthorizationTarget) {
   const account = await db
@@ -82,6 +127,55 @@ export async function authorizationContext(db: Db, personId: string, target: Aut
             ),
           )
           .all();
+  const proof: EvidenceProof = [
+    rowUnchanged("accounts", {
+      id: account.id,
+      person_id: account.personId,
+      status: account.status,
+    }),
+    rowUnchanged("people", { id: person.id, status: person.status }),
+    rowUnchanged("teams", {
+      id: team.id,
+      status: team.status,
+      created_by_person_id: team.createdByPersonId,
+    }),
+    ...(season === undefined
+      ? []
+      : [
+          rowUnchanged("seasons", { id: season.id, team_id: season.teamId, status: season.status }),
+        ]),
+    ...adultRows.map((row) =>
+      rowUnchanged("adult_memberships", {
+        id: row.id,
+        team_id: row.teamId,
+        person_id: row.personId,
+        role: row.role,
+        status: row.status,
+      }),
+    ),
+    ...(child === undefined
+      ? []
+      : [rowUnchanged("participants", { id: child.id, status: child.status })]),
+    ...rosterRows.map((row) =>
+      rowUnchanged("memberships", {
+        id: row.id,
+        team_id: row.teamId,
+        season_id: row.seasonId,
+        member_kind: row.memberKind,
+        member_participant_id: row.memberParticipantId,
+        status: row.status,
+      }),
+    ),
+    ...edges.map((edge) =>
+      rowUnchanged("guardian_relationships", {
+        id: edge.id,
+        guardian_person_id: edge.guardianPersonId,
+        participant_id: edge.participantId,
+        status: edge.status,
+        permissions: edge.permissions,
+      }),
+    ),
+  ];
   const context: PolicyContext = {
     account: accountSchema.parse(account),
     target: {
@@ -117,11 +211,26 @@ export async function authorizationContext(db: Db, personId: string, target: Aut
   return {
     team,
     context,
+    proof,
     actor: {
       accountId: accountIdSchema.parse(account.id),
       personId: personIdSchema.parse(personId),
     },
   };
+}
+
+/** The proof of the evidence behind an allowed decision, or undefined when denied. */
+export async function authorizedTeamOperationProof(
+  db: Db,
+  personId: string,
+  permission: DomainPermission,
+  target: AuthorizationTarget,
+): Promise<EvidenceProof | undefined> {
+  const evidence = await authorizationContext(db, personId, target);
+  return evidence !== undefined &&
+    evaluatePolicy(evidence.actor, permission, evidence.context).allowed
+    ? evidence.proof
+    : undefined;
 }
 
 export async function authorizeTeamOperation(
@@ -130,8 +239,5 @@ export async function authorizeTeamOperation(
   permission: DomainPermission,
   target: AuthorizationTarget,
 ): Promise<boolean> {
-  const evidence = await authorizationContext(db, personId, target);
-  return (
-    evidence !== undefined && evaluatePolicy(evidence.actor, permission, evidence.context).allowed
-  );
+  return (await authorizedTeamOperationProof(db, personId, permission, target)) !== undefined;
 }

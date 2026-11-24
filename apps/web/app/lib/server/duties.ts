@@ -34,6 +34,8 @@ import {
 import { z } from "zod";
 
 import type { SessionService as Sessions } from "./application-contracts";
+import { proofGuard } from "./authorization";
+import type { EvidenceProof, SqlGuard } from "./authorization";
 import { activeApplicationActor } from "./coordination-actor";
 import type {
   CoordinationOperations,
@@ -42,7 +44,7 @@ import type {
 } from "./coordination-contracts";
 import { accounts, authenticatedAdult, people } from "./identity";
 import { activeOccurrenceForOperation, eventOccurrences } from "./occurrence-access";
-import { manageableActiveTeam, readableActiveTeam, teamAccess, teams } from "./teams";
+import { readableActiveTeam, teamAccess, teams } from "./teams";
 
 export const dutySlots = defineTable("duty_slots", {
   id: text("id").primaryKey(),
@@ -141,11 +143,6 @@ function occurrenceAcceptsNewAssignment(
   return occurrence.status === "scheduled" && occurrence.startsAtUtc > now;
 }
 
-interface SqlGuard {
-  readonly sql: string;
-  readonly params: readonly unknown[];
-}
-
 function slotOccurrenceOpenForAssignment(now: string): SqlGuard {
   return {
     sql: "EXISTS (SELECT 1 FROM event_occurrences WHERE event_occurrences.id = duty_slots.occurrence_id AND event_occurrences.status = ? AND event_occurrences.starts_at_utc > ?)",
@@ -172,6 +169,7 @@ function guardedSlotAssignment(command: {
   readonly assigneePersonId: string | null;
   readonly assignedByPersonId: string | null;
   readonly now: string;
+  readonly proof: SqlGuard;
 }) {
   const guards: SqlGuard[] = [
     { sql: "duty_slots.id = ?", params: [command.slotId] },
@@ -180,6 +178,7 @@ function guardedSlotAssignment(command: {
     ...(command.assigneePersonId === null
       ? []
       : [activeAdultWithAccount(command.assigneePersonId)]),
+    command.proof,
   ];
   const assignedAt = command.assigneePersonId === null ? null : command.now;
   return rawChanges(
@@ -201,9 +200,10 @@ function guardedSlotInsert(command: {
   readonly input: z.infer<typeof createDutySlotInputSchema>;
   readonly actorPersonId: string;
   readonly now: string;
+  readonly proof: SqlGuard;
 }) {
   return rawChanges(
-    "INSERT INTO duty_slots (id, team_id, occurrence_id, label, instructions, assignee_person_id, assigned_by_person_id, assigned_at, created_by_person_id, created_at, updated_at) SELECT ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ? WHERE EXISTS (SELECT 1 FROM event_occurrences WHERE event_occurrences.id = ? AND event_occurrences.team_id = ? AND event_occurrences.status = ? AND event_occurrences.starts_at_utc > ?)",
+    `INSERT INTO duty_slots (id, team_id, occurrence_id, label, instructions, assignee_person_id, assigned_by_person_id, assigned_at, created_by_person_id, created_at, updated_at) SELECT ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ? WHERE EXISTS (SELECT 1 FROM event_occurrences WHERE event_occurrences.id = ? AND event_occurrences.team_id = ? AND event_occurrences.status = ? AND event_occurrences.starts_at_utc > ?) AND ${command.proof.sql}`,
     [
       command.id,
       command.teamId,
@@ -217,6 +217,7 @@ function guardedSlotInsert(command: {
       command.teamId,
       "scheduled",
       command.now,
+      ...command.proof.params,
     ],
   );
 }
@@ -242,7 +243,7 @@ async function activeTeamAdult(tx: Db, teamId: string, personId: string) {
 
   const access = await teamAccess(tx, teamId, personId);
 
-  return access === undefined ? undefined : person;
+  return access === undefined ? undefined : { person, proof: access.proof };
 }
 
 function projectDutySlot(
@@ -360,7 +361,11 @@ const operationError = <C extends string>(
   status: 400 | 401 | 404 | 409 | 422,
   code: C,
   error: string,
-): CoordinationResult<never> => ({ ok: false, status, body: { error, code } });
+): Extract<CoordinationResult<never>, { ok: false }> => ({
+  ok: false,
+  status,
+  body: { error, code },
+});
 
 export function createDutyOperations(
   services: CoordinationServices,
@@ -395,17 +400,31 @@ export function createDutyOperations(
       if (!target.success) return operationError(400, "invalid_request", "request is invalid");
 
       const { db } = services;
-      const actor = await activeApplicationActor(db, candidateActor);
-      if (actor === undefined) {
-        return operationError(401, "authentication_required", "authentication required");
-      }
-      const team = await readableActiveTeam(db, target.data.teamId, actor.personId);
-      if (team === undefined) return operationError(404, "team_not_found", "team not found");
-      const resolved = await activeOccurrenceForOperation(db, actor.personId, "season.read", {
-        teamId: team.id,
-        occurrenceId: target.data.occurrenceId,
-      });
-      if (resolved === undefined) return operationError(404, "event_not_found", "event not found");
+      const authorizeClaim = async () => {
+        const actor = await activeApplicationActor(db, candidateActor);
+        if (actor === undefined) {
+          return operationError(401, "authentication_required", "authentication required");
+        }
+        const access = await teamAccess(db, target.data.teamId, actor.personId);
+        if (access === undefined) return operationError(404, "team_not_found", "team not found");
+        const resolved = await activeOccurrenceForOperation(db, actor.personId, "season.read", {
+          teamId: access.team.id,
+          occurrenceId: target.data.occurrenceId,
+        });
+        if (resolved === undefined) {
+          return operationError(404, "event_not_found", "event not found");
+        }
+        return {
+          ok: true as const,
+          actor,
+          team: access.team,
+          resolved,
+          proof: proofGuard(access.proof, resolved.proof),
+        };
+      };
+      const authorized = await authorizeClaim();
+      if (!authorized.ok) return authorized;
+      const { actor, team, resolved, proof } = authorized;
 
       const slotNotFound = () => operationError(404, "duty_slot_not_found", "duty slot not found");
       const slotTaken = () =>
@@ -435,8 +454,13 @@ export function createDutyOperations(
           assigneePersonId: actor.personId,
           assignedByPersonId: actor.personId,
           now,
+          proof,
         }),
       ]);
+      if (claimed.changes === 0) {
+        const reauthorized = await authorizeClaim();
+        if (!reauthorized.ok) return reauthorized;
+      }
       const current = await dutySlotById(db, team.id, resolved.occurrence.id, row.id);
       if (current === undefined) return slotNotFound();
       if (claimed.changes > 0 || current.assigneePersonId === actor.personId) {
@@ -453,6 +477,61 @@ export function createDutyOperations(
   };
 }
 
+type SlotWriteAccess = "manage" | "read";
+
+const SLOT_WRITE_PERMISSION = {
+  manage: "team.operations.manage",
+  read: "season.read",
+} as const;
+
+type SlotWriteAuthorization =
+  | { readonly ok: false; readonly status: 401 | 404; readonly body: { readonly error: string } }
+  | {
+      readonly ok: true;
+      readonly team: { readonly id: string };
+      readonly occurrence: NonNullable<
+        Awaited<ReturnType<typeof activeOccurrenceForOperation>>
+      >["occurrence"];
+      readonly proof: EvidenceProof;
+    };
+
+/** The team and occurrence checks a duty slot write runs before it writes. */
+async function authorizeSlotWrite(
+  db: Db,
+  personId: string,
+  target: { readonly teamId: string; readonly occurrenceId: string },
+  level: SlotWriteAccess,
+): Promise<SlotWriteAuthorization> {
+  const access = await teamAccess(db, target.teamId, personId);
+  if (access === undefined || (level === "manage" && !access.capabilities.manage)) {
+    return { ok: false, status: 404, body: teamNotFound };
+  }
+  const resolved = await activeOccurrenceForOperation(db, personId, SLOT_WRITE_PERMISSION[level], {
+    teamId: access.team.id,
+    occurrenceId: target.occurrenceId,
+  });
+  if (resolved === undefined) return { ok: false, status: 404, body: eventNotFound };
+  return {
+    ok: true,
+    team: access.team,
+    occurrence: resolved.occurrence,
+    proof: [...access.proof, ...resolved.proof],
+  };
+}
+
+/** Run every check of the request again, from the session on. */
+async function reauthorizeSlotWrite(
+  db: Db,
+  sessions: Sessions,
+  cookie: string | undefined,
+  target: { readonly teamId: string; readonly occurrenceId: string },
+  level: SlotWriteAccess,
+): Promise<SlotWriteAuthorization> {
+  const identity = await authenticatedAdult(db, sessions, cookie);
+  if (identity === undefined) return { ok: false, status: 401, body: unauthorized };
+  return authorizeSlotWrite(db, identity.person.id, target, level);
+}
+
 async function createDutySlot(
   c: Context<"/api/teams/:teamId/occurrences/:occurrenceId/duty-slots">,
   db: Db,
@@ -463,17 +542,12 @@ async function createDutySlot(
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const input = c.valid(createDutySlotInputSchema);
-  const team = await manageableActiveTeam(db, c.param("teamId"), identity.person.id);
-  if (team === undefined) return c.json(teamNotFound, 404);
-  const resolved = await activeOccurrenceForOperation(
-    db,
-    identity.person.id,
-    "team.operations.manage",
-    { teamId: team.id, occurrenceId: c.param("occurrenceId") },
-  );
-  if (resolved === undefined) return c.json(eventNotFound, 404);
+  const target = { teamId: c.param("teamId"), occurrenceId: c.param("occurrenceId") };
+  const authorized = await authorizeSlotWrite(db, identity.person.id, target, "manage");
+  if (!authorized.ok) return c.json(authorized.body, authorized.status);
+  const { team, occurrence, proof } = authorized;
   const now = new Date(clock()).toISOString();
-  if (!occurrenceAcceptsNewAssignment(resolved.occurrence, now)) {
+  if (!occurrenceAcceptsNewAssignment(occurrence, now)) {
     return c.json(occurrenceUnavailable, 409);
   }
 
@@ -482,19 +556,26 @@ async function createDutySlot(
     guardedSlotInsert({
       id: slotId,
       teamId: team.id,
-      occurrenceId: resolved.occurrence.id,
+      occurrenceId: occurrence.id,
       input,
       actorPersonId: identity.person.id,
       now,
+      proof: proofGuard(proof),
     }),
   ]);
   if (inserted.changes === 0) {
-    const occurrence = await occurrenceById(db, resolved.occurrence.id);
-    return occurrence === undefined
-      ? c.json(eventNotFound, 404)
-      : c.json(occurrenceUnavailable, 409);
+    const reauthorized = await reauthorizeSlotWrite(
+      db,
+      sessions,
+      c.header("cookie"),
+      target,
+      "manage",
+    );
+    if (!reauthorized.ok) return c.json(reauthorized.body, reauthorized.status);
+    const current = await occurrenceById(db, occurrence.id);
+    return current === undefined ? c.json(eventNotFound, 404) : c.json(occurrenceUnavailable, 409);
   }
-  const row = await dutySlotById(db, team.id, resolved.occurrence.id, slotId);
+  const row = await dutySlotById(db, team.id, occurrence.id, slotId);
   if (row === undefined) throw new Error("Duty slot disappeared after create.");
   return c.json({ dutySlot: await projectedDutySlotRow(db, row) }, 201);
 }
@@ -556,14 +637,10 @@ async function releaseDutySlot(
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const team = await readableActiveTeam(db, c.param("teamId"), identity.person.id);
-  if (team === undefined) return c.json(teamNotFound, 404);
-  const resolved = await activeOccurrenceForOperation(db, identity.person.id, "season.read", {
-    teamId: team.id,
-    occurrenceId: c.param("occurrenceId"),
-  });
-  if (resolved === undefined) return c.json(eventNotFound, 404);
-  const occurrence = resolved.occurrence;
+  const target = { teamId: c.param("teamId"), occurrenceId: c.param("occurrenceId") };
+  const authorized = await authorizeSlotWrite(db, identity.person.id, target, "read");
+  if (!authorized.ok) return c.json(authorized.body, authorized.status);
+  const { team, occurrence, proof } = authorized;
   const slot = await dutySlotById(db, team.id, occurrence.id, c.param("slotId"));
   if (slot === undefined) return c.json(dutyNotFound, 404);
   if (slot.assigneePersonId !== null && slot.assigneePersonId !== identity.person.id) {
@@ -582,8 +659,19 @@ async function releaseDutySlot(
       assigneePersonId: null,
       assignedByPersonId: null,
       now,
+      proof: proofGuard(proof),
     }),
   ]);
+  if (released.changes === 0) {
+    const reauthorized = await reauthorizeSlotWrite(
+      db,
+      sessions,
+      c.header("cookie"),
+      target,
+      "read",
+    );
+    if (!reauthorized.ok) return c.json(reauthorized.body, reauthorized.status);
+  }
   const row = await dutySlotById(db, team.id, occurrence.id, slot.id);
   if (row === undefined) return c.json(dutyNotFound, 404);
   if (released.changes > 0 || row.assigneePersonId === null) return releasedSlot(row);
@@ -601,16 +689,10 @@ async function assignDutySlot(
   if (identity === undefined) return c.json(unauthorized, 401);
 
   const input = c.valid(assignDutySlotInputSchema);
-  const team = await manageableActiveTeam(db, c.param("teamId"), identity.person.id);
-  if (team === undefined) return c.json(teamNotFound, 404);
-  const resolved = await activeOccurrenceForOperation(
-    db,
-    identity.person.id,
-    "team.operations.manage",
-    { teamId: team.id, occurrenceId: c.param("occurrenceId") },
-  );
-  if (resolved === undefined) return c.json(eventNotFound, 404);
-  const occurrence = resolved.occurrence;
+  const target = { teamId: c.param("teamId"), occurrenceId: c.param("occurrenceId") };
+  const authorized = await authorizeSlotWrite(db, identity.person.id, target, "manage");
+  if (!authorized.ok) return c.json(authorized.body, authorized.status);
+  const { team, occurrence } = authorized;
   const slot = await dutySlotById(db, team.id, occurrence.id, c.param("slotId"));
   if (slot === undefined) return c.json(dutyNotFound, 404);
 
@@ -619,12 +701,14 @@ async function assignDutySlot(
   if (slot.assigneePersonId === input.assigneePersonId) return assignedSlot(slot);
   const now = new Date(clock()).toISOString();
   if (!occurrenceAcceptsNewAssignment(occurrence, now)) return c.json(occurrenceUnavailable, 409);
-  if (
-    input.assigneePersonId !== null &&
-    (await activeTeamAdult(db, team.id, input.assigneePersonId)) === undefined
-  ) {
+  const assignee =
+    input.assigneePersonId === null
+      ? undefined
+      : await activeTeamAdult(db, team.id, input.assigneePersonId);
+  if (input.assigneePersonId !== null && assignee === undefined) {
     return c.json(adultNotFound, 404);
   }
+  const proof = proofGuard(authorized.proof, assignee?.proof ?? []);
 
   const [assigned] = await db.batch([
     guardedSlotAssignment({
@@ -633,8 +717,19 @@ async function assignDutySlot(
       assigneePersonId: input.assigneePersonId,
       assignedByPersonId: input.assigneePersonId === null ? null : identity.person.id,
       now,
+      proof,
     }),
   ]);
+  if (assigned.changes === 0) {
+    const reauthorized = await reauthorizeSlotWrite(
+      db,
+      sessions,
+      c.header("cookie"),
+      target,
+      "manage",
+    );
+    if (!reauthorized.ok) return c.json(reauthorized.body, reauthorized.status);
+  }
   const row = await dutySlotById(db, team.id, occurrence.id, slot.id);
   if (row === undefined) return c.json(dutyNotFound, 404);
   if (assigned.changes > 0 || row.assigneePersonId === input.assigneePersonId) {

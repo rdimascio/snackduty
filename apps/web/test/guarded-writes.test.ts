@@ -382,6 +382,158 @@ describe("attendance guards hold when state changes between the read and the wri
   });
 });
 
+describe("a write refuses when the actor's access is revoked between the check and the write", () => {
+  function setAdultRole(role: string) {
+    return config.db
+      .prepare("UPDATE adult_memberships SET role = ? WHERE person_id = ?")
+      .run([role, ADULT_ID]);
+  }
+
+  function revokeAdultMembership() {
+    return async (sql: SqlDatabase) => {
+      await sql
+        .prepare("UPDATE adult_memberships SET status = 'revoked' WHERE person_id = ?")
+        .run([ADULT_ID]);
+    };
+  }
+
+  function downgradeAdultToReader() {
+    return async (sql: SqlDatabase) => {
+      await sql
+        .prepare("UPDATE adult_memberships SET role = 'adult' WHERE person_id = ?")
+        .run([ADULT_ID]);
+    };
+  }
+
+  function suspendAdultAccount() {
+    return async (sql: SqlDatabase) => {
+      await sql
+        .prepare("UPDATE accounts SET status = 'suspended' WHERE person_id = ?")
+        .run([ADULT_ID]);
+    };
+  }
+
+  it("refuses a claim when the claimant's team membership is revoked first", async () => {
+    const fixture = await buildFixture();
+    const slotId = await createSlot(fixture);
+
+    between.beforeNextBatch("UPDATE duty_slots", revokeAdultMembership());
+    const response = await slotAction(fixture, fixture.adultCookie, slotId, "claim");
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(404);
+    expect(json(response)).toEqual({ error: "team not found" });
+    expect(await assigneeOf(slotId)).toBeNull();
+  });
+
+  it("creates no slot when the coach is downgraded first", async () => {
+    const fixture = await buildFixture();
+    await setAdultRole("coach");
+
+    between.beforeNextBatch("INSERT INTO duty_slots", downgradeAdultToReader());
+    const response = await app.handle("POST", slotsPath(fixture), {
+      headers: { ...sameOrigin, cookie: fixture.adultCookie },
+      body: { label: "Bring fruit" },
+    });
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(404);
+    expect(json(response)).toEqual({ error: "team not found" });
+    expect(await config.db.prepare("SELECT COUNT(*) AS count FROM duty_slots").get()).toEqual({
+      count: 0,
+    });
+  });
+
+  it("keeps the claim when the claimant's account is suspended before the release", async () => {
+    const fixture = await buildFixture();
+    const slotId = await createSlot(fixture);
+    expect((await slotAction(fixture, fixture.adultCookie, slotId, "claim")).status).toBe(200);
+
+    between.beforeNextBatch("UPDATE duty_slots", suspendAdultAccount());
+    const response = await slotAction(fixture, fixture.adultCookie, slotId, "release");
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(401);
+    expect(json(response)).toEqual({ error: "authentication required" });
+    expect(await assigneeOf(slotId)).toBe(ADULT_ID);
+  });
+
+  it("refuses an assignment when the assigning coach is downgraded first", async () => {
+    const fixture = await buildFixture();
+    const slotId = await createSlot(fixture);
+    await setAdultRole("coach");
+
+    between.beforeNextBatch("UPDATE duty_slots", downgradeAdultToReader());
+    const response = await slotAction(fixture, fixture.adultCookie, slotId, "assignment", {
+      assigneePersonId: OWNER_ID,
+    });
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(404);
+    expect(json(response)).toEqual({ error: "team not found" });
+    expect(await assigneeOf(slotId)).toBeNull();
+  });
+
+  it("records no attendance when the guardian edge is revoked first", async () => {
+    const fixture = await buildFixture();
+    const now = new Date().toISOString();
+    await config.db
+      .prepare(
+        "INSERT INTO guardian_relationships (id, guardian_person_id, participant_id, relationship, status, permissions, created_at, updated_at) VALUES (?, ?, ?, 'parent', 'active', ?, ?, ?)",
+      )
+      .run([
+        "guardian_in_flight",
+        ADULT_ID,
+        fixture.participantId,
+        '["participant.read","participant.manage"]',
+        now,
+        now,
+      ]);
+
+    between.beforeNextBatch("INSERT INTO event_attendance", async (sql) => {
+      await sql
+        .prepare("UPDATE guardian_relationships SET status = 'revoked' WHERE id = ?")
+        .run(["guardian_in_flight"]);
+    });
+    const response = await app.handle(
+      "POST",
+      `/api/teams/${fixture.teamId}/occurrences/${fixture.occurrenceId}/attendance`,
+      {
+        headers: { ...sameOrigin, cookie: fixture.adultCookie },
+        body: { participantId: fixture.participantId, status: "yes" },
+      },
+    );
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(404);
+    expect(json(response)).toEqual({ error: "participant not found" });
+    expect(await config.db.prepare("SELECT COUNT(*) AS count FROM event_attendance").get()).toEqual(
+      { count: 0 },
+    );
+  });
+
+  it("leaves the occurrence scheduled when the cancelling coach is downgraded first", async () => {
+    const fixture = await buildFixture();
+    await setAdultRole("coach");
+
+    between.beforeNextBatch("UPDATE event_occurrences", downgradeAdultToReader());
+    const response = await app.handle(
+      "POST",
+      `/api/teams/${fixture.teamId}/occurrences/${fixture.occurrenceId}/cancel`,
+      { headers: { ...sameOrigin, cookie: fixture.adultCookie }, body: { reason: "Rain" } },
+    );
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(404);
+    expect(json(response)).toEqual({ error: "team not found" });
+    expect(
+      await config.db
+        .prepare("SELECT status, cancelled_reason FROM event_occurrences WHERE id = ?")
+        .get([fixture.occurrenceId]),
+    ).toEqual({ status: "scheduled", cancelled_reason: null });
+  });
+});
+
 describe("cancel occurrence guard holds when another cancel lands first", () => {
   it("keeps the first human reason", async () => {
     const fixture = await buildFixture();

@@ -202,6 +202,7 @@ export async function teamAccess(tx: Db, teamId: string, personId: string) {
     team: evidence.team,
     level: capabilities.manage ? ("manage" as const) : ("read" as const),
     capabilities,
+    proof: evidence.proof,
   };
 }
 

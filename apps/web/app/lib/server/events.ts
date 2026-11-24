@@ -36,8 +36,7 @@ import {
   dropTableSql,
   eq,
   inList,
-  ne,
-  or,
+  rawChanges,
   text,
 } from "@lesto/db";
 import type { Db } from "@lesto/db";
@@ -57,6 +56,8 @@ import type { CreateEventInput, EventSchedule } from "@snackday/domain";
 import { z } from "zod";
 
 import type { SessionService as Sessions } from "./application-contracts";
+import { proofGuard } from "./authorization";
+import type { SqlGuard } from "./authorization";
 import { activeApplicationActor } from "./coordination-actor";
 import type {
   ApplicationActor,
@@ -76,7 +77,7 @@ import {
   eventSeries,
 } from "./occurrence-access";
 import { participants } from "./roster";
-import { manageableActiveTeam, readableActiveTeam, teams } from "./teams";
+import { manageableActiveTeam, readableActiveTeam, teamAccess, teams } from "./teams";
 
 export { eventOccurrences, eventSeries } from "./occurrence-access";
 
@@ -771,46 +772,98 @@ async function cancelOccurrence(
   // cancellation undone by the next edit; the marker is not theirs to write.
   if (input.reason === RESCHEDULE_CANCEL_REASON) return c.json(reservedCancelReason, 422);
 
-  const team = await manageableActiveTeam(db, c.param("teamId"), identity.person.id);
-  if (team === undefined) return c.json(teamNotFound, 404);
-
-  const resolved = await activeOccurrenceForOperation(
-    db,
-    identity.person.id,
-    "team.operations.manage",
-    { teamId: team.id, occurrenceId: c.param("occurrenceId") },
-  );
-  if (resolved === undefined) return c.json(eventNotFound, 404);
-  const row = resolved.occurrence;
+  const target = { teamId: c.param("teamId"), occurrenceId: c.param("occurrenceId") };
+  const authorized = await authorizeOccurrenceCancel(db, identity.person.id, target);
+  if (!authorized.ok) return c.json(authorized.body, authorized.status);
+  const row = authorized.occurrence;
   // Cancelling an already-cancelled occurrence is an idempotent no-op that
   // PRESERVES a human's original reason: the caller's intent ("this must not
   // happen") already holds, and history is not rewritten. OUR marker is the
   // exception — it is a machine annotation, not history, and leaving it in
   // place would let the next schedule edit reinstate an occurrence a human
   // has now explicitly cancelled.
-  if (row.status === "cancelled" && row.cancelledReason !== RESCHEDULE_CANCEL_REASON) {
-    return c.json({ occurrence: projectEventOccurrence(row) });
-  }
+  if (cancelledByHuman(row)) return c.json({ occurrence: projectEventOccurrence(row) });
 
-  const cancellableByHuman = or(
-    ne(eventOccurrences.status, "cancelled"),
-    eq(eventOccurrences.cancelledReason, RESCHEDULE_CANCEL_REASON),
-  );
   const now = new Date(clock()).toISOString();
-  await db.batch([
-    db
-      .update(eventOccurrences)
-      .set({ status: "cancelled", cancelledReason: input.reason, cancelledAt: now, updatedAt: now })
-      .where(and(eq(eventOccurrences.id, row.id), cancellableByHuman)),
+  const [written] = await db.batch([
+    guardedHumanCancel({
+      occurrenceId: row.id,
+      reason: input.reason,
+      now,
+      proof: authorized.proof,
+    }),
   ]);
+  if (written.changes === 0) {
+    const identityNow = await authenticatedAdult(db, sessions, c.header("cookie"));
+    if (identityNow === undefined) return c.json(unauthorized, 401);
+    const reauthorized = await authorizeOccurrenceCancel(db, identityNow.person.id, target);
+    if (!reauthorized.ok) return c.json(reauthorized.body, reauthorized.status);
+  }
   const cancelled = await db
     .select()
     .from(eventOccurrences)
     .where(eq(eventOccurrences.id, row.id))
     .get();
   if (cancelled === undefined) return c.json(eventNotFound, 404);
+  if (written.changes === 0 && !cancelledByHuman(cancelled)) return c.json(eventNotFound, 404);
 
   return c.json({ occurrence: projectEventOccurrence(cancelled) });
+}
+
+function cancelledByHuman(row: { status: string; cancelledReason: string | null }): boolean {
+  return row.status === "cancelled" && row.cancelledReason !== RESCHEDULE_CANCEL_REASON;
+}
+
+function guardedHumanCancel(command: {
+  readonly occurrenceId: string;
+  readonly reason: string;
+  readonly now: string;
+  readonly proof: SqlGuard;
+}) {
+  return rawChanges(
+    `UPDATE event_occurrences SET status = ?, cancelled_reason = ?, cancelled_at = ?, updated_at = ? WHERE event_occurrences.id = ? AND (event_occurrences.status <> ? OR event_occurrences.cancelled_reason = ?) AND ${command.proof.sql}`,
+    [
+      "cancelled",
+      command.reason,
+      command.now,
+      command.now,
+      command.occurrenceId,
+      "cancelled",
+      RESCHEDULE_CANCEL_REASON,
+      ...command.proof.params,
+    ],
+  );
+}
+
+type OccurrenceCancelAuthorization =
+  | { readonly ok: false; readonly status: 404; readonly body: { readonly error: string } }
+  | {
+      readonly ok: true;
+      readonly occurrence: NonNullable<
+        Awaited<ReturnType<typeof activeOccurrenceForOperation>>
+      >["occurrence"];
+      readonly proof: SqlGuard;
+    };
+
+async function authorizeOccurrenceCancel(
+  db: Db,
+  personId: string,
+  target: { readonly teamId: string; readonly occurrenceId: string },
+): Promise<OccurrenceCancelAuthorization> {
+  const access = await teamAccess(db, target.teamId, personId);
+  if (access === undefined || !access.capabilities.manage) {
+    return { ok: false, status: 404, body: teamNotFound };
+  }
+  const resolved = await activeOccurrenceForOperation(db, personId, "team.operations.manage", {
+    teamId: access.team.id,
+    occurrenceId: target.occurrenceId,
+  });
+  if (resolved === undefined) return { ok: false, status: 404, body: eventNotFound };
+  return {
+    ok: true,
+    occurrence: resolved.occurrence,
+    proof: proofGuard(access.proof, resolved.proof),
+  };
 }
 
 /** Attendance folded to counts — the only attendance shape every reader gets. */
