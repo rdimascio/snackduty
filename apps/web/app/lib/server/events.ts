@@ -568,27 +568,21 @@ export function createEventOperations(
       const target = seasonTargetSchema.safeParse(targetInput);
       if (!target.success) return operationError(400, "invalid_request", "request is invalid");
 
-      return services.db.transaction(async (tx) => {
-        const actor = await activeApplicationActor(tx, candidateActor);
-        if (actor === undefined) {
-          return operationError(401, "authentication_required", "authentication required");
-        }
-        const team = await readableActiveTeam(tx, target.data.teamId, actor.personId);
-        if (team === undefined) return operationError(404, "team_not_found", "team not found");
-        const season = await activeSeasonForOperation(
-          tx,
-          actor.personId,
-          "season.read",
-          target.data,
-        );
-        if (season === undefined) return operationError(404, "team_not_found", "team not found");
-        return {
-          ok: true,
-          value: seasonEventsResponseSchema.parse({
-            events: await loadSeasonEvents(tx, team.id, season.id),
-          }),
-        };
-      });
+      const { db } = services;
+      const actor = await activeApplicationActor(db, candidateActor);
+      if (actor === undefined) {
+        return operationError(401, "authentication_required", "authentication required");
+      }
+      const team = await readableActiveTeam(db, target.data.teamId, actor.personId);
+      if (team === undefined) return operationError(404, "team_not_found", "team not found");
+      const season = await activeSeasonForOperation(db, actor.personId, "season.read", target.data);
+      if (season === undefined) return operationError(404, "team_not_found", "team not found");
+      return {
+        ok: true,
+        value: seasonEventsResponseSchema.parse({
+          events: await loadSeasonEvents(db, team.id, season.id),
+        }),
+      };
     },
   };
 }
@@ -968,14 +962,10 @@ async function listTeamEvents(c: Context<"/api/teams/:teamId/events">, db: Db, s
   const identity = await authenticatedAdult(db, sessions, c.header("cookie"));
   if (identity === undefined) return c.json(unauthorized, 401);
 
-  const events = await db.transaction(async (tx) => {
-    const team = await readableActiveTeam(tx, c.param("teamId"), identity.person.id);
-    if (team === undefined) return null;
-    return loadTeamEvents(tx, team.id, identity.person.id);
-  });
-  if (events === null) return c.json(teamNotFound, 404);
+  const team = await readableActiveTeam(db, c.param("teamId"), identity.person.id);
+  if (team === undefined) return c.json(teamNotFound, 404);
 
-  return c.json({ events });
+  return c.json({ events: await loadTeamEvents(db, team.id, identity.person.id) });
 }
 
 async function listSelectedSeasonEvents(

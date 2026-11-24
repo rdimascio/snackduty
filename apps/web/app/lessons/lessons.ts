@@ -359,37 +359,36 @@ export async function readTeamLesson(
   teamId: string,
 ): Promise<LessonResult<TeamLessonView>> {
   const lessons = await services.catalog.load();
-  return services.db.transaction(async (tx) => {
-    const access = await teamAccess(tx, teamId, personId);
-    if (access === undefined) return teamNotFound;
-    const current = await currentTeamLesson(services, lessons, tx, access.team.id);
-    if (current === undefined) return lessonNotFound;
-    const { lesson } = current;
+  const { db } = services;
+  const access = await teamAccess(db, teamId, personId);
+  if (access === undefined) return teamNotFound;
+  const current = await currentTeamLesson(services, lessons, db, access.team.id);
+  if (current === undefined) return lessonNotFound;
+  const { lesson } = current;
 
-    const roster = await teamParticipantIds(tx, access.team.id);
-    const answers = await episodeAnswers(tx, lesson, roster);
-    const progress = [];
-    for (const participantId of roster) {
-      if (await mayManageParticipant(tx, personId, access.team.id, participantId)) {
-        progress.push({
-          participantId,
-          answers: answers
-            .filter((answer) => answer.participantId === participantId)
-            .flatMap((answer) => withFeedback(lesson, answer)),
-        });
-      }
+  const roster = await teamParticipantIds(db, access.team.id);
+  const answers = await episodeAnswers(db, lesson, roster);
+  const progress = [];
+  for (const participantId of roster) {
+    if (await mayManageParticipant(db, personId, access.team.id, participantId)) {
+      progress.push({
+        participantId,
+        answers: answers
+          .filter((answer) => answer.participantId === participantId)
+          .flatMap((answer) => withFeedback(lesson, answer)),
+      });
     }
-    return {
-      ok: true,
-      value: {
-        lesson: publicLesson(lesson),
-        progress,
-        ...(access.capabilities.manage
-          ? { completedParticipants: countCompletedParticipants(lesson, answers) }
-          : {}),
-      },
-    };
-  });
+  }
+  return {
+    ok: true,
+    value: {
+      lesson: publicLesson(lesson),
+      progress,
+      ...(access.capabilities.manage
+        ? { completedParticipants: countCompletedParticipants(lesson, answers) }
+        : {}),
+    },
+  };
 }
 
 const upsertLessonAnswerSql = `INSERT INTO lesson_answers (id, participant_id, series_id, episode_slug, quiz_id, answer_index, outcome, recorded_by_person_id, answered_at, created_at)

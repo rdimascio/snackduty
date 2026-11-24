@@ -47,17 +47,16 @@ export async function readSkillCard(
   teamId: string,
   participantId: string,
 ): Promise<LessonResult<Card>> {
-  return services.db.transaction(async (tx) => {
-    const access = await teamAccess(tx, teamId, personId);
-    if (access === undefined) return teamNotFound;
-    if (!(await mayReadParticipantCard(tx, personId, access.team.id, participantId))) {
-      return participantNotFound;
-    }
-    return {
-      ok: true,
-      value: await participantCard(tx, participantId),
-    };
-  });
+  const { db } = services;
+  const access = await teamAccess(db, teamId, personId);
+  if (access === undefined) return teamNotFound;
+  if (!(await mayReadParticipantCard(db, personId, access.team.id, participantId))) {
+    return participantNotFound;
+  }
+  return {
+    ok: true,
+    value: await participantCard(db, participantId),
+  };
 }
 
 async function readablePlayerCards(tx: Db, personId: string): Promise<PlayerCard[]> {
@@ -83,7 +82,7 @@ export async function readPlayerCards(
   services: SkillCardServices,
   personId: string,
 ): Promise<readonly PlayerCard[]> {
-  return services.db.transaction((tx) => readablePlayerCards(tx, personId));
+  return readablePlayerCards(services.db, personId);
 }
 
 export async function loadPlayerCards(

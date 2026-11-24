@@ -288,26 +288,24 @@ export function createDutyOperations(
       const target = occurrenceTargetSchema.safeParse(targetInput);
       if (!target.success) return operationError(400, "invalid_request", "request is invalid");
 
-      return services.db.transaction(async (tx) => {
-        const actor = await activeApplicationActor(tx, candidateActor);
-        if (actor === undefined) {
-          return operationError(401, "authentication_required", "authentication required");
-        }
-        const team = await readableActiveTeam(tx, target.data.teamId, actor.personId);
-        if (team === undefined) return operationError(404, "team_not_found", "team not found");
-        const resolved = await activeOccurrenceForOperation(tx, actor.personId, "season.read", {
-          teamId: team.id,
-          occurrenceId: target.data.occurrenceId,
-        });
-        if (resolved === undefined)
-          return operationError(404, "event_not_found", "event not found");
-        return {
-          ok: true,
-          value: dutySlotsResponseSchema.parse({
-            dutySlots: await projectedDutySlots(tx, team.id, resolved.occurrence.id),
-          }),
-        };
+      const { db } = services;
+      const actor = await activeApplicationActor(db, candidateActor);
+      if (actor === undefined) {
+        return operationError(401, "authentication_required", "authentication required");
+      }
+      const team = await readableActiveTeam(db, target.data.teamId, actor.personId);
+      if (team === undefined) return operationError(404, "team_not_found", "team not found");
+      const resolved = await activeOccurrenceForOperation(db, actor.personId, "season.read", {
+        teamId: team.id,
+        occurrenceId: target.data.occurrenceId,
       });
+      if (resolved === undefined) return operationError(404, "event_not_found", "event not found");
+      return {
+        ok: true,
+        value: dutySlotsResponseSchema.parse({
+          dutySlots: await projectedDutySlots(db, team.id, resolved.occurrence.id),
+        }),
+      };
     },
 
     async claimDutySlot(candidateActor, targetInput) {

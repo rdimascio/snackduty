@@ -1,5 +1,5 @@
 import { and, createDb, createTableSql, defineTable, dropTableSql, eq, gt, text } from "@lesto/db";
-import type { Db, Dialect, SqlDatabase } from "@lesto/db";
+import type { BatchQuery, Db, Dialect, SqlDatabase } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import { isPermanentFailure, permanentFailure, Queue } from "@lesto/queue";
 import type { RunResult, Worker, WorkOptions } from "@lesto/queue";
@@ -158,10 +158,13 @@ export interface InvitationDeliveryIntent {
   readonly queuedByPersonId: string;
 }
 
+/** Seals one delivery intent into the outbox insert; the caller runs it in its own batch. */
+export type PersistInvitationDelivery = (
+  intent: InvitationDeliveryIntent,
+) => Promise<BatchQuery<{ changes: number }>>;
+
 export interface InvitationOutbox {
-  transaction<R>(
-    operation: (db: Db, persist: (intent: InvitationDeliveryIntent) => Promise<void>) => Promise<R>,
-  ): Promise<R>;
+  transaction<R>(operation: (db: Db, persist: PersistInvitationDelivery) => Promise<R>): Promise<R>;
   requestSchedule(): Promise<void>;
   schedulePending(): Promise<number>;
   runOnce(): Promise<RunResult | null>;
@@ -360,23 +363,19 @@ export function createInvitationOutboxOperations(
             ...intent.delivery,
             idempotencyKey: key,
           });
-          const id = `invitation_delivery_${crypto.randomUUID()}`;
-          await transactionDb
-            .insert(invitationOutbox)
-            .values({
-              id,
-              invitationId: intent.invitationId,
-              deliveryKey: key,
-              tokenHash: intent.tokenHash,
-              queuedByPersonId: intent.queuedByPersonId,
-              encryptedPayload,
-              status: "pending",
-              createdAt: nowIso,
-              updatedAt: nowIso,
-              queuedAt: null,
-              deliveredAt: null,
-            })
-            .run();
+          return transactionDb.insert(invitationOutbox).values({
+            id: `invitation_delivery_${crypto.randomUUID()}`,
+            invitationId: intent.invitationId,
+            deliveryKey: key,
+            tokenHash: intent.tokenHash,
+            queuedByPersonId: intent.queuedByPersonId,
+            encryptedPayload,
+            status: "pending",
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            queuedAt: null,
+            deliveredAt: null,
+          });
         });
       });
     },

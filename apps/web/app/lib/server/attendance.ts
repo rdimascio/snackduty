@@ -224,125 +224,123 @@ export function createAttendanceOperations(
       const target = occurrenceTargetSchema.safeParse(targetInput);
       if (!target.success) return operationError(400, "invalid_request", "request is invalid");
 
-      return services.db.transaction(async (tx) => {
-        const actor = await activeApplicationActor(tx, candidateActor);
-        if (actor === undefined) {
-          return operationError(401, "authentication_required", "authentication required");
-        }
-        const access = await teamAccess(tx, target.data.teamId, actor.personId);
-        if (access === undefined) return operationError(404, "team_not_found", "team not found");
-        const found = await activeOccurrenceForOperation(tx, actor.personId, "season.read", {
-          teamId: access.team.id,
-          occurrenceId: target.data.occurrenceId,
-        });
-        if (found === undefined) return operationError(404, "event_not_found", "event not found");
-
-        const rows = await tx
-          .select()
-          .from(eventAttendance)
-          .where(eq(eventAttendance.occurrenceId, found.occurrence.id))
-          .all();
-        const counts =
-          (await attendanceCountsByOccurrence(tx, [found.occurrence.id])).get(
-            found.occurrence.id,
-          ) ?? emptyAttendanceCounts();
-        const readableRows = [];
-        for (const row of rows) {
-          if (
-            await authorizeTeamOperation(tx, actor.personId, "participant.read", {
-              teamId: access.team.id,
-              seasonId: found.series.seasonId,
-              participantId: row.participantId,
-            })
-          ) {
-            readableRows.push(row);
-          }
-        }
-
-        const rosterMemberships = await tx
-          .select()
-          .from(memberships)
-          .where(
-            and(
-              eq(memberships.teamId, access.team.id),
-              eq(memberships.seasonId, found.series.seasonId),
-              eq(memberships.memberKind, "participant"),
-              eq(memberships.status, "active"),
-            ),
-          )
-          .all();
-        const rosterIds = [
-          ...new Set(
-            rosterMemberships.flatMap((membership) =>
-              membership.memberParticipantId === null ? [] : [membership.memberParticipantId],
-            ),
-          ),
-        ];
-        const rosterParticipants =
-          rosterIds.length === 0
-            ? []
-            : await tx
-                .select()
-                .from(participants)
-                .where(and(inList(participants.id, rosterIds), eq(participants.status, "active")))
-                .all();
-        const manageableParticipants = [];
-        for (const participant of rosterParticipants) {
-          if (
-            await authorizeTeamOperation(tx, actor.personId, "participant.manage", {
-              teamId: access.team.id,
-              seasonId: found.series.seasonId,
-              participantId: participant.id,
-            })
-          ) {
-            manageableParticipants.push(participant);
-          }
-        }
-
-        const allParticipants = new Map(
-          [
-            ...readableRows.map((row) => row.participantId),
-            ...manageableParticipants.map((row) => row.id),
-          ]
-            .map((id) => [id, rosterParticipants.find((participant) => participant.id === id)])
-            .filter(
-              (entry): entry is [string, (typeof rosterParticipants)[number]] =>
-                entry[1] !== undefined,
-            ),
-        );
-        const names = await participantNames(tx, [...allParticipants.values()]);
-        const entries = readableRows
-          .map((row) => ({
-            ...projectAttendance(row),
-            displayName: names.get(row.participantId) ?? "",
-          }))
-          .sort(
-            (left, right) =>
-              left.displayName.localeCompare(right.displayName) ||
-              left.participantId.localeCompare(right.participantId),
-          );
-        const statusByParticipant = new Map(rows.map((row) => [row.participantId, row.status]));
-        const responseOptions = manageableParticipants
-          .map((participant) => ({
-            participantId: participant.id,
-            displayName: names.get(participant.id) ?? "",
-            ...(statusByParticipant.get(participant.id) === undefined
-              ? {}
-              : { status: statusByParticipant.get(participant.id) }),
-          }))
-          .sort(
-            (left, right) =>
-              left.displayName.localeCompare(right.displayName) ||
-              left.participantId.localeCompare(right.participantId),
-          );
-
-        return {
-          ok: true,
-          value: attendanceReadResponseSchema.parse({
-            attendance: { counts, entries, responseOptions },
-          }),
-        };
+      const { db } = services;
+      const actor = await activeApplicationActor(db, candidateActor);
+      if (actor === undefined) {
+        return operationError(401, "authentication_required", "authentication required");
+      }
+      const access = await teamAccess(db, target.data.teamId, actor.personId);
+      if (access === undefined) return operationError(404, "team_not_found", "team not found");
+      const found = await activeOccurrenceForOperation(db, actor.personId, "season.read", {
+        teamId: access.team.id,
+        occurrenceId: target.data.occurrenceId,
       });
+      if (found === undefined) return operationError(404, "event_not_found", "event not found");
+
+      const rows = await db
+        .select()
+        .from(eventAttendance)
+        .where(eq(eventAttendance.occurrenceId, found.occurrence.id))
+        .all();
+      const counts =
+        (await attendanceCountsByOccurrence(db, [found.occurrence.id])).get(found.occurrence.id) ??
+        emptyAttendanceCounts();
+      const readableRows = [];
+      for (const row of rows) {
+        if (
+          await authorizeTeamOperation(db, actor.personId, "participant.read", {
+            teamId: access.team.id,
+            seasonId: found.series.seasonId,
+            participantId: row.participantId,
+          })
+        ) {
+          readableRows.push(row);
+        }
+      }
+
+      const rosterMemberships = await db
+        .select()
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.teamId, access.team.id),
+            eq(memberships.seasonId, found.series.seasonId),
+            eq(memberships.memberKind, "participant"),
+            eq(memberships.status, "active"),
+          ),
+        )
+        .all();
+      const rosterIds = [
+        ...new Set(
+          rosterMemberships.flatMap((membership) =>
+            membership.memberParticipantId === null ? [] : [membership.memberParticipantId],
+          ),
+        ),
+      ];
+      const rosterParticipants =
+        rosterIds.length === 0
+          ? []
+          : await db
+              .select()
+              .from(participants)
+              .where(and(inList(participants.id, rosterIds), eq(participants.status, "active")))
+              .all();
+      const manageableParticipants = [];
+      for (const participant of rosterParticipants) {
+        if (
+          await authorizeTeamOperation(db, actor.personId, "participant.manage", {
+            teamId: access.team.id,
+            seasonId: found.series.seasonId,
+            participantId: participant.id,
+          })
+        ) {
+          manageableParticipants.push(participant);
+        }
+      }
+
+      const allParticipants = new Map(
+        [
+          ...readableRows.map((row) => row.participantId),
+          ...manageableParticipants.map((row) => row.id),
+        ]
+          .map((id) => [id, rosterParticipants.find((participant) => participant.id === id)])
+          .filter(
+            (entry): entry is [string, (typeof rosterParticipants)[number]] =>
+              entry[1] !== undefined,
+          ),
+      );
+      const names = await participantNames(db, [...allParticipants.values()]);
+      const entries = readableRows
+        .map((row) => ({
+          ...projectAttendance(row),
+          displayName: names.get(row.participantId) ?? "",
+        }))
+        .sort(
+          (left, right) =>
+            left.displayName.localeCompare(right.displayName) ||
+            left.participantId.localeCompare(right.participantId),
+        );
+      const statusByParticipant = new Map(rows.map((row) => [row.participantId, row.status]));
+      const responseOptions = manageableParticipants
+        .map((participant) => ({
+          participantId: participant.id,
+          displayName: names.get(participant.id) ?? "",
+          ...(statusByParticipant.get(participant.id) === undefined
+            ? {}
+            : { status: statusByParticipant.get(participant.id) }),
+        }))
+        .sort(
+          (left, right) =>
+            left.displayName.localeCompare(right.displayName) ||
+            left.participantId.localeCompare(right.participantId),
+        );
+
+      return {
+        ok: true,
+        value: attendanceReadResponseSchema.parse({
+          attendance: { counts, entries, responseOptions },
+        }),
+      };
     },
   };
 }

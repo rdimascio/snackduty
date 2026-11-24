@@ -163,7 +163,7 @@ describe("durable invitation outbox", () => {
           .set({ inviteeLabel: "must roll back" })
           .where(eq(invitations.id, "invitation_outbox"))
           .run();
-        await persist(delivery());
+        await transactionDb.batch([await persist(delivery())]);
         throw new Error("source operation failed");
       }),
     ).rejects.toThrow("source operation failed");
@@ -193,7 +193,7 @@ describe("durable invitation outbox", () => {
       onSchedulingError: () => {},
     });
     await seedInvitation(opened.typed);
-    await outbox.transaction(async (_db, persist) => persist(delivery()));
+    await outbox.transaction(async (db, persist) => db.batch([await persist(delivery())]));
 
     const stored = (await opened.db
       .prepare("SELECT encrypted_payload, status, queued_at FROM invitation_delivery_outbox")
@@ -233,7 +233,7 @@ describe("durable invitation outbox", () => {
       onSchedulingError: (error) => schedulingErrors.push(error),
     });
     await seedInvitation(first.typed);
-    await firstOutbox.transaction(async (_db, persist) => persist(delivery()));
+    await firstOutbox.transaction(async (db, persist) => db.batch([await persist(delivery())]));
     await first.db.exec("DROP TABLE lesto_jobs");
     await firstOutbox.requestSchedule();
     expect(schedulingErrors).toHaveLength(1);
@@ -283,7 +283,7 @@ describe("durable invitation outbox", () => {
       onSchedulingError: () => {},
     });
     await seedInvitation(opened.typed);
-    await outbox.transaction(async (_db, persist) => persist(delivery()));
+    await outbox.transaction(async (db, persist) => db.batch([await persist(delivery())]));
     await outbox.schedulePending();
 
     expect(await outbox.runOnce()).toMatchObject({ outcome: "retry" });
@@ -318,7 +318,7 @@ describe("durable invitation outbox", () => {
       onSchedulingError: () => {},
     });
     await seedInvitation(opened.typed);
-    await outbox.transaction(async (_db, persist) => persist(delivery()));
+    await outbox.transaction(async (db, persist) => db.batch([await persist(delivery())]));
     await outbox.schedulePending();
     await opened.typed
       .update(invitations)

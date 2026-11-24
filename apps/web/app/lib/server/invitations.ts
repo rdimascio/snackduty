@@ -538,12 +538,14 @@ async function createInvitation(
       .get();
 
     const delivery = deliveryFor(row, team.name, identity, token, input.recipientBinding);
-    await persist({
-      invitationId: row.id,
-      tokenHash,
-      delivery,
-      queuedByPersonId: identity.person.id,
-    });
+    await tx.batch([
+      await persist({
+        invitationId: row.id,
+        tokenHash,
+        delivery,
+        queuedByPersonId: identity.person.id,
+      }),
+    ]);
     return { row, teamName: team.name, recipient: input.recipientBinding };
   });
 
@@ -660,12 +662,14 @@ async function resendInvitation(
     if (rotated === undefined) throw new Error("Invitation disappeared during resend.");
 
     const delivery = deliveryFor(rotated, team.name, identity, token, recipient);
-    await persist({
-      invitationId: rotated.id,
-      tokenHash,
-      delivery,
-      queuedByPersonId: identity.person.id,
-    });
+    await tx.batch([
+      await persist({
+        invitationId: rotated.id,
+        tokenHash,
+        delivery,
+        queuedByPersonId: identity.person.id,
+      }),
+    ]);
     return { row: rotated, teamName: team.name, recipient };
   });
 

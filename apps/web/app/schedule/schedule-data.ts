@@ -280,13 +280,12 @@ export interface SeriesView {
   readonly untilDate?: string;
 }
 
-function teamEvents(scope: TeamScope) {
+async function teamEvents(scope: TeamScope) {
   const { services, actor, team } = scope;
-  return services.db.transaction(async (tx) => {
-    const readable = await readableActiveTeam(tx, team.id, actor.personId);
-    if (readable === undefined) return undefined;
-    return loadTeamEvents(tx, readable.id, actor.personId);
-  });
+  const { db } = services;
+  const readable = await readableActiveTeam(db, team.id, actor.personId);
+  if (readable === undefined) return undefined;
+  return loadTeamEvents(db, readable.id, actor.personId);
 }
 
 function seriesView(series: Awaited<ReturnType<typeof loadTeamEvents>>[number]["series"]) {
