@@ -57,7 +57,7 @@ import { z } from "zod";
 
 import type { SessionService as Sessions } from "./application-contracts";
 import { proofGuard } from "./authorization";
-import type { SqlGuard } from "./authorization";
+import type { EvidenceProof, SqlGuard } from "./authorization";
 import { activeApplicationActor } from "./coordination-actor";
 import type {
   ApplicationActor,
@@ -785,19 +785,20 @@ async function cancelOccurrence(
   if (cancelledByHuman(row)) return c.json({ occurrence: projectEventOccurrence(row) });
 
   const now = new Date(clock()).toISOString();
-  const [written] = await db.batch([
+  const cancel = (proofs: readonly EvidenceProof[]) =>
     guardedHumanCancel({
       occurrenceId: row.id,
       reason: input.reason,
       now,
-      proof: authorized.proof,
-    }),
-  ]);
+      proof: proofGuard(...proofs),
+    });
+  let [written] = await db.batch([cancel(authorized.proofs)]);
   if (written.changes === 0) {
     const identityNow = await authenticatedAdult(db, sessions, c.header("cookie"));
     if (identityNow === undefined) return c.json(unauthorized, 401);
     const reauthorized = await authorizeOccurrenceCancel(db, identityNow.person.id, target);
     if (!reauthorized.ok) return c.json(reauthorized.body, reauthorized.status);
+    [written] = await db.batch([cancel(reauthorized.proofs)]);
   }
   const cancelled = await db
     .select()
@@ -842,7 +843,7 @@ type OccurrenceCancelAuthorization =
       readonly occurrence: NonNullable<
         Awaited<ReturnType<typeof activeOccurrenceForOperation>>
       >["occurrence"];
-      readonly proof: SqlGuard;
+      readonly proofs: readonly EvidenceProof[];
     };
 
 async function authorizeOccurrenceCancel(
@@ -862,7 +863,7 @@ async function authorizeOccurrenceCancel(
   return {
     ok: true,
     occurrence: resolved.occurrence,
-    proof: proofGuard(access.proof, resolved.proof),
+    proofs: [access.proof, resolved.proof],
   };
 }
 

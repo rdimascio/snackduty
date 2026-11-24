@@ -414,17 +414,12 @@ export function createDutyOperations(
         if (resolved === undefined) {
           return operationError(404, "event_not_found", "event not found");
         }
-        return {
-          ok: true as const,
-          actor,
-          team: access.team,
-          resolved,
-          proof: proofGuard(access.proof, resolved.proof),
-        };
+        const proofs: readonly EvidenceProof[] = [access.proof, resolved.proof];
+        return { ok: true as const, actor, team: access.team, resolved, proofs };
       };
       const authorized = await authorizeClaim();
       if (!authorized.ok) return authorized;
-      const { actor, team, resolved, proof } = authorized;
+      const { actor, team, resolved } = authorized;
 
       const slotNotFound = () => operationError(404, "duty_slot_not_found", "duty slot not found");
       const slotTaken = () =>
@@ -447,19 +442,20 @@ export function createDutyOperations(
       const now = new Date(services.clock()).toISOString();
       if (!occurrenceAcceptsNewAssignment(resolved.occurrence, now)) return occurrenceClosed();
 
-      const [claimed] = await db.batch([
+      const claim = (proofs: readonly EvidenceProof[]) =>
         guardedSlotAssignment({
           slotId: row.id,
           expectedAssigneePersonId: null,
           assigneePersonId: actor.personId,
           assignedByPersonId: actor.personId,
           now,
-          proof,
-        }),
-      ]);
+          proof: proofGuard(...proofs),
+        });
+      let [claimed] = await db.batch([claim(authorized.proofs)]);
       if (claimed.changes === 0) {
         const reauthorized = await authorizeClaim();
         if (!reauthorized.ok) return reauthorized;
+        [claimed] = await db.batch([claim(reauthorized.proofs)]);
       }
       const current = await dutySlotById(db, team.id, resolved.occurrence.id, row.id);
       if (current === undefined) return slotNotFound();
@@ -492,7 +488,7 @@ type SlotWriteAuthorization =
       readonly occurrence: NonNullable<
         Awaited<ReturnType<typeof activeOccurrenceForOperation>>
       >["occurrence"];
-      readonly proof: EvidenceProof;
+      readonly proofs: readonly EvidenceProof[];
     };
 
 /** The team and occurrence checks a duty slot write runs before it writes. */
@@ -515,7 +511,7 @@ async function authorizeSlotWrite(
     ok: true,
     team: access.team,
     occurrence: resolved.occurrence,
-    proof: [...access.proof, ...resolved.proof],
+    proofs: [access.proof, resolved.proof],
   };
 }
 
@@ -545,14 +541,14 @@ async function createDutySlot(
   const target = { teamId: c.param("teamId"), occurrenceId: c.param("occurrenceId") };
   const authorized = await authorizeSlotWrite(db, identity.person.id, target, "manage");
   if (!authorized.ok) return c.json(authorized.body, authorized.status);
-  const { team, occurrence, proof } = authorized;
+  const { team, occurrence } = authorized;
   const now = new Date(clock()).toISOString();
   if (!occurrenceAcceptsNewAssignment(occurrence, now)) {
     return c.json(occurrenceUnavailable, 409);
   }
 
   const slotId = `duty_slot_${crypto.randomUUID()}`;
-  const [inserted] = await db.batch([
+  const insert = (proofs: readonly EvidenceProof[]) =>
     guardedSlotInsert({
       id: slotId,
       teamId: team.id,
@@ -560,9 +556,9 @@ async function createDutySlot(
       input,
       actorPersonId: identity.person.id,
       now,
-      proof: proofGuard(proof),
-    }),
-  ]);
+      proof: proofGuard(...proofs),
+    });
+  let [inserted] = await db.batch([insert(authorized.proofs)]);
   if (inserted.changes === 0) {
     const reauthorized = await reauthorizeSlotWrite(
       db,
@@ -572,6 +568,9 @@ async function createDutySlot(
       "manage",
     );
     if (!reauthorized.ok) return c.json(reauthorized.body, reauthorized.status);
+    [inserted] = await db.batch([insert(reauthorized.proofs)]);
+  }
+  if (inserted.changes === 0) {
     const current = await occurrenceById(db, occurrence.id);
     return current === undefined ? c.json(eventNotFound, 404) : c.json(occurrenceUnavailable, 409);
   }
@@ -640,7 +639,7 @@ async function releaseDutySlot(
   const target = { teamId: c.param("teamId"), occurrenceId: c.param("occurrenceId") };
   const authorized = await authorizeSlotWrite(db, identity.person.id, target, "read");
   if (!authorized.ok) return c.json(authorized.body, authorized.status);
-  const { team, occurrence, proof } = authorized;
+  const { team, occurrence } = authorized;
   const slot = await dutySlotById(db, team.id, occurrence.id, c.param("slotId"));
   if (slot === undefined) return c.json(dutyNotFound, 404);
   if (slot.assigneePersonId !== null && slot.assigneePersonId !== identity.person.id) {
@@ -652,16 +651,16 @@ async function releaseDutySlot(
   const now = new Date(clock()).toISOString();
   if (!occurrenceAcceptsNewAssignment(occurrence, now)) return c.json(occurrenceUnavailable, 409);
 
-  const [released] = await db.batch([
+  const release = (proofs: readonly EvidenceProof[]) =>
     guardedSlotAssignment({
       slotId: slot.id,
       expectedAssigneePersonId: identity.person.id,
       assigneePersonId: null,
       assignedByPersonId: null,
       now,
-      proof: proofGuard(proof),
-    }),
-  ]);
+      proof: proofGuard(...proofs),
+    });
+  let [released] = await db.batch([release(authorized.proofs)]);
   if (released.changes === 0) {
     const reauthorized = await reauthorizeSlotWrite(
       db,
@@ -671,6 +670,7 @@ async function releaseDutySlot(
       "read",
     );
     if (!reauthorized.ok) return c.json(reauthorized.body, reauthorized.status);
+    [released] = await db.batch([release(reauthorized.proofs)]);
   }
   const row = await dutySlotById(db, team.id, occurrence.id, slot.id);
   if (row === undefined) return c.json(dutyNotFound, 404);
@@ -701,25 +701,24 @@ async function assignDutySlot(
   if (slot.assigneePersonId === input.assigneePersonId) return assignedSlot(slot);
   const now = new Date(clock()).toISOString();
   if (!occurrenceAcceptsNewAssignment(occurrence, now)) return c.json(occurrenceUnavailable, 409);
-  const assignee =
-    input.assigneePersonId === null
-      ? undefined
-      : await activeTeamAdult(db, team.id, input.assigneePersonId);
-  if (input.assigneePersonId !== null && assignee === undefined) {
-    return c.json(adultNotFound, 404);
-  }
-  const proof = proofGuard(authorized.proof, assignee?.proof ?? []);
+  const assigneeProofs = async (): Promise<readonly EvidenceProof[] | undefined> => {
+    if (input.assigneePersonId === null) return [];
+    const assignee = await activeTeamAdult(db, team.id, input.assigneePersonId);
+    return assignee === undefined ? undefined : [assignee.proof];
+  };
+  const firstAssigneeProofs = await assigneeProofs();
+  if (firstAssigneeProofs === undefined) return c.json(adultNotFound, 404);
 
-  const [assigned] = await db.batch([
+  const assign = (proofs: readonly EvidenceProof[]) =>
     guardedSlotAssignment({
       slotId: slot.id,
       expectedAssigneePersonId: slot.assigneePersonId,
       assigneePersonId: input.assigneePersonId,
       assignedByPersonId: input.assigneePersonId === null ? null : identity.person.id,
       now,
-      proof,
-    }),
-  ]);
+      proof: proofGuard(...proofs),
+    });
+  let [assigned] = await db.batch([assign([...authorized.proofs, ...firstAssigneeProofs])]);
   if (assigned.changes === 0) {
     const reauthorized = await reauthorizeSlotWrite(
       db,
@@ -729,6 +728,10 @@ async function assignDutySlot(
       "manage",
     );
     if (!reauthorized.ok) return c.json(reauthorized.body, reauthorized.status);
+    const freshAssigneeProofs = await assigneeProofs();
+    if (freshAssigneeProofs !== undefined) {
+      [assigned] = await db.batch([assign([...reauthorized.proofs, ...freshAssigneeProofs])]);
+    }
   }
   const row = await dutySlotById(db, team.id, occurrence.id, slot.id);
   if (row === undefined) return c.json(dutyNotFound, 404);

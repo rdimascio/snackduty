@@ -30,12 +30,15 @@ export interface SqlGuard {
 /**
  * One primary-key EXISTS per evidence row the policy judged, each pinned to
  * the stored values the policy read. A write that ANDs the proof into its
- * WHERE lands only while that evidence is unchanged. Rows the loader looked
- * for and did not find need no clause: `evaluatePolicy` is monotone in its
- * evidence (strongest role wins, roster and guardian checks are `some`), so a
- * row that appears later can only add access.
+ * WHERE lands only while that evidence is unchanged. Rows the loader skipped
+ * need no clause: `evaluatePolicy` ignores inactive rows and is monotone in
+ * active ones (strongest role wins, roster and guardian checks are `some`), so
+ * a row that appears or turns active later can only add access. Loading active
+ * rows only also keeps the bound parameter count under D1's limit of 100.
  */
 export type EvidenceProof = readonly SqlGuard[];
+
+const ACTIVE = "active";
 
 type StoredValue = string | null;
 
@@ -51,7 +54,11 @@ function rowUnchanged(table: string, columns: Readonly<Record<string, StoredValu
   };
 }
 
-const ALWAYS_TRUE: SqlGuard = { sql: "1 = 1", params: [] };
+export class EmptyEvidenceProofError extends Error {
+  constructor() {
+    super("An evidence proof must hold at least one clause.");
+  }
+}
 
 /** AND several proofs into one WHERE fragment, keeping each identical clause once. */
 export function proofGuard(...proofs: readonly EvidenceProof[]): SqlGuard {
@@ -60,7 +67,7 @@ export function proofGuard(...proofs: readonly EvidenceProof[]): SqlGuard {
     clauses.set(`${clause.sql}\u0000${JSON.stringify(clause.params)}`, clause);
   }
   const unique = [...clauses.values()];
-  if (unique.length === 0) return ALWAYS_TRUE;
+  if (unique.length === 0) throw new EmptyEvidenceProofError();
   return {
     sql: unique.map((clause) => clause.sql).join(" AND "),
     params: unique.flatMap((clause) => clause.params),
@@ -89,7 +96,13 @@ export async function authorizationContext(db: Db, personId: string, target: Aut
   const adultRows = await db
     .select()
     .from(adultMemberships)
-    .where(and(eq(adultMemberships.teamId, team.id), eq(adultMemberships.personId, personId)))
+    .where(
+      and(
+        eq(adultMemberships.teamId, team.id),
+        eq(adultMemberships.personId, personId),
+        eq(adultMemberships.status, ACTIVE),
+      ),
+    )
     .all();
   const child =
     target.participantId === undefined
@@ -111,6 +124,7 @@ export async function authorizationContext(db: Db, personId: string, target: Aut
               eq(memberships.seasonId, target.seasonId),
               eq(memberships.memberKind, "participant"),
               eq(memberships.memberParticipantId, child.id),
+              eq(memberships.status, ACTIVE),
             ),
           )
           .all();
@@ -124,6 +138,7 @@ export async function authorizationContext(db: Db, personId: string, target: Aut
             and(
               eq(guardianRelationships.participantId, child.id),
               eq(guardianRelationships.guardianPersonId, personId),
+              eq(guardianRelationships.status, ACTIVE),
             ),
           )
           .all();

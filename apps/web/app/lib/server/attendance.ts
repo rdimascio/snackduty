@@ -37,7 +37,7 @@ import type {
 import { countAttendance, eventAttendance } from "./events";
 import { authenticatedAdult, people } from "./identity";
 import { authorizedTeamOperationProof, authorizeTeamOperation, proofGuard } from "./authorization";
-import type { SqlGuard } from "./authorization";
+import type { EvidenceProof, SqlGuard } from "./authorization";
 import { activeOccurrenceForOperation, eventOccurrences } from "./occurrence-access";
 import { memberships, participants } from "./roster";
 import { teamAccess } from "./teams";
@@ -195,7 +195,8 @@ export function createAttendanceOperations(
           occurrenceId,
         });
         if (found === undefined) return operationError(404, "event_not_found", "event not found");
-        return { ok: true as const, actor, access, found };
+        const proofs: readonly EvidenceProof[] = [access.proof, found.proof];
+        return { ok: true as const, actor, access, found, proofs };
       };
       const authorized = await authorizeOccurrence();
       if (!authorized.ok) return authorized;
@@ -207,31 +208,38 @@ export function createAttendanceOperations(
       if (found.occurrence.status === CANCELLED) return occurrenceCancelled();
       const roster = { teamId: access.team.id, seasonId: found.series.seasonId };
       const participant = await rosteredParticipant(db, roster, input.participantId);
-      const participantProof =
-        participant === undefined
-          ? undefined
-          : await authorizedTeamOperationProof(db, actor.personId, "participant.manage", {
-              ...roster,
-              participantId: input.participantId,
-            });
-      if (participant === undefined || participantProof === undefined) {
+      const participantProof = (personId: string) =>
+        authorizedTeamOperationProof(db, personId, "participant.manage", {
+          ...roster,
+          participantId: input.participantId,
+        });
+      const firstParticipantProof =
+        participant === undefined ? undefined : await participantProof(actor.personId);
+      if (participant === undefined || firstParticipantProof === undefined) {
         return participantNotFound();
       }
 
-      const [written] = await db.batch([
+      const now = new Date(services.clock()).toISOString();
+      const upsert = (proofs: readonly EvidenceProof[]) =>
         guardedAttendanceUpsert({
           occurrenceId: found.occurrence.id,
           roster,
           participantId: participant.id,
           status: input.status,
           recordedByPersonId: actor.personId,
-          now: new Date(services.clock()).toISOString(),
-          proof: proofGuard(access.proof, found.proof, participantProof),
-        }),
-      ]);
+          now,
+          proof: proofGuard(...proofs),
+        });
+      let [written] = await db.batch([upsert([...authorized.proofs, firstParticipantProof])]);
       if (written.changes === 0) {
         const reauthorized = await authorizeOccurrence();
         if (!reauthorized.ok) return reauthorized;
+        const freshParticipantProof = await participantProof(reauthorized.actor.personId);
+        if (freshParticipantProof !== undefined) {
+          [written] = await db.batch([upsert([...reauthorized.proofs, freshParticipantProof])]);
+        }
+      }
+      if (written.changes === 0) {
         const occurrence = await db
           .select()
           .from(eventOccurrences)

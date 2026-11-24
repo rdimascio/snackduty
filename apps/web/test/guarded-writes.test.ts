@@ -382,37 +382,85 @@ describe("attendance guards hold when state changes between the read and the wri
   });
 });
 
-describe("a write refuses when the actor's access is revoked between the check and the write", () => {
-  function setAdultRole(role: string) {
-    return config.db
+function setAdultRole(role: string) {
+  return config.db
+    .prepare("UPDATE adult_memberships SET role = ? WHERE person_id = ?")
+    .run([role, ADULT_ID]);
+}
+
+function revokeAdultMembership() {
+  return async (sql: SqlDatabase) => {
+    await sql
+      .prepare("UPDATE adult_memberships SET status = 'revoked' WHERE person_id = ?")
+      .run([ADULT_ID]);
+  };
+}
+
+function changeAdultRole(role: string) {
+  return async (sql: SqlDatabase) => {
+    await sql
       .prepare("UPDATE adult_memberships SET role = ? WHERE person_id = ?")
       .run([role, ADULT_ID]);
-  }
+  };
+}
 
-  function revokeAdultMembership() {
-    return async (sql: SqlDatabase) => {
-      await sql
-        .prepare("UPDATE adult_memberships SET status = 'revoked' WHERE person_id = ?")
-        .run([ADULT_ID]);
-    };
-  }
+function downgradeAdultToReader() {
+  return changeAdultRole("adult");
+}
 
-  function downgradeAdultToReader() {
-    return async (sql: SqlDatabase) => {
-      await sql
-        .prepare("UPDATE adult_memberships SET role = 'adult' WHERE person_id = ?")
-        .run([ADULT_ID]);
-    };
-  }
+function suspendAdultAccount() {
+  return async (sql: SqlDatabase) => {
+    await sql
+      .prepare("UPDATE accounts SET status = 'suspended' WHERE person_id = ?")
+      .run([ADULT_ID]);
+  };
+}
 
-  function suspendAdultAccount() {
-    return async (sql: SqlDatabase) => {
-      await sql
-        .prepare("UPDATE accounts SET status = 'suspended' WHERE person_id = ?")
-        .run([ADULT_ID]);
-    };
-  }
+const IN_FLIGHT_EDGE = "guardian_in_flight";
 
+async function linkAdultAsGuardian(fixture: Fixture, permissions: readonly string[]) {
+  const now = new Date().toISOString();
+  await config.db
+    .prepare(
+      "INSERT INTO guardian_relationships (id, guardian_person_id, participant_id, relationship, status, permissions, created_at, updated_at) VALUES (?, ?, ?, 'parent', 'active', ?, ?, ?)",
+    )
+    .run([IN_FLIGHT_EDGE, ADULT_ID, fixture.participantId, JSON.stringify(permissions), now, now]);
+}
+
+function recordAsAdult(fixture: Fixture, status: string) {
+  return app.handle(
+    "POST",
+    `/api/teams/${fixture.teamId}/occurrences/${fixture.occurrenceId}/attendance`,
+    {
+      headers: { ...sameOrigin, cookie: fixture.adultCookie },
+      body: { participantId: fixture.participantId, status },
+    },
+  );
+}
+
+function cancelAsAdult(fixture: Fixture, reason: string) {
+  return app.handle(
+    "POST",
+    `/api/teams/${fixture.teamId}/occurrences/${fixture.occurrenceId}/cancel`,
+    { headers: { ...sameOrigin, cookie: fixture.adultCookie }, body: { reason } },
+  );
+}
+
+function slotCount() {
+  return config.db.prepare("SELECT COUNT(*) AS count FROM duty_slots").get();
+}
+
+function attendanceStatuses() {
+  return config.db.prepare("SELECT status FROM event_attendance").all();
+}
+
+function occurrenceState(fixture: Fixture) {
+  return config.db
+    .prepare("SELECT status, cancelled_reason FROM event_occurrences WHERE id = ?")
+    .get([fixture.occurrenceId]);
+}
+
+describe("a write refuses when the actor's access is revoked between the check and the write", () => {
   it("refuses a claim when the claimant's team membership is revoked first", async () => {
     const fixture = await buildFixture();
     const slotId = await createSlot(fixture);
@@ -531,6 +579,121 @@ describe("a write refuses when the actor's access is revoked between the check a
         .prepare("SELECT status, cancelled_reason FROM event_occurrences WHERE id = ?")
         .get([fixture.occurrenceId]),
     ).toEqual({ status: "scheduled", cancelled_reason: null });
+  });
+
+  it("refuses an assignment when the assignee's team membership is revoked first", async () => {
+    const fixture = await buildFixture();
+    const slotId = await createSlot(fixture);
+
+    between.beforeNextBatch("UPDATE duty_slots", revokeAdultMembership());
+    const response = await slotAction(fixture, fixture.ownerCookie, slotId, "assignment", {
+      assigneePersonId: ADULT_ID,
+    });
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(404);
+    expect(json(response)).toEqual({ error: "team adult not found" });
+    expect(await assigneeOf(slotId)).toBeNull();
+  });
+
+  it("records no attendance when the guardian's team membership is revoked first", async () => {
+    const fixture = await buildFixture();
+    await linkAdultAsGuardian(fixture, ["participant.read", "participant.manage"]);
+
+    between.beforeNextBatch("INSERT INTO event_attendance", revokeAdultMembership());
+    const response = await recordAsAdult(fixture, "yes");
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(404);
+    expect(json(response)).toEqual({ error: "team not found" });
+    expect(await attendanceStatuses()).toEqual([]);
+  });
+});
+
+describe("a write still lands when the actor's access only grows between the check and the write", () => {
+  it("claims the slot when the claimant is promoted first", async () => {
+    const fixture = await buildFixture();
+    const slotId = await createSlot(fixture);
+
+    between.beforeNextBatch("UPDATE duty_slots", changeAdultRole("coach"));
+    const response = await slotAction(fixture, fixture.adultCookie, slotId, "claim");
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(200);
+    expect(await assigneeOf(slotId)).toBe(ADULT_ID);
+  });
+
+  it("creates the slot when the coach is promoted to owner first", async () => {
+    const fixture = await buildFixture();
+    await setAdultRole("coach");
+
+    between.beforeNextBatch("INSERT INTO duty_slots", changeAdultRole("owner"));
+    const response = await app.handle("POST", slotsPath(fixture), {
+      headers: { ...sameOrigin, cookie: fixture.adultCookie },
+      body: { label: "Bring fruit" },
+    });
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(201);
+    expect(await slotCount()).toEqual({ count: 1 });
+  });
+
+  it("releases the slot when the claimant is promoted first", async () => {
+    const fixture = await buildFixture();
+    const slotId = await createSlot(fixture);
+    expect((await slotAction(fixture, fixture.adultCookie, slotId, "claim")).status).toBe(200);
+
+    between.beforeNextBatch("UPDATE duty_slots", changeAdultRole("coach"));
+    const response = await slotAction(fixture, fixture.adultCookie, slotId, "release");
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(200);
+    expect(await assigneeOf(slotId)).toBeNull();
+  });
+
+  it("assigns the slot when the assignee is promoted first", async () => {
+    const fixture = await buildFixture();
+    const slotId = await createSlot(fixture);
+
+    between.beforeNextBatch("UPDATE duty_slots", changeAdultRole("coach"));
+    const response = await slotAction(fixture, fixture.ownerCookie, slotId, "assignment", {
+      assigneePersonId: ADULT_ID,
+    });
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(200);
+    expect(await assigneeOf(slotId)).toBe(ADULT_ID);
+  });
+
+  it("records attendance when the guardian edge gains a permission first", async () => {
+    const fixture = await buildFixture();
+    await linkAdultAsGuardian(fixture, ["participant.manage"]);
+
+    between.beforeNextBatch("INSERT INTO event_attendance", async (sql) => {
+      await sql
+        .prepare("UPDATE guardian_relationships SET permissions = ? WHERE id = ?")
+        .run([JSON.stringify(["participant.read", "participant.manage"]), IN_FLIGHT_EDGE]);
+    });
+    const response = await recordAsAdult(fixture, "yes");
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(200);
+    expect(await attendanceStatuses()).toEqual([{ status: "yes" }]);
+  });
+
+  it("cancels the occurrence when the coach is promoted to owner first", async () => {
+    const fixture = await buildFixture();
+    await setAdultRole("coach");
+
+    between.beforeNextBatch("UPDATE event_occurrences", changeAdultRole("owner"));
+    const response = await cancelAsAdult(fixture, "Rain");
+
+    expect(between.firedCount()).toBe(1);
+    expect(response.status).toBe(200);
+    expect(await occurrenceState(fixture)).toEqual({
+      status: "cancelled",
+      cancelled_reason: "Rain",
+    });
   });
 });
 
