@@ -157,13 +157,13 @@ describe("durable invitation outbox", () => {
     await seedInvitation(opened.typed);
 
     await expect(
-      outbox.transaction(async (transactionDb, persist) => {
+      outbox.transaction(async (transactionDb, sealDelivery) => {
         await transactionDb
           .update(invitations)
           .set({ inviteeLabel: "must roll back" })
           .where(eq(invitations.id, "invitation_outbox"))
           .run();
-        await transactionDb.batch([await persist(delivery())]);
+        await transactionDb.batch([await sealDelivery(delivery())]);
         throw new Error("source operation failed");
       }),
     ).rejects.toThrow("source operation failed");
@@ -193,7 +193,9 @@ describe("durable invitation outbox", () => {
       onSchedulingError: () => {},
     });
     await seedInvitation(opened.typed);
-    await outbox.transaction(async (db, persist) => db.batch([await persist(delivery())]));
+    await outbox.transaction(async (db, sealDelivery) =>
+      db.batch([await sealDelivery(delivery())]),
+    );
 
     const stored = (await opened.db
       .prepare("SELECT encrypted_payload, status, queued_at FROM invitation_delivery_outbox")
@@ -233,7 +235,9 @@ describe("durable invitation outbox", () => {
       onSchedulingError: (error) => schedulingErrors.push(error),
     });
     await seedInvitation(first.typed);
-    await firstOutbox.transaction(async (db, persist) => db.batch([await persist(delivery())]));
+    await firstOutbox.transaction(async (db, sealDelivery) =>
+      db.batch([await sealDelivery(delivery())]),
+    );
     await first.db.exec("DROP TABLE lesto_jobs");
     await firstOutbox.requestSchedule();
     expect(schedulingErrors).toHaveLength(1);
@@ -283,7 +287,9 @@ describe("durable invitation outbox", () => {
       onSchedulingError: () => {},
     });
     await seedInvitation(opened.typed);
-    await outbox.transaction(async (db, persist) => db.batch([await persist(delivery())]));
+    await outbox.transaction(async (db, sealDelivery) =>
+      db.batch([await sealDelivery(delivery())]),
+    );
     await outbox.schedulePending();
 
     expect(await outbox.runOnce()).toMatchObject({ outcome: "retry" });
@@ -318,7 +324,9 @@ describe("durable invitation outbox", () => {
       onSchedulingError: () => {},
     });
     await seedInvitation(opened.typed);
-    await outbox.transaction(async (db, persist) => db.batch([await persist(delivery())]));
+    await outbox.transaction(async (db, sealDelivery) =>
+      db.batch([await sealDelivery(delivery())]),
+    );
     await outbox.schedulePending();
     await opened.typed
       .update(invitations)

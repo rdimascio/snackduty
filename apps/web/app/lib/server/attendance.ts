@@ -34,7 +34,7 @@ import type {
   CoordinationResult,
   CoordinationServices,
 } from "./coordination-contracts";
-import { attendanceCountsByOccurrence, emptyAttendanceCounts, eventAttendance } from "./events";
+import { countAttendance, eventAttendance } from "./events";
 import { authenticatedAdult, people } from "./identity";
 import { authorizeTeamOperation } from "./authorization";
 import { activeOccurrenceForOperation } from "./occurrence-access";
@@ -242,9 +242,7 @@ export function createAttendanceOperations(
         .from(eventAttendance)
         .where(eq(eventAttendance.occurrenceId, found.occurrence.id))
         .all();
-      const counts =
-        (await attendanceCountsByOccurrence(db, [found.occurrence.id])).get(found.occurrence.id) ??
-        emptyAttendanceCounts();
+      const counts = countAttendance(rows);
       const readableRows = [];
       for (const row of rows) {
         if (

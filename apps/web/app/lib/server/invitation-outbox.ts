@@ -159,12 +159,14 @@ export interface InvitationDeliveryIntent {
 }
 
 /** Seals one delivery intent into the outbox insert; the caller runs it in its own batch. */
-export type PersistInvitationDelivery = (
+export type SealInvitationDelivery = (
   intent: InvitationDeliveryIntent,
 ) => Promise<BatchQuery<{ changes: number }>>;
 
 export interface InvitationOutbox {
-  transaction<R>(operation: (db: Db, persist: PersistInvitationDelivery) => Promise<R>): Promise<R>;
+  transaction<R>(
+    operation: (db: Db, sealDelivery: SealInvitationDelivery) => Promise<R>,
+  ): Promise<R>;
   requestSchedule(): Promise<void>;
   schedulePending(): Promise<number>;
   runOnce(): Promise<RunResult | null>;

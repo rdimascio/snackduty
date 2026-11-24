@@ -832,13 +832,22 @@ export async function attendanceCountsByOccurrence(
     .all();
   for (const row of rows) {
     const bucket = counts.get(row.occurrenceId);
-    if (bucket === undefined) continue;
-    if (row.status === "yes") bucket.yes += 1;
-    else if (row.status === "no") bucket.no += 1;
-    else if (row.status === "maybe") bucket.maybe += 1;
+    if (bucket !== undefined) addAttendance(bucket, row.status);
   }
 
   return counts;
+}
+
+export function countAttendance(rows: readonly { status: string }[]): AttendanceCounts {
+  const counts = emptyAttendanceCounts();
+  for (const row of rows) addAttendance(counts, row.status);
+  return counts;
+}
+
+function addAttendance(counts: AttendanceCounts, status: string): void {
+  if (status === "yes") counts.yes += 1;
+  else if (status === "no") counts.no += 1;
+  else if (status === "maybe") counts.maybe += 1;
 }
 
 /**
