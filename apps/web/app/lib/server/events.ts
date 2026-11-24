@@ -29,7 +29,17 @@ import type { Clock } from "./application-contracts";
  * history.
  */
 
-import { and, createTableSql, defineTable, dropTableSql, eq, inList, text } from "@lesto/db";
+import {
+  and,
+  createTableSql,
+  defineTable,
+  dropTableSql,
+  eq,
+  inList,
+  ne,
+  or,
+  text,
+} from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 import type { Context, Lesto } from "@lesto/web";
@@ -761,48 +771,46 @@ async function cancelOccurrence(
   // cancellation undone by the next edit; the marker is not theirs to write.
   if (input.reason === RESCHEDULE_CANCEL_REASON) return c.json(reservedCancelReason, 422);
 
-  const outcome = await db.transaction(async (tx) => {
-    const team = await manageableActiveTeam(tx, c.param("teamId"), identity.person.id);
-    if (team === undefined) return null;
+  const team = await manageableActiveTeam(db, c.param("teamId"), identity.person.id);
+  if (team === undefined) return c.json(teamNotFound, 404);
 
-    const resolved = await activeOccurrenceForOperation(
-      tx,
-      identity.person.id,
-      "team.operations.manage",
-      { teamId: team.id, occurrenceId: c.param("occurrenceId") },
-    );
-    if (resolved === undefined) return "no-occurrence" as const;
-    const row = resolved.occurrence;
-    // Cancelling an already-cancelled occurrence is an idempotent no-op that
-    // PRESERVES a human's original reason: the caller's intent ("this must not
-    // happen") already holds, and history is not rewritten. OUR marker is the
-    // exception — it is a machine annotation, not history, and leaving it in
-    // place would let the next schedule edit reinstate an occurrence a human
-    // has now explicitly cancelled.
-    if (row.status === "cancelled" && row.cancelledReason !== RESCHEDULE_CANCEL_REASON) {
-      return { row };
-    }
+  const resolved = await activeOccurrenceForOperation(
+    db,
+    identity.person.id,
+    "team.operations.manage",
+    { teamId: team.id, occurrenceId: c.param("occurrenceId") },
+  );
+  if (resolved === undefined) return c.json(eventNotFound, 404);
+  const row = resolved.occurrence;
+  // Cancelling an already-cancelled occurrence is an idempotent no-op that
+  // PRESERVES a human's original reason: the caller's intent ("this must not
+  // happen") already holds, and history is not rewritten. OUR marker is the
+  // exception — it is a machine annotation, not history, and leaving it in
+  // place would let the next schedule edit reinstate an occurrence a human
+  // has now explicitly cancelled.
+  if (row.status === "cancelled" && row.cancelledReason !== RESCHEDULE_CANCEL_REASON) {
+    return c.json({ occurrence: projectEventOccurrence(row) });
+  }
 
-    const now = new Date(clock()).toISOString();
-    await tx
+  const cancellableByHuman = or(
+    ne(eventOccurrences.status, "cancelled"),
+    eq(eventOccurrences.cancelledReason, RESCHEDULE_CANCEL_REASON),
+  );
+  const now = new Date(clock()).toISOString();
+  await db.batch([
+    db
       .update(eventOccurrences)
       .set({ status: "cancelled", cancelledReason: input.reason, cancelledAt: now, updatedAt: now })
-      .where(eq(eventOccurrences.id, row.id))
-      .run();
-    const cancelled = await tx
-      .select()
-      .from(eventOccurrences)
-      .where(eq(eventOccurrences.id, row.id))
-      .get();
-    if (cancelled === undefined) throw new Error("Event occurrence disappeared during cancel.");
+      .where(and(eq(eventOccurrences.id, row.id), cancellableByHuman)),
+  ]);
+  const cancelled = await db
+    .select()
+    .from(eventOccurrences)
+    .where(eq(eventOccurrences.id, row.id))
+    .get();
+  if (cancelled === undefined) return c.json(eventNotFound, 404);
 
-    return { row: cancelled };
-  });
-
-  if (outcome === null) return c.json(teamNotFound, 404);
-  if (outcome === "no-occurrence") return c.json(eventNotFound, 404);
-
-  return c.json({ occurrence: projectEventOccurrence(outcome.row) });
+  return c.json({ occurrence: projectEventOccurrence(cancelled) });
 }
 
 /** Attendance folded to counts — the only attendance shape every reader gets. */

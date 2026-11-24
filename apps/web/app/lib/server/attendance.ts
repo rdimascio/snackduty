@@ -17,7 +17,7 @@ import type { Clock } from "./application-contracts";
  */
 
 import type { SessionService as Sessions } from "./application-contracts";
-import { and, eq, inList } from "@lesto/db";
+import { and, eq, inList, rawChanges } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { Context, Lesto } from "@lesto/web";
 import {
@@ -37,7 +37,7 @@ import type {
 import { countAttendance, eventAttendance } from "./events";
 import { authenticatedAdult, people } from "./identity";
 import { authorizeTeamOperation } from "./authorization";
-import { activeOccurrenceForOperation } from "./occurrence-access";
+import { activeOccurrenceForOperation, eventOccurrences } from "./occurrence-access";
 import { memberships, participants } from "./roster";
 import { teamAccess } from "./teams";
 
@@ -76,6 +76,38 @@ async function rosteredParticipant(
     .get();
 
   return membership === undefined ? undefined : participant;
+}
+
+const CANCELLED = "cancelled";
+
+function guardedAttendanceUpsert(command: {
+  readonly occurrenceId: string;
+  readonly roster: { readonly teamId: string; readonly seasonId: string };
+  readonly participantId: string;
+  readonly status: string;
+  readonly recordedByPersonId: string;
+  readonly now: string;
+}) {
+  return rawChanges(
+    "INSERT INTO event_attendance (id, occurrence_id, participant_id, status, recorded_by_person_id, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM event_occurrences WHERE event_occurrences.id = ? AND event_occurrences.status <> ?) AND EXISTS (SELECT 1 FROM memberships JOIN participants ON participants.id = memberships.member_participant_id WHERE memberships.team_id = ? AND memberships.season_id = ? AND memberships.member_kind = ? AND memberships.status = ? AND participants.id = ? AND participants.status = ?) ON CONFLICT (occurrence_id, participant_id) DO UPDATE SET status = excluded.status, recorded_by_person_id = excluded.recorded_by_person_id, updated_at = excluded.updated_at",
+    [
+      `attendance_${crypto.randomUUID()}`,
+      command.occurrenceId,
+      command.participantId,
+      command.status,
+      command.recordedByPersonId,
+      command.now,
+      command.now,
+      command.occurrenceId,
+      CANCELLED,
+      command.roster.teamId,
+      command.roster.seasonId,
+      "participant",
+      "active",
+      command.participantId,
+      "active",
+    ],
+  );
 }
 
 function projectAttendance(row: {
@@ -143,81 +175,72 @@ export function createAttendanceOperations(
       }
       const { teamId, occurrenceId, input } = parsed.data;
 
-      return services.db.transaction(async (tx) => {
-        const actor = await activeApplicationActor(tx, candidateActor);
-        if (actor === undefined) {
-          return operationError(401, "authentication_required", "authentication required");
-        }
-        const access = await teamAccess(tx, teamId, actor.personId);
-        if (access === undefined) return operationError(404, "team_not_found", "team not found");
-        const found = await activeOccurrenceForOperation(tx, actor.personId, "season.read", {
-          teamId: access.team.id,
-          occurrenceId,
-        });
-        if (found === undefined) return operationError(404, "event_not_found", "event not found");
-        if (found.occurrence.status === "cancelled") {
-          return operationError(409, "event_occurrence_cancelled", "event occurrence is cancelled");
-        }
-        const participant = await rosteredParticipant(
-          tx,
-          { teamId: access.team.id, seasonId: found.series.seasonId },
-          input.participantId,
-        );
-        if (
-          participant === undefined ||
-          !(await authorizeTeamOperation(tx, actor.personId, "participant.manage", {
-            teamId: access.team.id,
-            seasonId: found.series.seasonId,
-            participantId: input.participantId,
-          }))
-        ) {
-          return operationError(404, "participant_not_found", "participant not found");
-        }
-
-        const now = new Date(services.clock()).toISOString();
-        const existing = await tx
-          .select()
-          .from(eventAttendance)
-          .where(
-            and(
-              eq(eventAttendance.occurrenceId, found.occurrence.id),
-              eq(eventAttendance.participantId, participant.id),
-            ),
-          )
-          .get();
-        let row;
-        if (existing === undefined) {
-          row = await tx
-            .insert(eventAttendance)
-            .values({
-              id: `attendance_${crypto.randomUUID()}`,
-              occurrenceId: found.occurrence.id,
-              participantId: participant.id,
-              status: input.status,
-              recordedByPersonId: actor.personId,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .returning()
-            .get();
-        } else {
-          await tx
-            .update(eventAttendance)
-            .set({ status: input.status, recordedByPersonId: actor.personId, updatedAt: now })
-            .where(eq(eventAttendance.id, existing.id))
-            .run();
-          row = await tx
-            .select()
-            .from(eventAttendance)
-            .where(eq(eventAttendance.id, existing.id))
-            .get();
-          if (row === undefined) throw new Error("Attendance record disappeared during update.");
-        }
-        return {
-          ok: true,
-          value: attendanceResponseSchema.parse({ attendance: projectAttendance(row) }),
-        };
+      const { db } = services;
+      const actor = await activeApplicationActor(db, candidateActor);
+      if (actor === undefined) {
+        return operationError(401, "authentication_required", "authentication required");
+      }
+      const access = await teamAccess(db, teamId, actor.personId);
+      if (access === undefined) return operationError(404, "team_not_found", "team not found");
+      const found = await activeOccurrenceForOperation(db, actor.personId, "season.read", {
+        teamId: access.team.id,
+        occurrenceId,
       });
+      if (found === undefined) return operationError(404, "event_not_found", "event not found");
+      const occurrenceCancelled = () =>
+        operationError(409, "event_occurrence_cancelled", "event occurrence is cancelled");
+      const participantNotFound = () =>
+        operationError(404, "participant_not_found", "participant not found");
+      if (found.occurrence.status === CANCELLED) return occurrenceCancelled();
+      const roster = { teamId: access.team.id, seasonId: found.series.seasonId };
+      const participant = await rosteredParticipant(db, roster, input.participantId);
+      if (
+        participant === undefined ||
+        !(await authorizeTeamOperation(db, actor.personId, "participant.manage", {
+          ...roster,
+          participantId: input.participantId,
+        }))
+      ) {
+        return participantNotFound();
+      }
+
+      const [written] = await db.batch([
+        guardedAttendanceUpsert({
+          occurrenceId: found.occurrence.id,
+          roster,
+          participantId: participant.id,
+          status: input.status,
+          recordedByPersonId: actor.personId,
+          now: new Date(services.clock()).toISOString(),
+        }),
+      ]);
+      if (written.changes === 0) {
+        const occurrence = await db
+          .select()
+          .from(eventOccurrences)
+          .where(eq(eventOccurrences.id, found.occurrence.id))
+          .get();
+        if (occurrence === undefined) {
+          return operationError(404, "event_not_found", "event not found");
+        }
+        return occurrence.status === CANCELLED ? occurrenceCancelled() : participantNotFound();
+      }
+
+      const row = await db
+        .select()
+        .from(eventAttendance)
+        .where(
+          and(
+            eq(eventAttendance.occurrenceId, found.occurrence.id),
+            eq(eventAttendance.participantId, participant.id),
+          ),
+        )
+        .get();
+      if (row === undefined) throw new Error("Attendance record disappeared after write.");
+      return {
+        ok: true,
+        value: attendanceResponseSchema.parse({ attendance: projectAttendance(row) }),
+      };
     },
 
     async readAttendance(candidateActor, targetInput) {
