@@ -1,5 +1,6 @@
-import { and, eq } from "@lesto/db";
-import type { Db } from "@lesto/db";
+import { and, eq, rawChanges } from "@lesto/db";
+import type { BatchQuery, BatchResults, Db } from "@lesto/db";
+import type { MigrationEntry } from "@lesto/migrate";
 import {
   accountIdSchema,
   accountSchema,
@@ -12,6 +13,7 @@ import {
   teamIdSchema,
 } from "@snackday/domain";
 import type { DomainPermission, PolicyContext } from "@snackday/domain";
+import { errorChain } from "./error-chain";
 import { accounts, people } from "./identity";
 import { adultMemberships, seasons, teams } from "./teams";
 import { guardianRelationships, memberships, participants } from "./roster";
@@ -72,6 +74,81 @@ export function proofGuard(...proofs: readonly EvidenceProof[]): SqlGuard {
     sql: unique.map((clause) => clause.sql).join(" AND "),
     params: unique.flatMap((clause) => clause.params),
   };
+}
+
+export const BATCH_GUARD_TABLE = "batch_guard";
+
+/** A table that stays empty: `abortUnless` writes NULL into its NOT NULL column to fail a batch. */
+export const createBatchGuard: MigrationEntry = {
+  version: "021_create_batch_guard",
+  migration: {
+    up: async (schema) => {
+      await schema.execute(`CREATE TABLE ${BATCH_GUARD_TABLE} (ok INTEGER NOT NULL)`);
+    },
+    down: async (schema) => {
+      await schema.execute(`DROP TABLE ${BATCH_GUARD_TABLE}`);
+    },
+  },
+};
+
+/**
+ * A batch statement that fails, and so rolls back the whole batch, unless
+ * `guard` holds when it runs. While the guard holds it inserts no row. D1
+ * cannot run JS between the statements of a batch, so a multi-statement write
+ * leads with this instead of re-reading its evidence.
+ */
+export function abortUnless(guard: SqlGuard): BatchQuery<{ changes: number }> {
+  return rawChanges(
+    `INSERT INTO ${BATCH_GUARD_TABLE} (ok) SELECT NULL WHERE NOT (${guard.sql})`,
+    guard.params,
+  );
+}
+
+/** The evidence a guarded batch was authorized with changed before it ran; nothing was written. */
+export class EvidenceChangedError extends Error {
+  constructor(options: { readonly cause: unknown }) {
+    super("The evidence behind this write changed before the write ran.", options);
+    this.name = "EvidenceChangedError";
+  }
+}
+
+const POSTGRES_NOT_NULL_VIOLATION = "23502";
+const NOT_NULL_MESSAGE = /not[ -]null/iu;
+
+/**
+ * Whether `error` is `abortUnless` failing its batch. SQLite and D1 report
+ * "NOT NULL constraint failed: batch_guard.ok"; Postgres reports SQLSTATE
+ * 23502 with the table name in its message and its `table` field.
+ */
+export function isBatchGuardAbort(error: unknown): boolean {
+  return errorChain(error).some((link) => {
+    if (!(link instanceof Error)) return false;
+    const fields = link as { readonly code?: unknown; readonly table?: unknown };
+    const namesGuardTable =
+      link.message.includes(BATCH_GUARD_TABLE) || fields.table === BATCH_GUARD_TABLE;
+    const notNull =
+      fields.code === POSTGRES_NOT_NULL_VIOLATION || NOT_NULL_MESSAGE.test(link.message);
+    return namesGuardTable && notNull;
+  });
+}
+
+/**
+ * Run `writes` in one batch led by `abortUnless(guard)`. When the guard fails
+ * the batch writes nothing and this throws `EvidenceChangedError`, so the
+ * caller can authorize again and retry with fresh proofs.
+ */
+export async function runGuardedBatch<const Q extends readonly BatchQuery<unknown>[]>(
+  db: Db,
+  guard: SqlGuard,
+  writes: Q,
+): Promise<BatchResults<Q>> {
+  try {
+    const [, ...results] = await db.batch([abortUnless(guard), ...writes]);
+    return results as BatchResults<Q>;
+  } catch (error) {
+    if (isBatchGuardAbort(error)) throw new EvidenceChangedError({ cause: error });
+    throw error;
+  }
 }
 
 /** Load evidence inside the caller's transaction; the domain alone decides access. */

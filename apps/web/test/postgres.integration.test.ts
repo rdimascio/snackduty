@@ -1,5 +1,13 @@
 import { afterAll, describe, expect, it } from "vitest";
+import { rawChanges } from "@lesto/db";
 import { z } from "zod";
+import {
+  abortUnless,
+  EvidenceChangedError,
+  isBatchGuardAbort,
+  proofGuard,
+  runGuardedBatch,
+} from "../app/lib/server/authorization";
 import { applicationMigrations } from "../app/lib/server/composition";
 import { accounts, people, VERIFIED_SESSION_COOKIE } from "../app/lib/server/identity";
 import { createCoordinationOperations } from "../app/lib/server/coordination-operations";
@@ -445,5 +453,56 @@ describe.skipIf(!databaseUrl)("real TLS PostgreSQL runtime", () => {
       { indexname: "guardian_relationships_active_guardian_name_key_idx" },
       { indexname: "memberships_active_child_identity_key_idx" },
     ]);
+  }, 30_000);
+
+  it("rolls back a whole batch when its abortUnless guard fails, and maps it to EvidenceChangedError", async () => {
+    const runtime = await boot();
+    await adult(runtime, "batch_guard");
+    const now = new Date(clock()).toISOString();
+    const personExists = (id: string) =>
+      proofGuard([{ sql: "EXISTS (SELECT 1 FROM people WHERE people.id = ?)", params: [id] }]);
+    const insertPerson = (id: string) =>
+      rawChanges(
+        "INSERT INTO people (id, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        [id, "Synthetic batch guard", "active", now, now],
+      );
+    const peopleNamed = async (id: string) =>
+      z
+        .object({ count: z.number() })
+        .parse(
+          await runtime.sql
+            .prepare("SELECT COUNT(*)::integer AS count FROM people WHERE id = ?")
+            .get([id]),
+        ).count;
+
+    await runtime.db.batch([
+      abortUnless(personExists("person_batch_guard")),
+      insertPerson("person_batch_guard_lands"),
+    ]);
+    expect(await peopleNamed("person_batch_guard_lands")).toBe(1);
+
+    const aborted = await runtime.db
+      .batch([
+        insertPerson("person_batch_guard_before"),
+        abortUnless(personExists("person_batch_guard_absent")),
+        insertPerson("person_batch_guard_after"),
+      ])
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(isBatchGuardAbort(aborted)).toBe(true);
+    expect(await peopleNamed("person_batch_guard_before")).toBe(0);
+    expect(await peopleNamed("person_batch_guard_after")).toBe(0);
+
+    await expect(
+      runGuardedBatch(runtime.db, personExists("person_batch_guard_absent"), [
+        insertPerson("person_batch_guard_refused"),
+      ]),
+    ).rejects.toBeInstanceOf(EvidenceChangedError);
+    expect(await peopleNamed("person_batch_guard_refused")).toBe(0);
+    expect(
+      await runtime.sql.prepare("SELECT COUNT(*)::integer AS count FROM batch_guard").get(),
+    ).toEqual({ count: 0 });
   }, 30_000);
 });
