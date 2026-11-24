@@ -89,6 +89,17 @@ describe("abortUnless", () => {
     expect(await peopleNamed("person_batch_guard_after")).toBe(0);
     expect(await guardRows()).toBe(0);
   });
+
+  it("treats a NULL guard as failed and rolls the batch back", async () => {
+    const nullGuard = proofGuard([{ sql: "CAST(NULL AS BOOLEAN)", params: [] }]);
+
+    const error = await failure(() =>
+      db.batch([insertPerson("person_batch_guard_null"), abortUnless(nullGuard)]),
+    );
+
+    expect(isBatchGuardAbort(error)).toBe(true);
+    expect(await peopleNamed("person_batch_guard_null")).toBe(0);
+  });
 });
 
 describe("runGuardedBatch", () => {
@@ -107,6 +118,20 @@ describe("runGuardedBatch", () => {
     expect(error).toBeInstanceOf(EvidenceChangedError);
     expect(isBatchGuardAbort((error as EvidenceChangedError).cause)).toBe(true);
     expect(await peopleNamed("person_batch_guard_refused")).toBe(0);
+  });
+
+  it("checks the guard after the writes, so it sees evidence the writes removed", async () => {
+    const doomed = "person_batch_guard_doomed";
+    await db.batch([insertPerson(doomed)]);
+
+    const error = await failure(() =>
+      runGuardedBatch(db, personExists(doomed), [
+        rawChanges("DELETE FROM people WHERE id = ?", [doomed]),
+      ]),
+    );
+
+    expect(error).toBeInstanceOf(EvidenceChangedError);
+    expect(await peopleNamed(doomed)).toBe(1);
   });
 
   it("rethrows any other batch failure unchanged", async () => {
@@ -157,6 +182,28 @@ describe("isBatchGuardAbort on each driver's error shape", () => {
       ),
     ).toBe(false);
     expect(isBatchGuardAbort(new Error("UNIQUE constraint failed: people.id"))).toBe(false);
+  });
+
+  it("matches the guard table exactly, not a table whose name contains it", () => {
+    expect(isBatchGuardAbort(new Error("NOT NULL constraint failed: batch_guard_archive.ok"))).toBe(
+      false,
+    );
+    expect(isBatchGuardAbort(new Error("NOT NULL constraint failed: old_batch_guard.ok"))).toBe(
+      false,
+    );
+    expect(isBatchGuardAbort(new Error("NOT NULL constraint failed: batch_guard.ok_backup"))).toBe(
+      false,
+    );
+    expect(
+      isBatchGuardAbort(
+        Object.assign(
+          new Error(
+            'null value in column "ok" of relation "batch_guard_archive" violates not-null constraint',
+          ),
+          { code: "23502", table: "batch_guard_archive", column: "ok" },
+        ),
+      ),
+    ).toBe(false);
     expect(isBatchGuardAbort("NOT NULL constraint failed: batch_guard.ok")).toBe(false);
   });
 });

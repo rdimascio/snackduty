@@ -501,6 +501,21 @@ describe.skipIf(!databaseUrl)("real TLS PostgreSQL runtime", () => {
       ]),
     ).rejects.toBeInstanceOf(EvidenceChangedError);
     expect(await peopleNamed("person_batch_guard_refused")).toBe(0);
+
+    await expect(
+      runGuardedBatch(runtime.db, proofGuard([{ sql: "CAST(NULL AS BOOLEAN)", params: [] }]), [
+        insertPerson("person_batch_guard_null"),
+      ]),
+    ).rejects.toBeInstanceOf(EvidenceChangedError);
+    expect(await peopleNamed("person_batch_guard_null")).toBe(0);
+
+    await runtime.db.batch([insertPerson("person_batch_guard_doomed")]);
+    await expect(
+      runGuardedBatch(runtime.db, personExists("person_batch_guard_doomed"), [
+        rawChanges("DELETE FROM people WHERE id = ?", ["person_batch_guard_doomed"]),
+      ]),
+    ).rejects.toBeInstanceOf(EvidenceChangedError);
+    expect(await peopleNamed("person_batch_guard_doomed")).toBe(1);
     expect(
       await runtime.sql.prepare("SELECT COUNT(*)::integer AS count FROM batch_guard").get(),
     ).toEqual({ count: 0 });

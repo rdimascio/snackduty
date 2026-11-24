@@ -91,15 +91,18 @@ export const createBatchGuard: MigrationEntry = {
   },
 };
 
+const BATCH_GUARD_COLUMN = "ok";
+
 /**
  * A batch statement that fails, and so rolls back the whole batch, unless
- * `guard` holds when it runs. While the guard holds it inserts no row. D1
- * cannot run JS between the statements of a batch, so a multi-statement write
- * leads with this instead of re-reading its evidence.
+ * `guard` is true when it runs. D1 cannot run JS between the statements of a
+ * batch, so a multi-statement write checks its evidence in SQL instead.
+ * `IS NOT TRUE` treats a NULL guard as failed, where `NOT (NULL)` would let
+ * the batch commit.
  */
 export function abortUnless(guard: SqlGuard): BatchQuery<{ changes: number }> {
   return rawChanges(
-    `INSERT INTO ${BATCH_GUARD_TABLE} (ok) SELECT NULL WHERE NOT (${guard.sql})`,
+    `INSERT INTO ${BATCH_GUARD_TABLE} (${BATCH_GUARD_COLUMN}) SELECT NULL WHERE (${guard.sql}) IS NOT TRUE`,
     guard.params,
   );
 }
@@ -113,29 +116,37 @@ export class EvidenceChangedError extends Error {
 }
 
 const POSTGRES_NOT_NULL_VIOLATION = "23502";
-const NOT_NULL_MESSAGE = /not[ -]null/iu;
+const SQLITE_GUARD_ABORT = new RegExp(
+  `NOT NULL constraint failed: ${BATCH_GUARD_TABLE}\\.${BATCH_GUARD_COLUMN}(?![\\w.])`,
+  "u",
+);
+const POSTGRES_GUARD_RELATION = `relation "${BATCH_GUARD_TABLE}"`;
 
-/**
- * Whether `error` is `abortUnless` failing its batch. SQLite and D1 report
- * "NOT NULL constraint failed: batch_guard.ok"; Postgres reports SQLSTATE
- * 23502 with the table name in its message and its `table` field.
- */
+function isPostgresGuardAbort(link: Error): boolean {
+  const fields = link as { readonly code?: unknown; readonly table?: unknown };
+  return (
+    fields.code === POSTGRES_NOT_NULL_VIOLATION &&
+    (fields.table === BATCH_GUARD_TABLE || link.message.includes(POSTGRES_GUARD_RELATION))
+  );
+}
+
+/** Whether `error`, or any cause under it, is `abortUnless` failing its batch. */
 export function isBatchGuardAbort(error: unknown): boolean {
-  return errorChain(error).some((link) => {
-    if (!(link instanceof Error)) return false;
-    const fields = link as { readonly code?: unknown; readonly table?: unknown };
-    const namesGuardTable =
-      link.message.includes(BATCH_GUARD_TABLE) || fields.table === BATCH_GUARD_TABLE;
-    const notNull =
-      fields.code === POSTGRES_NOT_NULL_VIOLATION || NOT_NULL_MESSAGE.test(link.message);
-    return namesGuardTable && notNull;
-  });
+  return errorChain(error).some(
+    (link) =>
+      link instanceof Error &&
+      (SQLITE_GUARD_ABORT.test(link.message) || isPostgresGuardAbort(link)),
+  );
 }
 
 /**
- * Run `writes` in one batch led by `abortUnless(guard)`. When the guard fails
- * the batch writes nothing and this throws `EvidenceChangedError`, so the
- * caller can authorize again and retry with fresh proofs.
+ * Run `writes` in one batch that ends with `abortUnless(guard)`, and throw
+ * `EvidenceChangedError` when the guard fails so the caller can authorize
+ * again and retry. The guard runs last so it also sees what `writes` changed,
+ * and so that on Postgres at READ COMMITTED the unchecked window is only the
+ * time from the guard to COMMIT: a revoke that commits after the guard
+ * statement and before COMMIT is not seen. On D1 the batch is one atomic unit,
+ * so there is no window.
  */
 export async function runGuardedBatch<const Q extends readonly BatchQuery<unknown>[]>(
   db: Db,
@@ -143,8 +154,8 @@ export async function runGuardedBatch<const Q extends readonly BatchQuery<unknow
   writes: Q,
 ): Promise<BatchResults<Q>> {
   try {
-    const [, ...results] = await db.batch([abortUnless(guard), ...writes]);
-    return results as BatchResults<Q>;
+    const results = await db.batch([...writes, abortUnless(guard)]);
+    return results.slice(0, writes.length) as BatchResults<Q>;
   } catch (error) {
     if (isBatchGuardAbort(error)) throw new EvidenceChangedError({ cause: error });
     throw error;
