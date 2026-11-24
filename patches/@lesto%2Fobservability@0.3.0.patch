@@ -1,8 +1,8 @@
-diff --git a/dist/chunk-IMHCUU7B.js b/dist/chunk-IMHCUU7B.js
-index 849f8e69ce5ea60456caa52d0d35d770ceb194f5..b78ff5a3abd9b8af782f4451889d2bdf5db6daaf 100644
---- a/dist/chunk-IMHCUU7B.js
-+++ b/dist/chunk-IMHCUU7B.js
-@@ -106,7 +106,7 @@ var BrowserTracer = class {
+diff --git a/dist/chunk-G6FAJM7S.js b/dist/chunk-G6FAJM7S.js
+index 6b3242dbd8dd6a60a0846214ec510064a9c96052..ad0250ac4735e394973a69e66ad20edaa401c397 100644
+--- a/dist/chunk-G6FAJM7S.js
++++ b/dist/chunk-G6FAJM7S.js
+@@ -152,7 +152,7 @@ var BrowserTracer = class {
     */
    resourceSpan(entry) {
      const path = sameOriginPath(entry.name, this.origin);
