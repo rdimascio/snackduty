@@ -36,7 +36,8 @@ import type {
 } from "./coordination-contracts";
 import { countAttendance, eventAttendance } from "./events";
 import { authenticatedAdult, people } from "./identity";
-import { authorizeTeamOperation } from "./authorization";
+import { authorizedTeamOperationProof, authorizeTeamOperation, proofGuard } from "./authorization";
+import type { EvidenceProof, SqlGuard } from "./authorization";
 import { activeOccurrenceForOperation, eventOccurrences } from "./occurrence-access";
 import { memberships, participants } from "./roster";
 import { teamAccess } from "./teams";
@@ -87,9 +88,10 @@ function guardedAttendanceUpsert(command: {
   readonly status: string;
   readonly recordedByPersonId: string;
   readonly now: string;
+  readonly proof: SqlGuard;
 }) {
   return rawChanges(
-    "INSERT INTO event_attendance (id, occurrence_id, participant_id, status, recorded_by_person_id, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM event_occurrences WHERE event_occurrences.id = ? AND event_occurrences.status <> ?) AND EXISTS (SELECT 1 FROM memberships JOIN participants ON participants.id = memberships.member_participant_id WHERE memberships.team_id = ? AND memberships.season_id = ? AND memberships.member_kind = ? AND memberships.status = ? AND participants.id = ? AND participants.status = ?) ON CONFLICT (occurrence_id, participant_id) DO UPDATE SET status = excluded.status, recorded_by_person_id = excluded.recorded_by_person_id, updated_at = excluded.updated_at",
+    `INSERT INTO event_attendance (id, occurrence_id, participant_id, status, recorded_by_person_id, created_at, updated_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM event_occurrences WHERE event_occurrences.id = ? AND event_occurrences.status <> ?) AND EXISTS (SELECT 1 FROM memberships JOIN participants ON participants.id = memberships.member_participant_id WHERE memberships.team_id = ? AND memberships.season_id = ? AND memberships.member_kind = ? AND memberships.status = ? AND participants.id = ? AND participants.status = ?) AND ${command.proof.sql} ON CONFLICT (occurrence_id, participant_id) DO UPDATE SET status = excluded.status, recorded_by_person_id = excluded.recorded_by_person_id, updated_at = excluded.updated_at`,
     [
       `attendance_${crypto.randomUUID()}`,
       command.occurrenceId,
@@ -106,6 +108,7 @@ function guardedAttendanceUpsert(command: {
       "active",
       command.participantId,
       "active",
+      ...command.proof.params,
     ],
   );
 }
@@ -136,7 +139,11 @@ const operationError = <C extends string>(
   status: 400 | 401 | 404 | 409 | 422,
   code: C,
   error: string,
-): CoordinationResult<never> => ({ ok: false, status, body: { error, code } });
+): Extract<CoordinationResult<never>, { ok: false }> => ({
+  ok: false,
+  status,
+  body: { error, code },
+});
 
 async function participantNames(
   tx: Db,
@@ -176,17 +183,24 @@ export function createAttendanceOperations(
       const { teamId, occurrenceId, input } = parsed.data;
 
       const { db } = services;
-      const actor = await activeApplicationActor(db, candidateActor);
-      if (actor === undefined) {
-        return operationError(401, "authentication_required", "authentication required");
-      }
-      const access = await teamAccess(db, teamId, actor.personId);
-      if (access === undefined) return operationError(404, "team_not_found", "team not found");
-      const found = await activeOccurrenceForOperation(db, actor.personId, "season.read", {
-        teamId: access.team.id,
-        occurrenceId,
-      });
-      if (found === undefined) return operationError(404, "event_not_found", "event not found");
+      const authorizeOccurrence = async () => {
+        const actor = await activeApplicationActor(db, candidateActor);
+        if (actor === undefined) {
+          return operationError(401, "authentication_required", "authentication required");
+        }
+        const access = await teamAccess(db, teamId, actor.personId);
+        if (access === undefined) return operationError(404, "team_not_found", "team not found");
+        const found = await activeOccurrenceForOperation(db, actor.personId, "season.read", {
+          teamId: access.team.id,
+          occurrenceId,
+        });
+        if (found === undefined) return operationError(404, "event_not_found", "event not found");
+        const proofs: readonly EvidenceProof[] = [access.proof, found.proof];
+        return { ok: true as const, actor, access, found, proofs };
+      };
+      const authorized = await authorizeOccurrence();
+      if (!authorized.ok) return authorized;
+      const { actor, access, found } = authorized;
       const occurrenceCancelled = () =>
         operationError(409, "event_occurrence_cancelled", "event occurrence is cancelled");
       const participantNotFound = () =>
@@ -194,26 +208,37 @@ export function createAttendanceOperations(
       if (found.occurrence.status === CANCELLED) return occurrenceCancelled();
       const roster = { teamId: access.team.id, seasonId: found.series.seasonId };
       const participant = await rosteredParticipant(db, roster, input.participantId);
-      if (
-        participant === undefined ||
-        !(await authorizeTeamOperation(db, actor.personId, "participant.manage", {
+      const participantProof = (personId: string) =>
+        authorizedTeamOperationProof(db, personId, "participant.manage", {
           ...roster,
           participantId: input.participantId,
-        }))
-      ) {
+        });
+      const firstParticipantProof =
+        participant === undefined ? undefined : await participantProof(actor.personId);
+      if (participant === undefined || firstParticipantProof === undefined) {
         return participantNotFound();
       }
 
-      const [written] = await db.batch([
+      const now = new Date(services.clock()).toISOString();
+      const upsert = (proofs: readonly EvidenceProof[]) =>
         guardedAttendanceUpsert({
           occurrenceId: found.occurrence.id,
           roster,
           participantId: participant.id,
           status: input.status,
           recordedByPersonId: actor.personId,
-          now: new Date(services.clock()).toISOString(),
-        }),
-      ]);
+          now,
+          proof: proofGuard(...proofs),
+        });
+      let [written] = await db.batch([upsert([...authorized.proofs, firstParticipantProof])]);
+      if (written.changes === 0) {
+        const reauthorized = await authorizeOccurrence();
+        if (!reauthorized.ok) return reauthorized;
+        const freshParticipantProof = await participantProof(reauthorized.actor.personId);
+        if (freshParticipantProof !== undefined) {
+          [written] = await db.batch([upsert([...reauthorized.proofs, freshParticipantProof])]);
+        }
+      }
       if (written.changes === 0) {
         const occurrence = await db
           .select()

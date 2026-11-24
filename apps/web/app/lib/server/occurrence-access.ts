@@ -2,7 +2,7 @@ import { and, defineTable, eq, integer, text } from "@lesto/db";
 import type { Db } from "@lesto/db";
 import type { DomainPermission } from "@snackday/domain";
 
-import { authorizeTeamOperation } from "./authorization";
+import { authorizedTeamOperationProof } from "./authorization";
 import { seasons, teams } from "./teams";
 
 export const eventSeries = defineTable("event_series", {
@@ -56,6 +56,15 @@ export async function activeSeasonForOperation(
   permission: DomainPermission,
   target: { readonly teamId: string; readonly seasonId: string },
 ) {
+  return (await authorizedActiveSeason(db, personId, permission, target))?.season;
+}
+
+async function authorizedActiveSeason(
+  db: Db,
+  personId: string,
+  permission: DomainPermission,
+  target: { readonly teamId: string; readonly seasonId: string },
+) {
   const season = await db
     .select()
     .from(seasons)
@@ -69,8 +78,8 @@ export async function activeSeasonForOperation(
     .get();
   if (season === undefined) return;
 
-  const authorized = await authorizeTeamOperation(db, personId, permission, target);
-  return authorized ? season : undefined;
+  const proof = await authorizedTeamOperationProof(db, personId, permission, target);
+  return proof === undefined ? undefined : { season, proof };
 }
 
 /** Resolve an active series whose team and season both pass canonical policy. */
@@ -93,11 +102,13 @@ export async function activeSeriesForOperation(
     .get();
   if (series === undefined) return;
 
-  const season = await activeSeasonForOperation(db, personId, permission, {
+  const authorized = await authorizedActiveSeason(db, personId, permission, {
     teamId: target.teamId,
     seasonId: series.seasonId,
   });
-  return season === undefined ? undefined : { series, season };
+  return authorized === undefined
+    ? undefined
+    : { series, season: authorized.season, proof: authorized.proof };
 }
 
 /**
