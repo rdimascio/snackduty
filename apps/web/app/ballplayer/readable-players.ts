@@ -21,19 +21,17 @@ export async function loadReadablePlayers(
   const teamNames = new Map<string, string>(
     (await listAccessibleTeams(db, personId)).map(({ team }) => [team.id, team.name]),
   );
-  return db.transaction(async (tx) => {
-    const players: ReadablePlayer[] = [];
-    for (const card of cards) {
-      const teamName = teamNames.get(card.teamId);
-      if (teamName === undefined) continue;
-      players.push({
-        participantId: card.participantId,
-        label: card.label,
-        teamName,
-        viewer: await viewerOf(tx, personId, card),
-        card: card.card,
-      });
-    }
-    return players;
-  });
+  const players: ReadablePlayer[] = [];
+  for (const card of cards) {
+    const teamName = teamNames.get(card.teamId);
+    if (teamName === undefined) continue;
+    players.push({
+      participantId: card.participantId,
+      label: card.label,
+      teamName,
+      viewer: await viewerOf(db, personId, card),
+      card: card.card,
+    });
+  }
+  return players;
 }

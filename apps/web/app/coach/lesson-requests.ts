@@ -70,7 +70,7 @@ export interface LessonRequestDelivery {
 }
 
 export interface LessonRequestOperations {
-  /** Stores the request and its outbox row in one transaction, then schedules the email. */
+  /** Stores the request and its outbox row in one batch, then schedules the email. */
   record(request: LessonRequestInput): Promise<string>;
   requestSchedule(): Promise<void>;
   schedulePending(): Promise<number>;
@@ -228,26 +228,19 @@ export function createLessonRequestOperations(
     async record(input) {
       const id = `lesson_request_${crypto.randomUUID()}`;
       const createdAt = nowIso();
-      await options.sql.transaction(async (transactionSql) => {
-        const tx = createDb(transactionSql, dialectOption);
-        await tx
-          .insert(lessonRequests)
-          .values({ id, ...input, createdAt })
-          .run();
-        await tx
-          .insert(lessonRequestOutbox)
-          .values({
-            id: `lesson_request_email_${crypto.randomUUID()}`,
-            lessonRequestId: id,
-            deliveryKey: deliveryKey(id),
-            status: "pending",
-            createdAt,
-            updatedAt: createdAt,
-            queuedAt: null,
-            deliveredAt: null,
-          })
-          .run();
-      });
+      await db.batch([
+        db.insert(lessonRequests).values({ id, ...input, createdAt }),
+        db.insert(lessonRequestOutbox).values({
+          id: `lesson_request_email_${crypto.randomUUID()}`,
+          lessonRequestId: id,
+          deliveryKey: deliveryKey(id),
+          status: "pending",
+          createdAt,
+          updatedAt: createdAt,
+          queuedAt: null,
+          deliveredAt: null,
+        }),
+      ]);
       await this.requestSchedule();
       return id;
     },

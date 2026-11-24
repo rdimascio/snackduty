@@ -10,7 +10,7 @@ const applicationActorSchema = z.strictObject({
   personId: z.string().trim().min(1),
 });
 
-/** Revalidate the exact session-resolved account/person pair inside an operation transaction. */
+/** Revalidate the exact session-resolved account/person pair against current rows. */
 export async function activeApplicationActor(
   db: Db,
   candidate: ApplicationActor,

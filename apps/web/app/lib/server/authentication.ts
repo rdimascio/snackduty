@@ -286,29 +286,25 @@ export function createAuthentication(options: AuthenticationOptions): Authentica
       const now = options.clock();
       const nowIso = new Date(now).toISOString();
       const nonceHash = await sha256(nonce);
-      await options.db.transaction(async (tx) => {
-        await tx
+      await options.db.batch([
+        options.db
           .delete(authenticationChallenges)
           .where(
             and(
               eq(authenticationChallenges.provider, "apple"),
               lte(authenticationChallenges.expiresAt, nowIso),
             ),
-          )
-          .run();
-        await tx
-          .insert(authenticationChallenges)
-          .values({
-            id: challengeId,
-            provider: "apple",
-            nonceHash,
-            status: "pending",
-            createdAt: nowIso,
-            expiresAt: new Date(now + CHALLENGE_TTL_MS).toISOString(),
-            consumedAt: null,
-          })
-          .run();
-      });
+          ),
+        options.db.insert(authenticationChallenges).values({
+          id: challengeId,
+          provider: "apple",
+          nonceHash,
+          status: "pending",
+          createdAt: nowIso,
+          expiresAt: new Date(now + CHALLENGE_TTL_MS).toISOString(),
+          consumedAt: null,
+        }),
+      ]);
       return { challengeId, nonce };
     },
 

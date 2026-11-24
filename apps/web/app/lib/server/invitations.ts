@@ -460,7 +460,7 @@ async function createInvitation(
   const input = c.valid(createInvitationInputSchema);
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
-  const outcome = await options.outbox.transaction(async (tx, persist) => {
+  const outcome = await options.outbox.transaction(async (tx, sealDelivery) => {
     await lockTeamInvitations(tx, c.param("teamId"));
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return null;
@@ -538,12 +538,14 @@ async function createInvitation(
       .get();
 
     const delivery = deliveryFor(row, team.name, identity, token, input.recipientBinding);
-    await persist({
-      invitationId: row.id,
-      tokenHash,
-      delivery,
-      queuedByPersonId: identity.person.id,
-    });
+    await tx.batch([
+      await sealDelivery({
+        invitationId: row.id,
+        tokenHash,
+        delivery,
+        queuedByPersonId: identity.person.id,
+      }),
+    ]);
     return { row, teamName: team.name, recipient: input.recipientBinding };
   });
 
@@ -592,7 +594,7 @@ async function resendInvitation(
 
   const token = generateInviteToken();
   const tokenHash = await hashInviteToken(token);
-  const outcome = await options.outbox.transaction(async (tx, persist) => {
+  const outcome = await options.outbox.transaction(async (tx, sealDelivery) => {
     await lockTeamInvitations(tx, c.param("teamId"));
     const team = await ownedActiveTeam(tx, c.param("teamId"), identity.person.id);
     if (team === undefined) return "no-team" as const;
@@ -660,12 +662,14 @@ async function resendInvitation(
     if (rotated === undefined) throw new Error("Invitation disappeared during resend.");
 
     const delivery = deliveryFor(rotated, team.name, identity, token, recipient);
-    await persist({
-      invitationId: rotated.id,
-      tokenHash,
-      delivery,
-      queuedByPersonId: identity.person.id,
-    });
+    await tx.batch([
+      await sealDelivery({
+        invitationId: rotated.id,
+        tokenHash,
+        delivery,
+        queuedByPersonId: identity.person.id,
+      }),
+    ]);
     return { row: rotated, teamName: team.name, recipient };
   });
 

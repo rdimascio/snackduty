@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { SqlDatabase } from "@lesto/db";
 import type { App } from "@lesto/kernel";
 import { openSqlite } from "@lesto/runtime";
 import type { RequestSpan, RequestTracer } from "@lesto/runtime";
@@ -27,6 +28,15 @@ import {
 import type { RuntimeConfiguration } from "../runtime";
 
 const scratchDirectories: string[] = [];
+
+function withoutDialectStamp(sql: SqlDatabase): SqlDatabase {
+  return {
+    exec: (statement) => sql.exec(statement),
+    prepare: (statement) => sql.prepare(statement),
+    transaction: (fn) => sql.transaction(fn),
+    batch: (statements) => sql.batch(statements),
+  };
+}
 
 async function scratchDirectory(): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), "snackduty-runtime-test-"));
@@ -285,7 +295,11 @@ describe("runtime database selection", () => {
       {
         openDatabase(databaseTarget) {
           receivedTarget = databaseTarget;
-          return Promise.resolve({ dialect: "postgres", sql: opened.db, close: opened.close });
+          return Promise.resolve({
+            dialect: "postgres",
+            sql: withoutDialectStamp(opened.db),
+            close: opened.close,
+          });
         },
         createKernelApplication(config) {
           receivedDialect = config.dialect;
