@@ -1,6 +1,8 @@
 import { createApp } from "@lesto/kernel";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
+import { SNACKDAY_ORGANIZATION_ID } from "../app/lib/server/organizations";
+
 process.env.LESTO_DB = ":memory:";
 process.env.SNACKDAY_DEV_SIGN_IN = "true";
 
@@ -97,9 +99,16 @@ async function insertForeignTeamAndSeason(): Promise<{ teamId: string; seasonId:
     .run(["person_foreign_adult", "Foreign Adult", now, now]);
   await config.db
     .prepare(
-      "INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)",
+      "INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at, organization_id) VALUES (?, ?, 'active', ?, ?, ?, ?)",
     )
-    .run(["team_foreign", "Foreign Falcons", "person_foreign_adult", now, now]);
+    .run([
+      "team_foreign",
+      "Foreign Falcons",
+      "person_foreign_adult",
+      now,
+      now,
+      SNACKDAY_ORGANIZATION_ID,
+    ]);
   await config.db
     .prepare(
       "INSERT INTO seasons (id, team_id, label, start_date, end_date, time_zone, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",

@@ -14,6 +14,7 @@ import {
 } from "../app/lib/server/authorization";
 import type { AuthorizationTarget, EvidenceProof } from "../app/lib/server/authorization";
 import { applicationMigrations } from "../app/lib/server/composition";
+import { SNACKDAY_ORGANIZATION_ID } from "../app/lib/server/organizations";
 
 const NOW = "2026-11-24T12:00:00.000Z";
 const TEAM = "team_proof";
@@ -67,9 +68,9 @@ const FIXTURE_SQL = [
   ),
   ...[TEAM, OTHER_TEAM].map(
     (id) =>
-      `INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at) VALUES ('${id}', 'Proof team', 'active', '${PEOPLE.owner}', '${NOW}', '${NOW}')`,
+      `INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at, organization_id) VALUES ('${id}', 'Proof team', 'active', '${PEOPLE.owner}', '${NOW}', '${NOW}', '${SNACKDAY_ORGANIZATION_ID}')`,
   ),
-  `INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at) VALUES ('${SOLO_TEAM}', 'Proof solo team', 'active', '${PEOPLE.solo}', '${NOW}', '${NOW}')`,
+  `INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at, organization_id) VALUES ('${SOLO_TEAM}', 'Proof solo team', 'active', '${PEOPLE.solo}', '${NOW}', '${NOW}', '${SNACKDAY_ORGANIZATION_ID}')`,
   ...[
     [SEASON, TEAM],
     [OTHER_SEASON, TEAM],

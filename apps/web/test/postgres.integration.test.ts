@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { rawChanges } from "@lesto/db";
+import { Schema } from "@lesto/migrate";
 import { z } from "zod";
 import {
   abortUnless,
@@ -9,7 +10,9 @@ import {
   runGuardedBatch,
 } from "../app/lib/server/authorization";
 import { applicationMigrations } from "../app/lib/server/composition";
+import { errorChain } from "../app/lib/server/error-chain";
 import { accounts, people, VERIFIED_SESSION_COOKIE } from "../app/lib/server/identity";
+import { createOrganizations, SNACKDAY_ORGANIZATION_ID } from "../app/lib/server/organizations";
 import { createCoordinationOperations } from "../app/lib/server/coordination-operations";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import type { InviteDelivery, InviteDeliverer } from "../app/lib/server/invite-delivery";
@@ -27,6 +30,21 @@ const delivery: InviteDeliverer = {
   currentLink: () => undefined,
 };
 const clock = () => Date.parse("2029-01-10T12:00:00.000Z");
+const POSTGRES_NOT_NULL_VIOLATION = "23502";
+const POSTGRES_FOREIGN_KEY_VIOLATION = "23503";
+const POSTGRES_UNIQUE_VIOLATION = "23505";
+const POSTGRES_CHECK_VIOLATION = "23514";
+
+/** The SQLSTATE a refused statement failed with, or undefined when it ran. */
+function errorCode(pending: Promise<unknown>): Promise<unknown> {
+  return pending.then(
+    () => undefined,
+    (error: unknown) =>
+      errorChain(error)
+        .map((link) => (link as { code?: unknown } | null)?.code)
+        .find((code) => typeof code === "string"),
+  );
+}
 
 async function boot() {
   if (!databaseUrl) throw new Error("Run bash scripts/runtime/postgres-integration.sh");
@@ -519,5 +537,94 @@ describe.skipIf(!databaseUrl)("real TLS PostgreSQL runtime", () => {
     expect(
       await runtime.sql.prepare("SELECT COUNT(*)::integer AS count FROM batch_guard").get(),
     ).toEqual({ count: 0 });
+  }, 30_000);
+
+  it("puts every team in an organization, seeds the three organizations and enforces the constraints", async () => {
+    const runtime = await boot();
+    const owner = await adult(runtime, "organization_owner");
+    const now = new Date(clock()).toISOString();
+    const insertTeam = (id: string, organizationId: string | null) =>
+      runtime.sql
+        .prepare(
+          "INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at, organization_id) VALUES (?, 'Synthetic team', 'active', 'person_organization_owner', ?, ?, ?)",
+        )
+        .run([id, now, now, organizationId]);
+    const organizationOf = async (teamId: string) =>
+      runtime.sql.prepare("SELECT organization_id FROM teams WHERE id = ?").get([teamId]);
+
+    const created = await runtime.app.handle("POST", "/api/teams", {
+      headers: headers(owner),
+      body: { name: "Postgres Org Falcons" },
+    });
+    expect(created.status).toBe(201);
+    const { team } = z.object({ team: entity }).parse(JSON.parse(created.body));
+    expect(JSON.parse(created.body)).not.toHaveProperty("team.organizationId");
+    expect(await organizationOf(team.id)).toEqual({ organization_id: SNACKDAY_ORGANIZATION_ID });
+
+    expect(
+      await runtime.sql
+        .prepare(
+          "SELECT organization_id, hostname FROM organization_hostnames WHERE is_primary = 1 ORDER BY organization_id",
+        )
+        .all(),
+    ).toEqual([
+      { organization_id: "org_ballplayer", hostname: "ballplayer.co" },
+      { organization_id: "org_coach", hostname: "dimasciobaseball.com" },
+      { organization_id: SNACKDAY_ORGANIZATION_ID, hostname: "snackday.app" },
+    ]);
+
+    expect(await errorCode(insertTeam("team_pg_no_org", null))).toBe(POSTGRES_NOT_NULL_VIOLATION);
+    expect(await errorCode(insertTeam("team_pg_unknown_org", "org_missing"))).toBe(
+      POSTGRES_FOREIGN_KEY_VIOLATION,
+    );
+    expect(
+      await errorCode(
+        runtime.sql
+          .prepare(
+            "INSERT INTO organizations (id, slug, name, kind, theme, created_at, updated_at) VALUES ('org_pg_bad', 'pg-bad', 'Bad', 'school', 'snackday', ?, ?)",
+          )
+          .run([now, now]),
+      ),
+    ).toBe(POSTGRES_CHECK_VIOLATION);
+    expect(
+      await errorCode(
+        runtime.sql
+          .prepare(
+            "INSERT INTO organization_modules (organization_id, module) VALUES (?, 'payments')",
+          )
+          .run([SNACKDAY_ORGANIZATION_ID]),
+      ),
+    ).toBe(POSTGRES_CHECK_VIOLATION);
+    expect(
+      await errorCode(
+        runtime.sql
+          .prepare(
+            "INSERT INTO organization_hostnames (hostname, organization_id, kind, status, is_primary, created_at, updated_at) VALUES ('pg.snackday.app', ?, 'subdomain', 'active', 1, ?, ?)",
+          )
+          .run([SNACKDAY_ORGANIZATION_ID, now, now]),
+      ),
+    ).toBe(POSTGRES_UNIQUE_VIOLATION);
+
+    const schema = new Schema(runtime.sql, "postgres");
+    await createOrganizations.migration.down?.(schema);
+    await runtime.sql
+      .prepare(
+        "INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at) VALUES ('team_pg_before_orgs', 'Synthetic team', 'active', 'person_organization_owner', ?, ?)",
+      )
+      .run([now, now]);
+    await createOrganizations.migration.up(schema);
+    expect(await organizationOf("team_pg_before_orgs")).toEqual({
+      organization_id: SNACKDAY_ORGANIZATION_ID,
+    });
+    expect(
+      await runtime.sql
+        .prepare(
+          "SELECT COUNT(*)::integer AS count FROM teams WHERE organization_id IS DISTINCT FROM ?",
+        )
+        .get([SNACKDAY_ORGANIZATION_ID]),
+    ).toEqual({ count: 0 });
+    expect(await errorCode(insertTeam("team_pg_no_org_again", null))).toBe(
+      POSTGRES_NOT_NULL_VIOLATION,
+    );
   }, 30_000);
 });

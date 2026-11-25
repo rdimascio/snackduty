@@ -18,6 +18,18 @@ import { z } from "zod";
 
 import { accounts, authenticatedAdult, people } from "./identity";
 import { authorizationContext, authorizeTeamOperation } from "./authorization";
+import { organizations, SNACKDAY_ORGANIZATION_ID } from "./organizations";
+
+const teamsV004 = defineTable("teams", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  status: text("status").notNull(),
+  createdByPersonId: text("created_by_person_id")
+    .notNull()
+    .references(() => people.id),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
 
 export const teams = defineTable("teams", {
   id: text("id").primaryKey(),
@@ -28,6 +40,9 @@ export const teams = defineTable("teams", {
     .references(() => people.id),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id),
 });
 
 const seasonsV004 = defineTable("seasons", {
@@ -63,7 +78,7 @@ export const createTeamsAndSeasons: MigrationEntry = {
   version: "004_create_teams_and_seasons",
   migration: {
     up: async (schema) => {
-      await schema.execute(createTableSql(teams, schema.dialect));
+      await schema.execute(createTableSql(teamsV004, schema.dialect));
       await schema.execute(createTableSql(seasonsV004, schema.dialect));
       await schema.execute(
         "CREATE INDEX teams_created_by_person_id_idx ON teams (created_by_person_id)",
@@ -270,6 +285,7 @@ async function createTeam(c: Context<"/api/teams">, db: Db, sessions: Sessions, 
       createdByPersonId: identity.person.id,
       createdAt: now,
       updatedAt: now,
+      organizationId: SNACKDAY_ORGANIZATION_ID,
     })
     .returning()
     .get();

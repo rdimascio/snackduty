@@ -52,6 +52,7 @@ import { registerRosterImportRoutes } from "./roster-import";
 import { createRoster, registerRosterRoutes } from "./roster";
 import { addRosterNameKeys } from "./roster-name-keys";
 import { createBatchGuard } from "./authorization";
+import { createOrganizations } from "./organizations";
 import { registerTeamReadRoutes } from "./team-reads";
 import { addSeasonLessonAgeBand, createTeamsAndSeasons, registerTeamRoutes } from "./teams";
 import { createLessonAnswers, lessonServices, registerLessonRoutes } from "../../lessons/lessons";
@@ -177,6 +178,7 @@ export const applicationMigrations = [
   createLessonRequests,
   addRosterNameKeys,
   createBatchGuard,
+  createOrganizations,
 ];
 /** Pure composition: callers own service lifecycle and provider selection. */
 function registerLessonSurface(app: Lesto, options: ApplicationOptions): Lesto {
