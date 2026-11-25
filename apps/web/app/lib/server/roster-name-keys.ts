@@ -18,6 +18,7 @@
 import type { MigrationEntry } from "@lesto/migrate";
 import { z } from "zod";
 
+import { errorChain } from "./error-chain";
 import { storedChildIdentityKey, storedGuardianNameKey } from "./people-identity";
 
 export const GUARDIAN_NAME_KEY_COLUMN = "guardian_name_key";
@@ -272,16 +273,6 @@ export const addRosterNameKeys: MigrationEntry = {
     },
   },
 };
-
-function errorChain(error: unknown): unknown[] {
-  const chain: unknown[] = [];
-  let current = error;
-  while (current !== undefined && current !== null && !chain.includes(current)) {
-    chain.push(current);
-    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
-  }
-  return chain;
-}
 
 /**
  * Whether `error` is a UNIQUE violation of one of the two name-key indexes.
