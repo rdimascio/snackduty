@@ -605,14 +605,25 @@ describe.skipIf(!databaseUrl)("real TLS PostgreSQL runtime", () => {
       ),
     ).toBe(POSTGRES_UNIQUE_VIOLATION);
 
-    const schema = new Schema(runtime.sql, "postgres");
-    await createOrganizations.migration.down?.(schema);
     await runtime.sql
       .prepare(
-        "INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at) VALUES ('team_pg_before_orgs', 'Synthetic team', 'active', 'person_organization_owner', ?, ?)",
+        "INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at) VALUES ('team_pg_previous_release', 'Synthetic team', 'active', 'person_organization_owner', ?, ?)",
       )
       .run([now, now]);
-    await createOrganizations.migration.up(schema);
+    expect(await organizationOf("team_pg_previous_release")).toEqual({
+      organization_id: SNACKDAY_ORGANIZATION_ID,
+    });
+
+    await runtime.sql.transaction(async (sql) => {
+      const schema = new Schema(sql, "postgres");
+      await createOrganizations.migration.down?.(schema);
+      await sql
+        .prepare(
+          "INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at) VALUES ('team_pg_before_orgs', 'Synthetic team', 'active', 'person_organization_owner', ?, ?)",
+        )
+        .run([now, now]);
+      await createOrganizations.migration.up(schema);
+    });
     expect(await organizationOf("team_pg_before_orgs")).toEqual({
       organization_id: SNACKDAY_ORGANIZATION_ID,
     });

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { installSessionSchema } from "@lesto/auth";
 import type { SqlDatabase } from "@lesto/db";
@@ -6,7 +7,7 @@ import { Migrator } from "@lesto/migrate";
 import { openSqlite } from "@lesto/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { seedFiles } from "../app/dev/seed-database";
+import { SEED_DIRECTORY, seedFiles } from "../app/dev/seed-database";
 import { SEED_TEAMS } from "../app/dev/seed-personas";
 import { applicationMigrations } from "../app/lib/server/composition";
 import {
@@ -94,6 +95,28 @@ async function columnNames(sql: SqlDatabase, table: string): Promise<string[]> {
   return (await rows<{ name: string }>(sql, `PRAGMA table_info(${table})`)).map((row) => row.name);
 }
 
+async function insertHost(
+  sql: SqlDatabase,
+  hostname: string,
+  status: string,
+  isPrimary: number,
+  organizationId: string = SNACKDAY_ORGANIZATION_ID,
+) {
+  await sql
+    .prepare(
+      "INSERT INTO organization_hostnames (hostname, organization_id, kind, status, is_primary, created_at, updated_at) VALUES (?, ?, 'subdomain', ?, ?, ?, ?)",
+    )
+    .run([hostname, organizationId, status, isPrimary, NOW, NOW]);
+}
+
+/** SQLite has no foreign key on `teams.organization_id`, so this is the check that every team's organization exists. */
+async function teamsWithoutOrganization(sql: SqlDatabase): Promise<unknown[]> {
+  return rows(
+    sql,
+    "SELECT teams.id FROM teams LEFT JOIN organizations ON organizations.id = teams.organization_id WHERE organizations.id IS NULL",
+  );
+}
+
 async function indexNames(sql: SqlDatabase, table: string): Promise<string[]> {
   return (await rows<{ name: string }>(sql, `PRAGMA index_list(${table})`))
     .map((row) => row.name)
@@ -114,30 +137,25 @@ describe("the organizations migration", () => {
       LEGACY_TEAMS.slice(0, 2).map((teamId) => ({ id: `season_${teamId}`, team_id: teamId })),
     );
     expect(await rows(sql, "PRAGMA foreign_key_check")).toEqual([]);
-    expect(await rows(sql, "SELECT name FROM sqlite_master WHERE name = 'teams_v022'")).toEqual([]);
+    expect(await teamsWithoutOrganization(sql)).toEqual([]);
     expect(await indexNames(sql, "teams")).toEqual([
       "teams_created_by_person_id_idx",
       TEAMS_ORGANIZATION_INDEX,
     ]);
-    expect(await rows(sql, "PRAGMA foreign_key_list(teams)")).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ table: "organizations", from: "organization_id", to: "id" }),
-        expect.objectContaining({ table: "people", from: "created_by_person_id", to: "id" }),
-      ]),
-    );
   });
 
-  it("keeps the season foreign key on the rebuilt teams table", async () => {
-    const sql = await teamsBeforeOrganizations();
-    await migrateAll(sql);
+  it("puts a team the previous release inserts without organization_id in snackday", async () => {
+    const sql = await migrated();
+    await sql
+      .prepare(
+        "INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at) VALUES ('team_previous_release', 'Old release team', 'active', ?, ?, ?)",
+      )
+      .run([OWNER, NOW, NOW]);
 
-    await expect(
-      sql
-        .prepare(
-          "INSERT INTO seasons (id, team_id, label, start_date, end_date, time_zone, status, created_at, updated_at) VALUES ('season_orphan', 'team_missing', 'Fall', '2026-09-01', '2026-12-01', 'UTC', 'active', ?, ?)",
-        )
-        .run([NOW, NOW]),
-    ).rejects.toThrow(/FOREIGN KEY constraint failed/u);
+    expect(
+      await rows(sql, "SELECT organization_id FROM teams WHERE id = 'team_previous_release'"),
+    ).toEqual([{ organization_id: SNACKDAY_ORGANIZATION_ID }]);
+    expect(await teamsWithoutOrganization(sql)).toEqual([]);
   });
 
   it("seeds the three organizations with their modules and hosts", async () => {
@@ -197,6 +215,8 @@ describe("the organizations migration", () => {
       ),
     ).toEqual(
       [
+        ["127.0.0.1", SNACKDAY_ORGANIZATION_ID, 0],
+        ["[::1]", SNACKDAY_ORGANIZATION_ID, 0],
         ["ballplayer.co", BALLPLAYER_ORGANIZATION_ID, 1],
         ["ballplayer.localhost", BALLPLAYER_ORGANIZATION_ID, 0],
         ["coach.localhost", COACH_ORGANIZATION_ID, 0],
@@ -205,6 +225,7 @@ describe("the organizations migration", () => {
         ["snackday.app", SNACKDAY_ORGANIZATION_ID, 1],
         ["www.ballplayer.co", BALLPLAYER_ORGANIZATION_ID, 0],
         ["www.dimasciobaseball.com", COACH_ORGANIZATION_ID, 0],
+        ["www.snackday.app", SNACKDAY_ORGANIZATION_ID, 0],
       ].map(([hostname, organizationId, primary]) => ({
         hostname,
         organization_id: organizationId,
@@ -230,6 +251,20 @@ describe("the organizations migration", () => {
         .toSorted()
         .map((id) => ({ id, organization_id: SNACKDAY_ORGANIZATION_ID })),
     );
+    expect(await teamsWithoutOrganization(sql)).toEqual([]);
+  });
+
+  it("names SNACKDAY_ORGANIZATION_ID on every seed team row, not only through the column default", async () => {
+    const seed = await readFile(join(SEED_DIRECTORY, "002_teams.sql"), "utf8");
+    const statement = /INSERT INTO teams \(([^)]*)\) VALUES\n([\s\S]*?);/u.exec(seed);
+    const columns = statement?.[1]?.split(", ") ?? [];
+    const valueRows = statement?.[2]?.split("\n") ?? [];
+
+    expect(columns.at(-1)).toBe("organization_id");
+    expect(valueRows).toHaveLength(2);
+    for (const valueRow of valueRows) {
+      expect(valueRow).toMatch(new RegExp(`, '${SNACKDAY_ORGANIZATION_ID}'\\),?$`, "u"));
+    }
   });
 
   it("rolls back to the earlier teams table with every team kept", async () => {
@@ -270,11 +305,10 @@ describe("the organization constraints", () => {
     );
   });
 
-  it("refuse a team in an organization that does not exist", async () => {
+  it("have no foreign key on SQLite, so the orphan check is what finds an unknown organization", async () => {
     const sql = await migrated();
-    await expect(insertTeam(sql, "team_unknown_org", "org_missing")).rejects.toThrow(
-      /FOREIGN KEY constraint failed/u,
-    );
+    await insertTeam(sql, "team_unknown_org", "org_missing");
+    expect(await teamsWithoutOrganization(sql)).toEqual([{ id: "team_unknown_org" }]);
   });
 
   it("accept a team in the snackday organization", async () => {
@@ -356,14 +390,57 @@ describe("the organization constraints", () => {
     ).toEqual([{ is_primary: 0 }]);
   });
 
-  it("refuse a host name that is not lower case", async () => {
+  it.each([
+    ["not lower case", "Teams.Snackday.App"],
+    ["empty", ""],
+    ["with a port", "teams.snackday.app:3000"],
+    ["an IPv6 literal with a port", "[::1]:3000"],
+    ["with a space", "teams snackday.app"],
+    ["with a tab", "teams.snackday.app\t"],
+    ["with a trailing dot", "teams.snackday.app."],
+  ])("refuse a host name that is %s", async (_rule, hostname) => {
+    const sql = await migrated();
+    await expect(insertHost(sql, hostname, "active", 0)).rejects.toThrow(
+      /CHECK constraint failed/u,
+    );
+  });
+
+  it("accept a bracketed IPv6 literal", async () => {
+    const sql = await migrated();
+    await insertHost(sql, "[fe80::1]", "active", 0);
+    expect(
+      await rows(sql, "SELECT hostname FROM organization_hostnames WHERE hostname = '[fe80::1]'"),
+    ).toEqual([{ hostname: "[fe80::1]" }]);
+  });
+
+  it("refuse a pending host as primary", async () => {
+    const sql = await migrated();
+    await sql
+      .prepare(
+        "INSERT INTO organizations (id, slug, name, kind, theme, created_at, updated_at) VALUES ('org_no_primary', 'no-primary', 'No primary', 'league', 'snackday', ?, ?)",
+      )
+      .run([NOW, NOW]);
+    await expect(
+      insertHost(sql, "pending.example.test", "pending", 1, "org_no_primary"),
+    ).rejects.toThrow(/CHECK constraint failed/u);
+    await insertHost(sql, "pending.example.test", "active", 1, "org_no_primary");
+  });
+
+  it("refuse a removed host status, because removing a domain deletes its row", async () => {
+    const sql = await migrated();
+    await expect(insertHost(sql, "gone.example.test", "removed", 0)).rejects.toThrow(
+      /CHECK constraint failed/u,
+    );
+  });
+
+  it("refuse an organization slug that is not lower case", async () => {
     const sql = await migrated();
     await expect(
       sql
         .prepare(
-          "INSERT INTO organization_hostnames (hostname, organization_id, kind, status, created_at, updated_at) VALUES ('Teams.Snackday.App', ?, 'subdomain', 'active', ?, ?)",
+          "INSERT INTO organizations (id, slug, name, kind, theme, created_at, updated_at) VALUES ('org_upper', 'Upper', 'Upper', 'club', 'snackday', ?, ?)",
         )
-        .run([SNACKDAY_ORGANIZATION_ID, NOW, NOW]),
+        .run([NOW, NOW]),
     ).rejects.toThrow(/CHECK constraint failed/u);
   });
 

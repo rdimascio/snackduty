@@ -12,37 +12,37 @@ export const SNACKDAY_ORGANIZATION_ID = "org_snackday";
 export const COACH_ORGANIZATION_ID = "org_coach";
 export const BALLPLAYER_ORGANIZATION_ID = "org_ballplayer";
 
-export const ORGANIZATION_KINDS = ["league", "club", "coach"] as const;
-export const ORGANIZATION_STATUSES = ["active", "archived"] as const;
-export const ORGANIZATION_MODULES = ["teams", "cards", "lessons", "booking", "articles"] as const;
-export const HOSTNAME_KINDS = ["subdomain", "custom"] as const;
-export const HOSTNAME_STATUSES = ["pending", "active", "removed"] as const;
-export const ORGANIZATION_ROLES = ["admin"] as const;
-export const ORGANIZATION_MEMBERSHIP_STATUSES = ["active", "ended"] as const;
+const ACTIVE = "active";
+
+const ORGANIZATION_KINDS = ["league", "club", "coach"] as const;
+const ORGANIZATION_STATUSES = [ACTIVE, "archived"] as const;
+const ORGANIZATION_MODULES = ["teams", "cards", "lessons", "booking", "articles"] as const;
+const HOSTNAME_KINDS = ["subdomain", "custom"] as const;
+const HOSTNAME_STATUSES = ["pending", ACTIVE] as const;
+const ORGANIZATION_ROLES = ["admin"] as const;
+const ORGANIZATION_MEMBERSHIP_STATUSES = [ACTIVE, "ended"] as const;
 
 type OrganizationKind = (typeof ORGANIZATION_KINDS)[number];
 type OrganizationModule = (typeof ORGANIZATION_MODULES)[number];
-type HostnameKind = (typeof HOSTNAME_KINDS)[number];
 
 export const organizations = defineTable("organizations", {
   id: text("id").primaryKey(),
   slug: text("slug").notNull(),
   name: text("name").notNull(),
   kind: text("kind").notNull(),
-  status: text("status").notNull(),
+  status: text("status").notNull().default(ACTIVE),
   theme: text("theme").notNull(),
   logoKey: text("logo_key"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
 
-export const ONE_PRIMARY_HOSTNAME_INDEX = "organization_hostnames_one_primary_idx";
-export const ONE_ACTIVE_MEMBERSHIP_INDEX = "organization_memberships_one_active_idx";
+const ONE_PRIMARY_HOSTNAME_INDEX = "organization_hostnames_one_primary_idx";
+const ONE_ACTIVE_MEMBERSHIP_INDEX = "organization_memberships_one_active_idx";
 export const TEAMS_ORGANIZATION_INDEX = "teams_organization_id_idx";
 
 interface SeededHostname {
   readonly hostname: string;
-  readonly kind: HostnameKind;
   readonly isPrimary: boolean;
 }
 
@@ -56,23 +56,19 @@ interface SeededOrganization {
   readonly hostnames: readonly SeededHostname[];
 }
 
-const productionHost = (hostname: string, isPrimary = false): SeededHostname => ({
-  hostname,
-  kind: "custom",
-  isPrimary,
-});
-const developmentHost = (hostname: string): SeededHostname => ({
-  hostname,
-  kind: "custom",
-  isPrimary: false,
-});
+const SEEDED_HOSTNAME_KIND = "custom";
+
+function host(hostname: string, isPrimary = false): SeededHostname {
+  return { hostname, isPrimary };
+}
 
 /**
- * Today's three brands as organizations. The hosts are the ones `brand.ts`
- * maps today plus each brand's local development host, so the tenant resolver
- * can replace `brand.ts` without a lookup miss.
+ * Today's three brands as organizations. `brand.ts` maps the Ballplayer and
+ * coach hosts by name and treats every other host as Snackday, so the
+ * Snackday rows list only the hosts `brand.test.ts` names; a staging, CI or
+ * test host still reaches Snackday only through that fallback.
  */
-export const SEEDED_ORGANIZATIONS: readonly SeededOrganization[] = [
+const SEEDED_ORGANIZATIONS: readonly SeededOrganization[] = [
   {
     id: SNACKDAY_ORGANIZATION_ID,
     slug: "snackday",
@@ -80,7 +76,13 @@ export const SEEDED_ORGANIZATIONS: readonly SeededOrganization[] = [
     kind: "club",
     theme: "snackday",
     modules: ["teams", "cards", "lessons"],
-    hostnames: [productionHost("snackday.app", true), developmentHost("localhost")],
+    hostnames: [
+      host("snackday.app", true),
+      host("www.snackday.app"),
+      host("localhost"),
+      host("127.0.0.1"),
+      host("[::1]"),
+    ],
   },
   {
     id: COACH_ORGANIZATION_ID,
@@ -90,9 +92,9 @@ export const SEEDED_ORGANIZATIONS: readonly SeededOrganization[] = [
     theme: "coach",
     modules: ["booking", "articles"],
     hostnames: [
-      productionHost("dimasciobaseball.com", true),
-      productionHost("www.dimasciobaseball.com"),
-      developmentHost("coach.localhost"),
+      host("dimasciobaseball.com", true),
+      host("www.dimasciobaseball.com"),
+      host("coach.localhost"),
     ],
   },
   {
@@ -103,17 +105,15 @@ export const SEEDED_ORGANIZATIONS: readonly SeededOrganization[] = [
     theme: "ballplayer",
     modules: ["cards"],
     hostnames: [
-      productionHost("ballplayer.co", true),
-      productionHost("www.ballplayer.co"),
-      developmentHost("ballplayer.localhost"),
+      host("ballplayer.co", true),
+      host("www.ballplayer.co"),
+      host("ballplayer.localhost"),
     ],
   },
 ];
 
 /** The fixed timestamp of every seeded row, so the migration gives the same rows on every database. */
-export const ORGANIZATION_SEED_TIME = "2026-11-25T00:00:00.000Z";
-
-const ACTIVE = "active";
+const ORGANIZATION_SEED_TIME = "2026-11-25T00:00:00.000Z";
 
 function sqlText(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
@@ -127,9 +127,24 @@ function sqlFlag(value: boolean): string {
   return value ? "1" : "0";
 }
 
+const HOSTNAME_WHITESPACE = [" ", "\t", "\n", "\r", "\f", "\v"] as const;
+
+/**
+ * A stored hostname is the bare, lower-case host a request names: no port, no
+ * trailing dot, no whitespace. A colon is allowed only inside a bracketed IPv6
+ * literal such as `[::1]`, so `[::1]:3000` and `example.com:443` are refused.
+ */
+const HOSTNAME_RULES = [
+  "hostname = lower(hostname)",
+  "length(hostname) > 0",
+  "hostname NOT LIKE '%.'",
+  "(hostname NOT LIKE '%:%' OR (hostname LIKE '[%]' AND hostname NOT LIKE '%]%]'))",
+  ...HOSTNAME_WHITESPACE.map((character) => `hostname NOT LIKE ${sqlText(`%${character}%`)}`),
+];
+
 const CREATE_ORGANIZATIONS = `CREATE TABLE organizations (
   id TEXT PRIMARY KEY,
-  slug TEXT NOT NULL UNIQUE,
+  slug TEXT NOT NULL UNIQUE CHECK (slug = lower(slug)),
   name TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN (${sqlList(ORGANIZATION_KINDS)})),
   status TEXT NOT NULL DEFAULT ${sqlText(ACTIVE)} CHECK (status IN (${sqlList(ORGANIZATION_STATUSES)})),
@@ -140,14 +155,15 @@ const CREATE_ORGANIZATIONS = `CREATE TABLE organizations (
 )`;
 
 const CREATE_ORGANIZATION_HOSTNAMES = `CREATE TABLE organization_hostnames (
-  hostname TEXT PRIMARY KEY CHECK (hostname = lower(hostname)),
+  hostname TEXT PRIMARY KEY CHECK (${HOSTNAME_RULES.join(" AND ")}),
   organization_id TEXT NOT NULL REFERENCES organizations(id),
   kind TEXT NOT NULL CHECK (kind IN (${sqlList(HOSTNAME_KINDS)})),
   status TEXT NOT NULL CHECK (status IN (${sqlList(HOSTNAME_STATUSES)})),
   cf_custom_hostname_id TEXT,
   is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  CHECK (is_primary = 0 OR status = ${sqlText(ACTIVE)})
 )`;
 
 const CREATE_ORGANIZATION_MODULES = `CREATE TABLE organization_modules (
@@ -191,79 +207,29 @@ function seedStatements(): string[] {
         `INSERT INTO organization_modules (organization_id, module) VALUES (${sqlList([organization.id, module])})`,
     ),
     ...organization.hostnames.map(
-      (host) =>
+      (seeded) =>
         `INSERT INTO organization_hostnames (hostname, organization_id, kind, status, cf_custom_hostname_id, is_primary, created_at, updated_at) VALUES (${sqlList(
-          [host.hostname, organization.id, host.kind, ACTIVE],
-        )}, NULL, ${sqlFlag(host.isPrimary)}, ${time}, ${time})`,
+          [seeded.hostname, organization.id, SEEDED_HOSTNAME_KIND, ACTIVE],
+        )}, NULL, ${sqlFlag(seeded.isPrimary)}, ${time}, ${time})`,
     ),
   ]);
 }
 
-type MigrationSchema = Parameters<MigrationEntry["migration"]["up"]>[0];
-
-const TEAM_COLUMNS_V004 = "id, name, status, created_by_person_id, created_at, updated_at";
-const TEAM_COLUMN_DEFINITIONS_V004 =
-  '"id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "status" TEXT NOT NULL, "created_by_person_id" TEXT NOT NULL REFERENCES "people"("id"), "created_at" TEXT NOT NULL, "updated_at" TEXT NOT NULL';
-const TEAM_ORGANIZATION_COLUMN_DEFINITION =
-  '"organization_id" TEXT NOT NULL REFERENCES "organizations"("id")';
-const TEAMS_CREATED_BY_INDEX =
-  "CREATE INDEX teams_created_by_person_id_idx ON teams (created_by_person_id)";
-const TEAMS_ORGANIZATION_INDEX_SQL = `CREATE INDEX ${TEAMS_ORGANIZATION_INDEX} ON teams (organization_id)`;
-const TEAMS_HOLDING_TABLE = "teams_v022";
+/**
+ * The default keeps an app-only rollback working: the previous release inserts
+ * teams without this column, and those teams land in Snackday. It stays until
+ * team creation chooses an organization itself.
+ */
+const TEAM_ORGANIZATION_COLUMN = `organization_id TEXT NOT NULL DEFAULT ${sqlText(SNACKDAY_ORGANIZATION_ID)}`;
 
 /**
- * SQLite cannot add a NOT NULL foreign key column, and a migration runs inside
- * a transaction where `PRAGMA foreign_keys = OFF` has no effect. So `teams` is
- * copied out, dropped and created again under the same name with deferred
- * foreign keys: the child rows that lose their parent at the DROP count as
- * violations until the INSERT puts every parent back, and the commit fails if
- * one is still missing.
+ * SQLite (and D1) refuses `ADD COLUMN` with a REFERENCES clause and a non-NULL
+ * default while foreign keys are on, so there the column has no foreign key.
  */
-async function rebuildSqliteTeams(
-  schema: MigrationSchema,
-  shape: { readonly definitions: string; readonly columns: string; readonly select: string },
-): Promise<void> {
-  await schema.execute("PRAGMA defer_foreign_keys = ON");
-  await schema.execute(
-    `CREATE TABLE ${TEAMS_HOLDING_TABLE} AS SELECT ${TEAM_COLUMNS_V004} FROM teams`,
-  );
-  await schema.execute("DROP TABLE teams");
-  await schema.execute(`CREATE TABLE "teams" (${shape.definitions})`);
-  await schema.execute(
-    `INSERT INTO teams (${shape.columns}) SELECT ${shape.select} FROM ${TEAMS_HOLDING_TABLE}`,
-  );
-  await schema.execute(`DROP TABLE ${TEAMS_HOLDING_TABLE}`);
-  await schema.execute(TEAMS_CREATED_BY_INDEX);
-}
-
-async function addTeamOrganization(schema: MigrationSchema): Promise<void> {
-  if (schema.dialect === "postgres") {
-    await schema.execute(
-      "ALTER TABLE teams ADD COLUMN organization_id TEXT REFERENCES organizations(id)",
-    );
-    await schema.execute(`UPDATE teams SET organization_id = ${sqlText(SNACKDAY_ORGANIZATION_ID)}`);
-    await schema.execute("ALTER TABLE teams ALTER COLUMN organization_id SET NOT NULL");
-  } else {
-    await rebuildSqliteTeams(schema, {
-      definitions: `${TEAM_COLUMN_DEFINITIONS_V004}, ${TEAM_ORGANIZATION_COLUMN_DEFINITION}`,
-      columns: `${TEAM_COLUMNS_V004}, organization_id`,
-      select: `${TEAM_COLUMNS_V004}, ${sqlText(SNACKDAY_ORGANIZATION_ID)}`,
-    });
-  }
-  await schema.execute(TEAMS_ORGANIZATION_INDEX_SQL);
-}
-
-async function dropTeamOrganization(schema: MigrationSchema): Promise<void> {
-  await schema.execute(`DROP INDEX ${TEAMS_ORGANIZATION_INDEX}`);
-  if (schema.dialect === "postgres") {
-    await schema.execute("ALTER TABLE teams DROP COLUMN organization_id");
-    return;
-  }
-  await rebuildSqliteTeams(schema, {
-    definitions: TEAM_COLUMN_DEFINITIONS_V004,
-    columns: TEAM_COLUMNS_V004,
-    select: TEAM_COLUMNS_V004,
-  });
+function teamOrganizationColumn(dialect: string): string {
+  return dialect === "postgres"
+    ? `${TEAM_ORGANIZATION_COLUMN} REFERENCES organizations(id)`
+    : TEAM_ORGANIZATION_COLUMN;
 }
 
 export const createOrganizations: MigrationEntry = {
@@ -276,10 +242,14 @@ export const createOrganizations: MigrationEntry = {
       await schema.execute(CREATE_ORGANIZATION_MEMBERSHIPS);
       for (const statement of ORGANIZATION_INDEXES) await schema.execute(statement);
       for (const statement of seedStatements()) await schema.execute(statement);
-      await addTeamOrganization(schema);
+      await schema.execute(
+        `ALTER TABLE teams ADD COLUMN ${teamOrganizationColumn(schema.dialect)}`,
+      );
+      await schema.execute(`CREATE INDEX ${TEAMS_ORGANIZATION_INDEX} ON teams (organization_id)`);
     },
     down: async (schema) => {
-      await dropTeamOrganization(schema);
+      await schema.execute(`DROP INDEX ${TEAMS_ORGANIZATION_INDEX}`);
+      await schema.execute("ALTER TABLE teams DROP COLUMN organization_id");
       await schema.execute("DROP TABLE organization_memberships");
       await schema.execute("DROP TABLE organization_modules");
       await schema.execute("DROP TABLE organization_hostnames");
