@@ -12,7 +12,8 @@ import type {
 
 import { BALLPLAYER_APP_PAGE_PATH } from "../ballplayer/app-data";
 import type { BallplayerAppModule, BallplayerAppPage } from "../ballplayer/app-data";
-import { brandOfRequest } from "../brand/brand";
+import { brandForTenant, brandOfRequest } from "../brand/brand";
+import type { Brand } from "../brand/brand";
 import { COACH_ARTICLE_PATH, COACH_ARTICLES_PATH } from "../coach/articles";
 import type { CoachArticles } from "../coach/articles";
 import { readBookingForm } from "../coach/booking-form";
@@ -27,6 +28,7 @@ import {
 } from "../coach/sitemap";
 import { contentSecurityPolicyFor, withContentSecurityPolicy } from "./content-security-policy";
 import { FONT_ROUTE, fontResponse } from "./fonts";
+import type { RequestHeaders, TenantOfRequest } from "../tenant/tenant";
 
 export type RequestHandle = (
   method: string,
@@ -189,13 +191,23 @@ function coachSite(
     );
 }
 
-export function withBrandSecurity(handle: RequestHandle): RequestHandle {
+/**
+ * With a resolver the brand comes from the request's tenant row; without one
+ * (tests and callers with no database) it comes from `brandOfRequest`.
+ */
+async function requestBrand(
+  headers: RequestHeaders | undefined,
+  tenants: TenantOfRequest | undefined,
+): Promise<Brand> {
+  if (tenants === undefined) return brandOfRequest(headers);
+  return brandForTenant(await tenants(headers));
+}
+
+export function withBrandSecurity(handle: RequestHandle, tenants?: TenantOfRequest): RequestHandle {
   return async (method, path, options) => {
+    const brand = await requestBrand(options?.headers, tenants);
     const response = await handle(method, path, options);
-    return withContentSecurityPolicy(
-      response,
-      contentSecurityPolicyFor(brandOfRequest(options?.headers)),
-    );
+    return withContentSecurityPolicy(response, contentSecurityPolicyFor(brand));
   };
 }
 
@@ -203,13 +215,14 @@ export function withBrandRoutes(
   handle: RequestHandle,
   pages: BrandPages,
   coachBooking?: CoachBooking,
+  tenants?: TenantOfRequest,
 ): RequestHandle {
   const ballplayer = brandSite(pages.ballplayerHome);
   const coach = coachSite(pages.coachHome, coachBooking, pages.coachArticles);
   const bookingOpen = coachBooking !== undefined;
   return async (method, path, options) => {
     if (isBallplayerInternalPath(path)) return notFound;
-    const brand = brandOfRequest(options?.headers);
+    const brand = await requestBrand(options?.headers, tenants);
     if (brand === "snackday") return handle(method, path, options);
     if (brand === "coach") {
       if (isCoachRoute(method, path, bookingOpen, pages.coachArticles))
@@ -257,19 +270,24 @@ const ballplayerAppPage: BallplayerAppPage = {
 
 const routedApps = new WeakSet<Lesto>();
 
-export function routeBrands(app: Lesto, pages: BrandPages, coachBooking?: CoachBooking): Lesto {
+export function routeBrands(
+  app: Lesto,
+  pages: BrandPages,
+  coachBooking?: CoachBooking,
+  tenants?: TenantOfRequest,
+): Lesto {
   if (routedApps.has(app)) return app;
   routedApps.add(app);
   app.page(BALLPLAYER_APP_PAGE_PATH, ballplayerAppPage);
-  app.handle = withBrandRoutes(app.handle.bind(app), pages, coachBooking);
+  app.handle = withBrandRoutes(app.handle.bind(app), pages, coachBooking, tenants);
   return app;
 }
 
 const securedApps = new WeakSet<Lesto>();
 
-export function secureBrands(app: Lesto): Lesto {
+export function secureBrands(app: Lesto, tenants?: TenantOfRequest): Lesto {
   if (securedApps.has(app)) return app;
   securedApps.add(app);
-  app.handle = withBrandSecurity(app.handle.bind(app));
+  app.handle = withBrandSecurity(app.handle.bind(app), tenants);
   return app;
 }

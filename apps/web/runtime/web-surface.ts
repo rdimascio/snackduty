@@ -12,6 +12,7 @@ import type { ArticleVisibility, CoachArticlePagesModule } from "../app/coach/ar
 import type { CoachBookingPagesModule, CoachBookingServices } from "../app/coach/booking-pages";
 
 import { routeBrands, withBrandSecurity } from "../app/server/brand-routing";
+import type { TenantOfRequest } from "../app/tenant/tenant";
 
 const webRoot = fileURLToPath(new URL("../", import.meta.url));
 
@@ -29,6 +30,7 @@ interface CoachHomeModule {
 export async function registerRuntimePages(
   app: Lesto,
   coachBooking?: CoachBookingServices,
+  tenants?: TenantOfRequest,
 ): Promise<void> {
   const directory = join(webRoot, "app/routes");
   const files = await scanRoutes(
@@ -68,6 +70,7 @@ export async function registerRuntimePages(
     coachBooking === undefined
       ? undefined
       : { ...coachBooking, pages: coachBookPage.coachBookingPages },
+    tenants,
   );
 }
 
@@ -99,6 +102,6 @@ export function withRuntimeAssets(app: App, outputRoot = join(webRoot, "out")): 
   };
 }
 
-export function withBrandPolicy(app: App): App {
-  return { ...app, handle: withBrandSecurity(app.handle.bind(app)) };
+export function withBrandPolicy(app: App, tenants?: TenantOfRequest): App {
+  return { ...app, handle: withBrandSecurity(app.handle.bind(app), tenants) };
 }
