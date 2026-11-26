@@ -1,6 +1,6 @@
-INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at) VALUES
-  ('team_seed_falcons', 'Scenario Falcons', 'active', 'person_seed_head_coach', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  ('team_seed_comets', 'Scenario Comets', 'active', 'person_dev_adult', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+INSERT INTO teams (id, name, status, created_by_person_id, created_at, updated_at, organization_id) VALUES
+  ('team_seed_falcons', 'Scenario Falcons', 'active', 'person_seed_head_coach', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'org_snackday'),
+  ('team_seed_comets', 'Scenario Comets', 'active', 'person_dev_adult', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'org_snackday');
 
 INSERT INTO seasons (id, team_id, label, start_date, end_date, time_zone, status, created_at, updated_at, lesson_age_band) VALUES
   ('season_seed_falcons', 'team_seed_falcons', 'Fall season', date('now', '-7 hours', '-30 days'), date('now', '-7 hours', '+120 days'), 'America/Phoenix', 'active', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL),

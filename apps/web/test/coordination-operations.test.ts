@@ -8,6 +8,7 @@ import {
 } from "@snackday/domain";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
+import { SNACKDAY_ORGANIZATION_ID } from "../app/lib/server/organizations";
 import { storedChildIdentityKey } from "../app/lib/server/people-identity";
 
 const now = Date.parse("2029-01-10T12:00:00.000Z");
@@ -56,6 +57,7 @@ async function fixture() {
       createdByPersonId: ownerActor.personId,
       createdAt,
       updatedAt: createdAt,
+      organizationId: SNACKDAY_ORGANIZATION_ID,
     })
     .run();
   await services.db
@@ -268,6 +270,7 @@ describe("coordination application operations", () => {
         createdByPersonId: ownerActor.personId,
         createdAt: new Date(now).toISOString(),
         updatedAt: new Date(now).toISOString(),
+        organizationId: SNACKDAY_ORGANIZATION_ID,
       })
       .returning()
       .get();

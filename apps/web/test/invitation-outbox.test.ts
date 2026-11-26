@@ -24,6 +24,7 @@ import {
   hashInviteToken,
   invitations,
 } from "../app/lib/server/invitations";
+import { createOrganizations, SNACKDAY_ORGANIZATION_ID } from "../app/lib/server/organizations";
 import { createRoster } from "../app/lib/server/roster";
 import { createTeamsAndSeasons, teams } from "../app/lib/server/teams";
 
@@ -57,6 +58,7 @@ async function openDatabase(path: string) {
       createInvitationRecipientBinding,
       createInvitationOutbox,
       addOutboxQueuedBy,
+      createOrganizations,
     ],
     schemas: [installQueueSchema],
   });
@@ -94,6 +96,7 @@ async function seedInvitation(db: ReturnType<typeof createDb>, tokenHash = TOKEN
       createdByPersonId: "person_owner",
       createdAt: nowIso,
       updatedAt: nowIso,
+      organizationId: SNACKDAY_ORGANIZATION_ID,
     })
     .run();
   await db
