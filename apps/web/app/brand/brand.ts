@@ -4,7 +4,6 @@ import {
   SNACKDAY_ORGANIZATION_ID,
 } from "../lib/server/organizations";
 import { FALLBACK_ORGANIZATION_ID } from "../tenant/tenant";
-import type { Tenant } from "../tenant/tenant";
 
 export type Brand = "snackday" | "ballplayer" | "coach";
 
@@ -13,9 +12,10 @@ export const BALLPLAYER_DEV_HOST = "ballplayer.localhost";
 export const COACH_DEV_HOST = "coach.localhost";
 
 /**
- * The seeded hostname rows for callers with no database (the Worker, and the
- * sync `brandForHost`). `tenant-resolver.test.ts` checks that this map equals
- * the active `organization_hostnames` rows of a freshly migrated database.
+ * The seeded hostname rows for callers with no database or no resolved tenant
+ * yet (the Worker, a kernel 403 or 429, an asset). `tenant-resolver.test.ts`
+ * checks that this map equals the active `organization_hostnames` rows of a
+ * freshly migrated database.
  */
 export const STATIC_HOST_ORGANIZATIONS: ReadonlyMap<string, string> = new Map([
   ["snackday.app", SNACKDAY_ORGANIZATION_ID],
@@ -48,10 +48,6 @@ export function hostName(host: string | undefined): string {
 /** Any organization without its own brand yet renders as Snackday. */
 export function brandForOrganization(organizationId: string): Brand {
   return BRAND_BY_ORGANIZATION.get(organizationId) ?? "snackday";
-}
-
-export function brandForTenant(tenant: Tenant): Brand {
-  return brandForOrganization(tenant.organizationId);
 }
 
 export function brandForHost(host: string | undefined): Brand {

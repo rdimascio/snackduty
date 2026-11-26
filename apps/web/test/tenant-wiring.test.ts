@@ -1,202 +1,229 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import { installSessionSchema } from "@lesto/auth";
-import { createDb } from "@lesto/db";
+import { createApp } from "@lesto/kernel";
 import type { App } from "@lesto/kernel";
-import { Migrator } from "@lesto/migrate";
-import { openSqlite } from "@lesto/runtime";
-import type { AnyLestoResponse, HandleOptions, LestoResponse } from "@lesto/web";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { SqlDatabase } from "@lesto/db";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { ballplayerHome } from "../app/ballplayer/home-page";
-import { coachArticlePages } from "../app/coach/article-pages";
-import { loadCoachArticles } from "../app/coach/articles";
-import { coachHome } from "../app/coach/home-page";
-import { applicationMigrations } from "../app/lib/server/composition";
-import { withBrandRoutes, withBrandSecurity } from "../app/server/brand-routing";
-import type { BrandPages, RequestHandle } from "../app/server/brand-routing";
-import { TenantCache, tenantOfRequest } from "../app/tenant/tenant";
-import { openRuntimeApplication } from "../runtime";
-import type { RuntimeApplication } from "../runtime";
+import { COACH_ORGANIZATION_ID } from "../app/lib/server/organizations";
+import { openRuntimeDatabase } from "../runtime";
+import { registerRuntimePages } from "../runtime/web-surface";
+import {
+  SNACKDAY_POLICY,
+  STRICT_POLICY,
+  addHostname,
+  countingHostnameReads,
+  headerNamed,
+  markHostnamePending,
+  markerOf,
+  openRuntimeFixture,
+  textOf,
+  withHost,
+} from "./support/tenant-fixture";
+import type { RuntimeFixture } from "./support/tenant-fixture";
 
-/** The exact headers main serves, copied as literals so a change to the policy builder cannot hide here. */
-const SNACKDAY_POLICY =
-  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://media.dimasciobaseball.com; font-src 'self'; connect-src 'self'; media-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const DATABASE_ONLY_HOST = "club.example.test";
 
-const STRICT_POLICY =
-  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; media-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const PENDING_COACH_HOST = "www.dimasciobaseball.com";
 
-const HOST_POLICIES: readonly (readonly [string, string])[] = [
-  ["snackday.app", SNACKDAY_POLICY],
-  ["www.snackday.app", SNACKDAY_POLICY],
-  ["localhost:3000", SNACKDAY_POLICY],
-  ["127.0.0.1:3000", SNACKDAY_POLICY],
-  ["[::1]:3000", SNACKDAY_POLICY],
-  ["dimasciobaseball.com", STRICT_POLICY],
-  ["www.dimasciobaseball.com", STRICT_POLICY],
-  ["coach.localhost:3000", STRICT_POLICY],
-  ["ballplayer.co", STRICT_POLICY],
-  ["www.ballplayer.co", STRICT_POLICY],
-  ["ballplayer.localhost:3000", STRICT_POLICY],
-  ["staging.snackduty.test", SNACKDAY_POLICY],
-  ["ci.snackday.invalid", SNACKDAY_POLICY],
-  ["learn.dimasciobaseball.com", SNACKDAY_POLICY],
-];
+const COACH_HOME = "title=DiMascio Baseball brand=coach";
 
-const HOSTS = HOST_POLICIES.map(([host]) => host);
+const SNACKDAY_HOME = "title=Snackday — youth sports, minus the chaos brand=none";
 
-const RUNTIME_HOST = "staging.snackduty.test";
-
-function withHost(host: string, extra: Record<string, string> = {}): HandleOptions {
-  return { headers: { host, ...extra } };
+async function seedTenantRows(sql: SqlDatabase): Promise<void> {
+  await addHostname(sql, DATABASE_ONLY_HOST, COACH_ORGANIZATION_ID);
+  await markHostnamePending(sql, PENDING_COACH_HOST);
 }
 
-function headerNamed(response: AnyLestoResponse, name: string): string | string[] | undefined {
-  return Object.entries(response.headers).find(([header]) => header.toLowerCase() === name)?.[1];
+async function page(app: App, path: string, host: string) {
+  const response = await app.handle("GET", path, withHost(host));
+  return {
+    status: response.status,
+    policy: headerNamed(response, "content-security-policy"),
+    marker: markerOf(await textOf(response)),
+  };
 }
 
-async function textOf(response: AnyLestoResponse): Promise<string> {
-  const { body } = response;
-  if (typeof body === "string") return body;
-  if (body instanceof Uint8Array) return new TextDecoder().decode(body);
-  return await new Response(body).text();
+/** Rows only the database knows: the static host map would answer Snackday and coach. */
+function describeTenantRows(
+  label: string,
+  open: () => Promise<{ app: App; close(): Promise<void> }>,
+) {
+  describe(`${label} on rows only the database has`, () => {
+    let opened: { app: App; close(): Promise<void> } | undefined;
+
+    function app(): App {
+      if (opened === undefined) throw new Error(`${label} did not open`);
+      return opened.app;
+    }
+
+    beforeAll(async () => {
+      opened = await open();
+    });
+
+    afterAll(async () => {
+      await opened?.close();
+    });
+
+    it("serves an active database-only host as the coach site", async () => {
+      expect(await page(app(), "/", DATABASE_ONLY_HOST)).toEqual({
+        status: 200,
+        policy: STRICT_POLICY,
+        marker: COACH_HOME,
+      });
+      expect(await page(app(), "/book", DATABASE_ONLY_HOST)).toEqual({
+        status: 200,
+        policy: STRICT_POLICY,
+        marker: "title=Request a lesson | DiMascio Baseball brand=coach",
+      });
+      expect(await page(app(), "/app", DATABASE_ONLY_HOST)).toEqual({
+        status: 404,
+        policy: STRICT_POLICY,
+        marker: "Not Found",
+      });
+    });
+
+    it("serves a pending coach host as Snackday", async () => {
+      expect(await page(app(), "/", PENDING_COACH_HOST)).toEqual({
+        status: 200,
+        policy: SNACKDAY_POLICY,
+        marker: SNACKDAY_HOME,
+      });
+      expect(await page(app(), "/book", PENDING_COACH_HOST)).toEqual({
+        status: 404,
+        policy: SNACKDAY_POLICY,
+        marker: "Not Found",
+      });
+    });
+  });
 }
 
-describe("the runtime on the organization tables", () => {
-  let scratch = "";
-  let runtime: RuntimeApplication | undefined;
+describeTenantRows("the runtime (runtime/application.ts)", async () => {
+  const fixture = await openRuntimeFixture();
+  await seedTenantRows(fixture.runtime.sql);
+  return { app: fixture.runtime.app, close: () => fixture.close() };
+});
 
-  function app(): App {
-    if (runtime === undefined) throw new Error("runtime did not open");
-    return runtime.app;
+describeTenantRows("dev (lesto.app.ts)", async () => {
+  process.env["LESTO_DB"] = ":memory:";
+  const { default: applicationConfig } = await import("../lesto.app");
+  const config = await applicationConfig();
+  await registerRuntimePages(config.app);
+  const app = await createApp(config);
+  await seedTenantRows(config.db);
+  return { app, close: () => Promise.resolve() };
+});
+
+describe("the origin check on a tenant host", () => {
+  let fixture: RuntimeFixture | undefined;
+
+  async function post(headers: Record<string, string>): Promise<number> {
+    if (fixture === undefined) throw new Error("runtime did not open");
+    const response = await fixture.runtime.app.handle("POST", "/api/teams", {
+      ...withHost("dimasciobaseball.com", headers),
+      body: { name: "Origin probe" },
+    });
+    return response.status;
   }
 
   beforeAll(async () => {
-    scratch = await mkdtemp(join(tmpdir(), "snackday-tenant-"));
-    runtime = await openRuntimeApplication({
-      mode: "staging",
-      databasePath: join(scratch, "runtime.db"),
-      host: "127.0.0.1",
-      port: 0,
-      publicBaseUrl: new URL(`https://${RUNTIME_HOST}`),
-      appleClientId: "com.snackday.runtime-fixture",
-      upstreamCredentialPathLoggingSafe: false,
+    fixture = await openRuntimeFixture();
+  });
+
+  afterAll(async () => {
+    await fixture?.close();
+  });
+
+  it("admits same-origin and same-site requests, which then need a session", async () => {
+    expect(await post({ "sec-fetch-site": "same-origin" })).toBe(401);
+    expect(await post({ "sec-fetch-site": "same-site" })).toBe(401);
+  });
+
+  it("refuses a cross-site request", async () => {
+    expect(await post({ "sec-fetch-site": "cross-site" })).toBe(403);
+  });
+
+  it("refuses a same-host Origin with no Sec-Fetch-Site, because the allow list is empty", async () => {
+    expect(await post({ origin: "https://dimasciobaseball.com" })).toBe(403);
+  });
+});
+
+describe("tenant reads and kernel admission", () => {
+  let fixture: RuntimeFixture | undefined;
+  let reads: (() => number) | undefined;
+
+  function hostnameReads(): number {
+    if (reads === undefined) throw new Error("runtime did not open");
+    return reads();
+  }
+
+  beforeAll(async () => {
+    fixture = await openRuntimeFixture({
+      openDatabase: async (target) => {
+        const database = await openRuntimeDatabase(target);
+        const counted = countingHostnameReads(database.sql);
+        reads = counted.count;
+        return { ...database, sql: counted.sql };
+      },
     });
   });
 
   afterAll(async () => {
-    await runtime?.close();
-    await rm(scratch, { recursive: true, force: true });
+    await fixture?.close();
   });
 
-  it.each(HOST_POLICIES)("puts main's exact policy on / for %s", async (host, policy) => {
-    const response = await app().handle("GET", "/", withHost(host));
-
-    expect(response.status).toBe(200);
-    expect(headerNamed(response, "content-security-policy")).toBe(policy);
-  });
-
-  it.each(HOSTS)("lets a same-origin POST through the origin check on %s", async (host) => {
-    const response = await app().handle("POST", "/api/teams", {
-      ...withHost(host, { "sec-fetch-site": "same-origin" }),
-      body: { name: "Origin probe" },
-    });
-
-    expect(response.status).toBe(401);
-  });
-
-  it.each(HOSTS)("refuses a cross-site POST in the origin check on %s", async (host) => {
-    const response = await app().handle("POST", "/api/teams", {
-      ...withHost(host, { "sec-fetch-site": "cross-site" }),
-      body: { name: "Origin probe" },
+  it("runs no hostname query for a request the origin check refuses, and keeps its policy", async () => {
+    if (fixture === undefined) throw new Error("runtime did not open");
+    const before = hostnameReads();
+    const response = await fixture.runtime.app.handle("POST", "/api/teams", {
+      ...withHost("dimasciobaseball.com", { "sec-fetch-site": "cross-site" }),
+      body: { name: "Refused" },
     });
 
     expect(response.status).toBe(403);
+    expect(headerNamed(response, "content-security-policy")).toBe(STRICT_POLICY);
+    expect(hostnameReads()).toBe(before);
   });
 
-  it.each(HOSTS)(
-    "refuses a POST with no Sec-Fetch-Site and a foreign Origin on %s",
-    async (host) => {
-      const response = await app().handle("POST", "/api/teams", {
-        ...withHost(host, { origin: "https://evil.test" }),
-        body: { name: "Origin probe" },
-      });
+  it("reads the hostname table for an admitted request", async () => {
+    if (fixture === undefined) throw new Error("runtime did not open");
+    const before = hostnameReads();
+    const response = await fixture.runtime.app.handle("GET", "/", withHost("ballplayer.co"));
 
-      expect(response.status).toBe(403);
-    },
-  );
+    expect(response.status).toBe(200);
+    expect(hostnameReads()).toBeGreaterThan(before);
+  });
 });
 
-const shared: RequestHandle = (method, path) =>
-  Promise.resolve<LestoResponse>({
-    status: 200,
-    headers: { "content-type": "text/plain", "x-shared-app": `${method} ${path}` },
-    body: `shared ${method} ${path}`,
+describe("a tenant read that fails", () => {
+  let fixture: RuntimeFixture | undefined;
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+  beforeAll(async () => {
+    fixture = await openRuntimeFixture();
+    await fixture.runtime.sql.exec("DROP TABLE organization_hostnames");
+    errors.mockClear();
   });
 
-describe("routing on the tenant against routing on the static host map", () => {
-  const articles = loadCoachArticles("published-only");
-  const pages: BrandPages = {
-    ballplayerHome,
-    coachHome,
-    coachArticles: { library: articles, pages: coachArticlePages(articles) },
-  };
+  afterAll(async () => {
+    errors.mockRestore();
+    await fixture?.close();
+  });
 
-  const PATHS: readonly (readonly [string, string])[] = [
-    ["GET", "/"],
-    ["HEAD", "/"],
-    ["GET", "/app"],
-    ["GET", "/features"],
-    ["GET", "/book"],
-    ["GET", "/book/sent"],
-    ["POST", "/book"],
-    ["GET", "/articles"],
-    ["GET", "/articles/what-is-coach-pitch"],
-    ["GET", "/articles/missing"],
-    ["GET", "/sitemap.xml"],
-    ["GET", "/robots.txt"],
-    ["GET", "/fonts/missing.woff2"],
-    ["GET", "/api/teams"],
-    ["POST", "/api/teams"],
-    ["GET", "/__ballplayer/app"],
-    ["GET", "/__lesto/health"],
-    ["GET", "/styles.css"],
-    ["GET", "/client.js"],
-    ["GET", "/dev/sign-in"],
-  ];
+  it("serves what the static host map gives and logs one event with no host", async () => {
+    if (fixture === undefined) throw new Error("runtime did not open");
 
-  async function snapshot(response: LestoResponse): Promise<unknown> {
-    return { status: response.status, headers: response.headers, body: await textOf(response) };
-  }
-
-  it("answers every host and path byte for byte the same", async () => {
-    const { db: sql, close } = await openSqlite(":memory:");
-    try {
-      await installSessionSchema(sql);
-      await new Migrator(sql, applicationMigrations, { dialect: "sqlite" }).migrate();
-      const tenants = tenantOfRequest(createDb(sql, { dialect: "sqlite" }), new TenantCache());
-      const fromTable = withBrandSecurity(
-        withBrandRoutes(shared, pages, undefined, tenants),
-        tenants,
-      );
-      const fromCode = withBrandSecurity(withBrandRoutes(shared, pages));
-
-      for (const host of [...HOSTS, "", "Ballplayer.CO:8443", "dimasciobaseball.com."]) {
-        for (const [method, path] of PATHS) {
-          const table = await snapshot(await fromTable(method, path, withHost(host)));
-          const code = await snapshot(await fromCode(method, path, withHost(host)));
-          expect({ host, method, path, response: table }).toEqual({
-            host,
-            method,
-            path,
-            response: code,
-          });
-        }
-      }
-    } finally {
-      close();
-    }
+    expect(await page(fixture.runtime.app, "/", "dimasciobaseball.com")).toEqual({
+      status: 200,
+      policy: STRICT_POLICY,
+      marker: COACH_HOME,
+    });
+    const asset = await fixture.runtime.app.handle(
+      "GET",
+      "/styles.css",
+      withHost("dimasciobaseball.com"),
+    );
+    expect(headerNamed(asset, "content-security-policy")).toBe(STRICT_POLICY);
+    expect(errors.mock.calls).toEqual([
+      [JSON.stringify({ level: "error", event: "tenant.resolve_failed" })],
+    ]);
   });
 });

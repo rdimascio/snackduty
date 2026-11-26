@@ -35,6 +35,9 @@ export interface Tenant {
  */
 export const FALLBACK_ORGANIZATION_ID = SNACKDAY_ORGANIZATION_ID;
 
+/** `hostName` trims whitespace, so no host's cache key can start with a space. */
+const FALLBACK_CACHE_KEY = " fallback organization";
+
 export const TENANT_CACHE_TTL_MS = 60_000;
 
 /** A host that resolves to nothing is re-read soon, so a new domain goes live quickly. */
@@ -44,68 +47,47 @@ export const TENANT_CACHE_MAX_ENTRIES = 1_000;
 
 export interface TenantCacheOptions {
   readonly now?: () => number;
-  readonly ttlMs?: number;
-  readonly missTtlMs?: number;
   readonly maxEntries?: number;
 }
 
-interface CacheEntry<V> {
-  readonly value: V;
+interface CacheEntry {
+  readonly value: Tenant | undefined;
   readonly expiresAt: number;
 }
 
-class ExpiringCache<V> {
-  readonly #entries = new Map<string, CacheEntry<V>>();
-  readonly now: () => number;
-  readonly maxEntries: number;
+/** One bounded map with expiry. An expired entry stays readable through `peek` until it is replaced. */
+export class TenantCache {
+  readonly #entries = new Map<string, CacheEntry>();
+  readonly #now: () => number;
+  readonly #maxEntries: number;
 
-  constructor(now: () => number, maxEntries: number) {
-    this.now = now;
-    this.maxEntries = maxEntries;
+  constructor(options: TenantCacheOptions = {}) {
+    this.#now = options.now ?? Date.now;
+    this.#maxEntries = options.maxEntries ?? TENANT_CACHE_MAX_ENTRIES;
   }
 
-  get(key: string): CacheEntry<V> | undefined {
+  fresh(key: string): CacheEntry | undefined {
     const entry = this.#entries.get(key);
-    if (entry === undefined) return undefined;
-    if (entry.expiresAt <= this.now()) {
-      this.#entries.delete(key);
-      return undefined;
-    }
-    return entry;
+    return entry !== undefined && entry.expiresAt > this.#now() ? entry : undefined;
   }
 
-  set(key: string, value: V, ttlMs: number): void {
+  peek(key: string): CacheEntry | undefined {
+    return this.#entries.get(key);
+  }
+
+  set(key: string, value: Tenant | undefined): void {
     this.#entries.delete(key);
-    while (this.#entries.size >= this.maxEntries) {
+    while (this.#entries.size >= this.#maxEntries) {
       const oldest = this.#entries.keys().next();
       if (oldest.done === true) break;
       this.#entries.delete(oldest.value);
     }
-    this.#entries.set(key, { value, expiresAt: this.now() + ttlMs });
+    const ttl = value === undefined ? TENANT_MISS_TTL_MS : TENANT_CACHE_TTL_MS;
+    this.#entries.set(key, { value, expiresAt: this.#now() + ttl });
   }
 
   get size(): number {
     return this.#entries.size;
-  }
-}
-
-export class TenantCache {
-  readonly hosts: ExpiringCache<Tenant | undefined>;
-  readonly organizations: ExpiringCache<Tenant | undefined>;
-  readonly ttlMs: number;
-  readonly missTtlMs: number;
-
-  constructor(options: TenantCacheOptions = {}) {
-    const now = options.now ?? Date.now;
-    const maxEntries = options.maxEntries ?? TENANT_CACHE_MAX_ENTRIES;
-    this.hosts = new ExpiringCache(now, maxEntries);
-    this.organizations = new ExpiringCache(now, maxEntries);
-    this.ttlMs = options.ttlMs ?? TENANT_CACHE_TTL_MS;
-    this.missTtlMs = options.missTtlMs ?? TENANT_MISS_TTL_MS;
-  }
-
-  ttlFor(value: Tenant | undefined): number {
-    return value === undefined ? this.missTtlMs : this.ttlMs;
   }
 }
 
@@ -175,42 +157,45 @@ async function readHostTenant(db: Db, name: string): Promise<Tenant | undefined>
   return tenantOf(db, row.organizations);
 }
 
-async function readOrganizationTenant(db: Db, organizationId: string): Promise<Tenant | undefined> {
+async function readFallbackTenant(db: Db): Promise<Tenant | undefined> {
   const organization = await db
     .select()
     .from(organizations)
-    .where(and(eq(organizations.id, organizationId), eq(organizations.status, ACTIVE)))
+    .where(and(eq(organizations.id, FALLBACK_ORGANIZATION_ID), eq(organizations.status, ACTIVE)))
     .get();
   if (organization === undefined) return undefined;
   return tenantOf(db, organization);
+}
+
+async function readThrough(
+  cache: TenantCache,
+  key: string,
+  read: () => Promise<Tenant | undefined>,
+): Promise<Tenant | undefined> {
+  const cached = cache.fresh(key);
+  if (cached !== undefined) return cached.value;
+  const value = await read();
+  cache.set(key, value);
+  return value;
 }
 
 /**
  * The tenant an active hostname row names, or `undefined` when the host has no
  * row, its row is pending, or its organization is archived.
  */
-export async function resolveTenant(
+export function resolveTenant(
   db: Db,
   host: string | undefined,
   cache: TenantCache = processCacheFor(db),
 ): Promise<Tenant | undefined> {
   const name = hostName(host);
-  const cached = cache.hosts.get(name);
-  if (cached !== undefined) return cached.value;
-  const tenant = name === "" ? undefined : await readHostTenant(db, name);
-  cache.hosts.set(name, tenant, cache.ttlFor(tenant));
-  return tenant;
+  return readThrough(cache, name, async () =>
+    name === "" ? undefined : await readHostTenant(db, name),
+  );
 }
 
 async function fallbackTenant(db: Db, cache: TenantCache): Promise<Tenant> {
-  const cached = cache.organizations.get(FALLBACK_ORGANIZATION_ID);
-  const tenant =
-    cached === undefined
-      ? await readOrganizationTenant(db, FALLBACK_ORGANIZATION_ID)
-      : cached.value;
-  if (cached === undefined) {
-    cache.organizations.set(FALLBACK_ORGANIZATION_ID, tenant, cache.ttlFor(tenant));
-  }
+  const tenant = await readThrough(cache, FALLBACK_CACHE_KEY, () => readFallbackTenant(db));
   if (tenant === undefined) {
     throw new Error(
       `The fallback organization ${FALLBACK_ORGANIZATION_ID} is missing or archived.`,
@@ -228,23 +213,26 @@ export async function tenantForHost(
   return (await resolveTenant(db, host, cache)) ?? fallbackTenant(db, cache);
 }
 
+/** The last tenant resolved for a host, or `undefined` when it has not been resolved. Never reads. */
+export function peekTenant(host: string | undefined, cache: TenantCache): Tenant | undefined {
+  const entry = cache.peek(hostName(host));
+  if (entry === undefined) return undefined;
+  return entry.value ?? cache.peek(FALLBACK_CACHE_KEY)?.value;
+}
+
 export type RequestHeaders = Readonly<Record<string, string>>;
 
-export type TenantOfRequest = (headers: RequestHeaders | undefined) => Promise<Tenant>;
+/** Reads the `Host` header only, never `X-Forwarded-Host`. */
+export interface TenantResolver {
+  /** Reads through the cache. Call it only behind the kernel's rate limit and origin check. */
+  resolve(headers: RequestHeaders | undefined): Promise<Tenant>;
+  /** What `resolve` last answered for this host. Never reads. */
+  peek(headers: RequestHeaders | undefined): Tenant | undefined;
+}
 
-/**
- * Resolves each request's tenant from its `Host` header only (never
- * `X-Forwarded-Host`). Wrappers that see the same headers object share one
- * resolution, so the brand router and the CSP wrapper agree on one request.
- */
-export function tenantOfRequest(db: Db, cache: TenantCache = processCacheFor(db)): TenantOfRequest {
-  const perRequest = new WeakMap<RequestHeaders, Promise<Tenant>>();
-  return (headers) => {
-    if (headers === undefined) return tenantForHost(db, undefined, cache);
-    const known = perRequest.get(headers);
-    if (known !== undefined) return known;
-    const tenant = tenantForHost(db, headers["host"], cache);
-    perRequest.set(headers, tenant);
-    return tenant;
+export function tenantResolver(db: Db, cache: TenantCache = processCacheFor(db)): TenantResolver {
+  return {
+    resolve: (headers) => tenantForHost(db, headers?.["host"], cache),
+    peek: (headers) => peekTenant(headers?.["host"], cache),
   };
 }

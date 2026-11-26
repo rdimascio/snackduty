@@ -12,7 +12,7 @@ import type {
 
 import { BALLPLAYER_APP_PAGE_PATH } from "../ballplayer/app-data";
 import type { BallplayerAppModule, BallplayerAppPage } from "../ballplayer/app-data";
-import { brandForTenant, brandOfRequest } from "../brand/brand";
+import { brandForOrganization, brandOfRequest } from "../brand/brand";
 import type { Brand } from "../brand/brand";
 import { COACH_ARTICLE_PATH, COACH_ARTICLES_PATH } from "../coach/articles";
 import type { CoachArticles } from "../coach/articles";
@@ -28,7 +28,7 @@ import {
 } from "../coach/sitemap";
 import { contentSecurityPolicyFor, withContentSecurityPolicy } from "./content-security-policy";
 import { FONT_ROUTE, fontResponse } from "./fonts";
-import type { RequestHeaders, TenantOfRequest } from "../tenant/tenant";
+import type { RequestHeaders, TenantResolver } from "../tenant/tenant";
 
 export type RequestHandle = (
   method: string,
@@ -191,23 +191,48 @@ function coachSite(
     );
 }
 
+const TENANT_RESOLVE_FAILED = JSON.stringify({ level: "error", event: "tenant.resolve_failed" });
+
 /**
- * With a resolver the brand comes from the request's tenant row; without one
- * (tests and callers with no database) it comes from `brandOfRequest`.
+ * The brand router runs behind the kernel's rate limit and origin check, so it
+ * is the one place that reads the tenant tables. A failed read falls back to
+ * the static host map, which is what main served.
  */
-async function requestBrand(
+async function routedBrand(
   headers: RequestHeaders | undefined,
-  tenants: TenantOfRequest | undefined,
+  tenants: TenantResolver | undefined,
 ): Promise<Brand> {
   if (tenants === undefined) return brandOfRequest(headers);
-  return brandForTenant(await tenants(headers));
+  try {
+    return brandForOrganization((await tenants.resolve(headers)).organizationId);
+  } catch {
+    console.error(TENANT_RESOLVE_FAILED);
+    return brandOfRequest(headers);
+  }
 }
 
-export function withBrandSecurity(handle: RequestHandle, tenants?: TenantOfRequest): RequestHandle {
+/**
+ * The CSP wrapper sits outside the kernel, so it never reads: it takes the
+ * tenant the router resolved for this host, or the static host map for a
+ * request the router never saw (a kernel 403 or 429, a built asset).
+ */
+function securedBrand(
+  headers: RequestHeaders | undefined,
+  tenants: TenantResolver | undefined,
+): Brand {
+  const tenant = tenants?.peek(headers);
+  return tenant === undefined
+    ? brandOfRequest(headers)
+    : brandForOrganization(tenant.organizationId);
+}
+
+export function withBrandSecurity(handle: RequestHandle, tenants?: TenantResolver): RequestHandle {
   return async (method, path, options) => {
-    const brand = await requestBrand(options?.headers, tenants);
     const response = await handle(method, path, options);
-    return withContentSecurityPolicy(response, contentSecurityPolicyFor(brand));
+    return withContentSecurityPolicy(
+      response,
+      contentSecurityPolicyFor(securedBrand(options?.headers, tenants)),
+    );
   };
 }
 
@@ -215,14 +240,14 @@ export function withBrandRoutes(
   handle: RequestHandle,
   pages: BrandPages,
   coachBooking?: CoachBooking,
-  tenants?: TenantOfRequest,
+  tenants?: TenantResolver,
 ): RequestHandle {
   const ballplayer = brandSite(pages.ballplayerHome);
   const coach = coachSite(pages.coachHome, coachBooking, pages.coachArticles);
   const bookingOpen = coachBooking !== undefined;
   return async (method, path, options) => {
     if (isBallplayerInternalPath(path)) return notFound;
-    const brand = await requestBrand(options?.headers, tenants);
+    const brand = await routedBrand(options?.headers, tenants);
     if (brand === "snackday") return handle(method, path, options);
     if (brand === "coach") {
       if (isCoachRoute(method, path, bookingOpen, pages.coachArticles))
@@ -274,7 +299,7 @@ export function routeBrands(
   app: Lesto,
   pages: BrandPages,
   coachBooking?: CoachBooking,
-  tenants?: TenantOfRequest,
+  tenants?: TenantResolver,
 ): Lesto {
   if (routedApps.has(app)) return app;
   routedApps.add(app);
@@ -285,7 +310,7 @@ export function routeBrands(
 
 const securedApps = new WeakSet<Lesto>();
 
-export function secureBrands(app: Lesto, tenants?: TenantOfRequest): Lesto {
+export function secureBrands(app: Lesto, tenants?: TenantResolver): Lesto {
   if (securedApps.has(app)) return app;
   securedApps.add(app);
   app.handle = withBrandSecurity(app.handle.bind(app), tenants);

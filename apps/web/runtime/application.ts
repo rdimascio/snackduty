@@ -24,7 +24,7 @@ import type { RuntimeDatabase, RuntimeDatabaseTarget } from "./database";
 import { unavailableInviteDeliverer } from "./delivery";
 import { remoteSafetyPolicy } from "./surface";
 import { registerRuntimePages, withBrandPolicy, withRuntimeAssets } from "./web-surface";
-import { tenantOfRequest } from "../app/tenant/tenant";
+import { tenantResolver } from "../app/tenant/tenant";
 import { withRuntimeRelease } from "./release";
 
 export interface RuntimeApplicationAdapters {
@@ -138,7 +138,7 @@ export async function openRuntimeApplication(
             },
           }),
     });
-    const tenants = tenantOfRequest(db);
+    const tenants = tenantResolver(db);
     await registerRuntimePages(application.config.app, application.coachBooking, tenants);
     const kernel = await (adapters.createKernelApplication ?? createApp)({
       ...application.config,

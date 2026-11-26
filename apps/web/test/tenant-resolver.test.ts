@@ -5,7 +5,7 @@ import { Migrator } from "@lesto/migrate";
 import { openSqlite } from "@lesto/runtime";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { STATIC_HOST_ORGANIZATIONS, brandForHost, brandForTenant } from "../app/brand/brand";
+import { STATIC_HOST_ORGANIZATIONS, brandForHost, brandForOrganization } from "../app/brand/brand";
 import { applicationMigrations } from "../app/lib/server/composition";
 import {
   BALLPLAYER_ORGANIZATION_ID,
@@ -19,7 +19,7 @@ import {
   TenantCache,
   resolveTenant,
   tenantForHost,
-  tenantOfRequest,
+  tenantResolver,
 } from "../app/tenant/tenant";
 import type { Tenant } from "../app/tenant/tenant";
 
@@ -248,58 +248,63 @@ describe("the tenant cache", () => {
     await resolveTenant(db, "ballplayer.co", cache);
     await resolveTenant(db, "dimasciobaseball.com", cache);
 
-    expect(cache.hosts.size).toBe(2);
-    expect(cache.hosts.get("snackday.app")).toBeUndefined();
-    expect(cache.hosts.get("dimasciobaseball.com")?.value).toEqual(COACH_TENANT);
+    expect(cache.size).toBe(2);
+    expect(cache.peek("snackday.app")).toBeUndefined();
+    expect(cache.peek("dimasciobaseball.com")?.value).toEqual(COACH_TENANT);
   });
 });
 
-describe("tenantOfRequest", () => {
+describe("tenantResolver", () => {
   it("reads only the Host header", async () => {
     const { db } = await migrated();
-    const tenants = tenantOfRequest(db, new TenantCache());
+    const tenants = tenantResolver(db, new TenantCache());
 
-    expect(await tenants({ host: "ballplayer.co" })).toEqual(BALLPLAYER_TENANT);
-    expect(await tenants({ "x-forwarded-host": "ballplayer.co" })).toEqual(SNACKDAY_TENANT);
-    expect(await tenants({ host: "snackday.app", "x-forwarded-host": "ballplayer.co" })).toEqual(
-      SNACKDAY_TENANT,
-    );
-    expect(await tenants(undefined)).toEqual(SNACKDAY_TENANT);
+    expect(await tenants.resolve({ host: "ballplayer.co" })).toEqual(BALLPLAYER_TENANT);
+    expect(await tenants.resolve({ "x-forwarded-host": "ballplayer.co" })).toEqual(SNACKDAY_TENANT);
+    expect(
+      await tenants.resolve({ host: "snackday.app", "x-forwarded-host": "ballplayer.co" }),
+    ).toEqual(SNACKDAY_TENANT);
+    expect(await tenants.resolve(undefined)).toEqual(SNACKDAY_TENANT);
   });
 
-  it("resolves one request's headers once, even with no cache", async () => {
-    const { db } = await migrated();
-    const tenants = tenantOfRequest(db, new TenantCache({ ttlMs: 0, missTtlMs: 0 }));
-    const headers = { host: "dimasciobaseball.com" };
+  it("peeks only at what resolve answered, and never reads", async () => {
+    const { sql, db } = await migrated();
+    const clock = new FakeClock();
+    const tenants = tenantResolver(db, new TenantCache({ now: clock.now }));
 
-    const first = await tenants(headers);
+    expect(tenants.peek({ host: "dimasciobaseball.com" })).toBeUndefined();
+    const coach = await tenants.resolve({ host: "dimasciobaseball.com" });
+    await tenants.resolve({ host: "unknown.example.test" });
+    await sql.exec("DROP TABLE organization_hostnames");
+    clock.advance(TENANT_CACHE_TTL_MS);
 
-    expect(await tenants(headers)).toBe(first);
-    expect(await tenants({ host: "dimasciobaseball.com" })).not.toBe(first);
-    expect(await tenants({ host: "dimasciobaseball.com" })).toEqual(first);
+    expect(tenants.peek({ host: "DiMascioBaseball.com:443" })).toBe(coach);
+    expect(tenants.peek({ host: "unknown.example.test" })).toEqual(SNACKDAY_TENANT);
+    expect(tenants.peek({ host: "ballplayer.co" })).toBeUndefined();
   });
 });
 
 describe("the brand shim", () => {
   it.each(SEEDED_HOSTS)("gives %s the same brand from the table and from code", async (host) => {
     const { db } = await migrated();
+    const tenant = await tenantForHost(db, host, new TenantCache());
 
-    expect(brandForTenant(await tenantForHost(db, host, new TenantCache()))).toBe(
-      brandForHost(host),
-    );
+    expect(brandForOrganization(tenant.organizationId)).toBe(brandForHost(host));
   });
 
   it.each(FALLBACK_HOSTS)("gives the fallback host %j the Snackday brand", async (host) => {
     const { db } = await migrated();
+    const tenant = await tenantForHost(db, host, new TenantCache());
 
-    expect(brandForTenant(await tenantForHost(db, host, new TenantCache()))).toBe("snackday");
+    expect(brandForOrganization(tenant.organizationId)).toBe("snackday");
     expect(brandForHost(host)).toBe("snackday");
   });
 
   it("maps each seeded organization to today's brand", () => {
-    expect(brandForTenant(SNACKDAY_TENANT)).toBe("snackday");
-    expect(brandForTenant(COACH_TENANT)).toBe("coach");
-    expect(brandForTenant(BALLPLAYER_TENANT)).toBe("ballplayer");
+    expect(brandForOrganization(SNACKDAY_ORGANIZATION_ID)).toBe("snackday");
+    expect(brandForOrganization(COACH_ORGANIZATION_ID)).toBe("coach");
+    expect(brandForOrganization(BALLPLAYER_ORGANIZATION_ID)).toBe("ballplayer");
+    expect(brandForOrganization("org_new_league")).toBe("snackday");
   });
 
   it("keeps the static host map equal to the active hostname rows of a new database", async () => {
