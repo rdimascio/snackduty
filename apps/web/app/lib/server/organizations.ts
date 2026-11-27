@@ -2,28 +2,31 @@
  * Organizations: the tenants of the one hosted product. A league, a club and a
  * solo coach are each one organization; a team belongs to exactly one through
  * `teams.organization_id`. Hostnames, modules and admin memberships hang off
- * the organization. Nothing routes or authorizes on these tables yet.
+ * the organization. `app/tenant/tenant.ts` reads the hostnames and modules to
+ * resolve a request's tenant; nothing authorizes on these tables yet.
  */
 
-import { defineTable, text } from "@lesto/db";
+import { defineTable, integer, text } from "@lesto/db";
 import type { MigrationEntry } from "@lesto/migrate";
 
 export const SNACKDAY_ORGANIZATION_ID = "org_snackday";
 export const COACH_ORGANIZATION_ID = "org_coach";
 export const BALLPLAYER_ORGANIZATION_ID = "org_ballplayer";
 
-const ACTIVE = "active";
+export const ACTIVE = "active";
+
+export const PRIMARY_HOSTNAME = 1;
 
 const ORGANIZATION_KINDS = ["league", "club", "coach"] as const;
 const ORGANIZATION_STATUSES = [ACTIVE, "archived"] as const;
-const ORGANIZATION_MODULES = ["teams", "cards", "lessons", "booking", "articles"] as const;
+export const ORGANIZATION_MODULES = ["teams", "cards", "lessons", "booking", "articles"] as const;
 const HOSTNAME_KINDS = ["subdomain", "custom"] as const;
 const HOSTNAME_STATUSES = ["pending", ACTIVE] as const;
 const ORGANIZATION_ROLES = ["admin"] as const;
 const ORGANIZATION_MEMBERSHIP_STATUSES = [ACTIVE, "ended"] as const;
 
 type OrganizationKind = (typeof ORGANIZATION_KINDS)[number];
-type OrganizationModule = (typeof ORGANIZATION_MODULES)[number];
+export type OrganizationModule = (typeof ORGANIZATION_MODULES)[number];
 
 export const organizations = defineTable("organizations", {
   id: text("id").primaryKey(),
@@ -35,6 +38,26 @@ export const organizations = defineTable("organizations", {
   logoKey: text("logo_key"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+});
+
+export const organizationHostnames = defineTable("organization_hostnames", {
+  hostname: text("hostname").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id),
+  kind: text("kind").notNull(),
+  status: text("status").notNull(),
+  cfCustomHostnameId: text("cf_custom_hostname_id"),
+  isPrimary: integer("is_primary").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const organizationModules = defineTable("organization_modules", {
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id),
+  module: text("module").notNull(),
 });
 
 const ONE_PRIMARY_HOSTNAME_INDEX = "organization_hostnames_one_primary_idx";

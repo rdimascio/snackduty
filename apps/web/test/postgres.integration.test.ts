@@ -16,6 +16,7 @@ import { createOrganizations, SNACKDAY_ORGANIZATION_ID } from "../app/lib/server
 import { createCoordinationOperations } from "../app/lib/server/coordination-operations";
 import { aesGcmInvitationPayloadCipher } from "../app/lib/server/invitation-outbox";
 import type { InviteDelivery, InviteDeliverer } from "../app/lib/server/invite-delivery";
+import { TenantCache, resolveTenant } from "../app/tenant/tenant";
 import { openRuntimeApplication, runtimeConfiguration } from "../runtime";
 import type { RuntimeApplication } from "../runtime";
 
@@ -572,6 +573,13 @@ describe.skipIf(!databaseUrl)("real TLS PostgreSQL runtime", () => {
       { organization_id: "org_coach", hostname: "dimasciobaseball.com" },
       { organization_id: SNACKDAY_ORGANIZATION_ID, hostname: "snackday.app" },
     ]);
+    expect(await resolveTenant(runtime.db, "dimasciobaseball.com", new TenantCache())).toEqual({
+      organizationId: "org_coach",
+      slug: "coach",
+      modules: ["booking", "articles"],
+      theme: "coach",
+      primaryHost: "dimasciobaseball.com",
+    });
 
     expect(await errorCode(insertTeam("team_pg_no_org", null))).toBe(POSTGRES_NOT_NULL_VIOLATION);
     expect(await errorCode(insertTeam("team_pg_unknown_org", "org_missing"))).toBe(

@@ -9,6 +9,7 @@ import { runtimeConfiguration } from "./runtime/config";
 import { aesGcmInvitationPayloadCipher } from "./app/lib/server/invitation-outbox";
 import { reelLessonCatalog } from "./app/lessons/catalog";
 import { routeBrands, secureBrands } from "./app/server/brand-routing";
+import { tenantResolver } from "./app/tenant/tenant";
 import { ballplayerHome } from "./app/ballplayer/home-page";
 import { coachHome } from "./app/coach/home-page";
 import { coachBookingPages } from "./app/coach/book-page";
@@ -60,6 +61,7 @@ export default async function applicationConfig() {
     { enabled: env.SNACKDAY_DEV_SIGN_IN, db, sessions },
   );
   const articleLibrary = loadCoachArticles(articleVisibilityFor(mode));
+  const tenants = tenantResolver(db);
   return {
     ...config,
     app: secureBrands(
@@ -71,7 +73,9 @@ export default async function applicationConfig() {
           coachArticles: { library: articleLibrary, pages: coachArticlePages(articleLibrary) },
         },
         { ...coachBooking, pages: coachBookingPages },
+        tenants,
       ),
+      tenants,
     ),
   };
 }
